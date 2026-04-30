@@ -1,0 +1,43 @@
+* {
+  box-sizing: border-box;
+}
+
+button {
+  transition: 0.2s;
+}
+
+button:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+input, textarea, select {
+  outline: none;
+  font-size: 14px;
+}
+
+/* --- Custom Global Scrollbar --- */
+::-webkit-scrollbar {
+  width: 6px; /* Patla aur elegant */
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent; /* Background ke sath merge ho jaye */
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.2); /* Halki blue-grey shade */
+  border-radius: 10px;
+  transition: all 0.3s;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(59, 130, 246, 0.5); /* Hover par glowing blue */
+}
+
+/* Firefox ke liye */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.2) transparent;
+}

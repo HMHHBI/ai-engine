@@ -1,0 +1,22 @@
+# Python virtual environment
+venv/
+.venv/
+env/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Database (Bohat zaroori!)
+app.db
+
+# Secrets & Config
+.env
+
+# Logs
+*.log
+
+# Static files (agar user images local save hain)
+static/profiles/*
+!static/profiles/.gitkeep
