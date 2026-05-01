@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     MAIL_PASSWORD: Optional[str] = None
     MAIL_FROM: Optional[str] = None
     
+    # Cloudinary Settings
+    CLOUDINARY_NAME: str
+    CLOUDINARY_API_KEY: str
+    CLOUDINARY_API_SECRET: str
+    
     class Config:
         env_file = ".env"
         extra = "ignore"

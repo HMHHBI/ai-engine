@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-import time, json
+import time, json, base64
 
 from app.db.session import get_db
 from app.api.deps import get_current_user
@@ -86,8 +86,8 @@ async def ai_stream(req: AIRequest, db: Session = Depends(get_db), current_user:
         check_user_usage_limit(current_user, "image")
 
     # Save user msg
-    img_data = json.dumps(req.image_base64) if req.image_base64 else None
-    ChatRepository.add_message(db, req.chat_id, "user", req.prompt, img_data)
+    # img_data = json.dumps(req.image_base64) if req.image_base64 else None
+    ChatRepository.add_message(db, req.chat_id, "user", req.prompt, req.image_base64)
 
     # Gemini logic (Make sure process_request is updated in ai_service.py)
     history = ChatRepository.get_history(db, req.chat_id, limit=11)

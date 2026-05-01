@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from app.db.models import User
 from app.core.security import hash_password
+from app.utils.cloudinary_tool import upload_image_to_cloud
 
 class UserRepository:
     @staticmethod
@@ -28,11 +29,16 @@ class UserRepository:
         return new_user
 
     @staticmethod
-    def update_profile(db: Session, user_id: int, name: str = None, image_url: str = None):
+    def update_profile(db: Session, user_id: int, name: str = None, image_base64: str = None):
         user = db.query(User).filter(User.id == user_id).first()
         if user:
             if name: user.name = name
-            if image_url: user.profile_image = image_url
+            if image_base64:
+                # 1. Cloudinary par upload karo
+                cloud_url = upload_image_to_cloud(image_base64, folder="profiles")
+                # 2. Database mein URL save karo
+                if cloud_url:
+                    user.profile_image = cloud_url
             db.commit()
         return user
 

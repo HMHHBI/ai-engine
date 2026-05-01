@@ -1,5 +1,7 @@
+import json
 from sqlalchemy.orm import Session
 from app.db.models import Chat, Message
+from app.utils.cloudinary_tool import upload_image_to_cloud
 
 class ChatRepository:
     @staticmethod
@@ -38,8 +40,17 @@ class ChatRepository:
         return False
 
     @staticmethod
-    def add_message(db: Session, chat_id: int, role: str, content: str, image_data: str = None):
-        new_msg = Message(chat_id=chat_id, role=role, content=content, image_data=image_data)
+    def add_message(db: Session, chat_id: int, role: str, content: str, image_data_list: list = None):
+        cloud_urls = []
+        if image_data_list:
+            for img_base64 in image_data_list:
+                url = upload_image_to_cloud(img_base64, folder="chat_messages")
+                if url:
+                    cloud_urls.append(url)
+    
+        # DB mein ab URLs ki list (JSON string) save hogi, heavy Base64 nahi
+        db_image_data = json.dumps(cloud_urls) if cloud_urls else None
+        new_msg = Message(chat_id=chat_id, role=role, content=content, image_data=db_image_data)
         db.add(new_msg)
         db.commit()
         return new_msg

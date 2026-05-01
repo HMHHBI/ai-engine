@@ -19,14 +19,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 3. Static Files (Profile images ke liye)
-static_path = "static"
-if not os.path.exists(static_path):
-    os.makedirs(static_path)
-    
-app.mount("/static", StaticFiles(directory=static_path), name="static")
-
-# 4. Main Router ko Include karna
+# 3. Main Router ko Include karna
 app.include_router(api_router)
 
 @app.get("/")

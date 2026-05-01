@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from sqlalchemy.orm import Session
-import shutil, os
+import shutil, os, base64
 
 from app.db.session import get_db
 from app.api.deps import get_current_user
@@ -28,17 +28,12 @@ async def update_profile(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    image_url = None
+    image_base64 = None
     if profile_img:
-        file_ext = profile_img.filename.split(".")[-1]
-        file_name = f"user_{current_user.id}.{file_ext}"
-        file_path = os.path.join(UPLOAD_DIR, file_name)
-        
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(profile_img.file, buffer)
-        image_url = f"http://127.0.0.1:8000/static/profiles/{file_name}"
+        file_content = await profile_img.read()
+        image_base64 = base64.b64encode(file_content).decode("utf-8")
 
-    updated_user = UserRepository.update_profile(db, current_user.id, name=name, image_url=image_url)
+    updated_user = UserRepository.update_profile(db, current_user.id, name=name, image_base64=image_base64)
     return {"message": "Profile updated", "user": {"name": updated_user.name, "image": updated_user.profile_image}}
 
 @router.post("/upgrade-plan")
