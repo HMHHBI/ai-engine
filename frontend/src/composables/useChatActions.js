@@ -108,7 +108,7 @@ export function useChatActions(props, emit) {
       if (editingMessageIndex.value !== null) {
         try {
           // API call jo humne pehle discuss ki thi (cleanup endpoint)
-          await cleanupChatApi(userStore.token, props.chatId, parseInt(editingMessageIndex.value))
+          await cleanupChatApi(props.chatId, parseInt(editingMessageIndex.value))
 
           // UI se purane messages hatayein
           props.messages.splice(
@@ -141,7 +141,6 @@ export function useChatActions(props, emit) {
 
     try {
       const res = await streamAI(
-        userStore.token,
         {
           task: currentTask.value || 'general',
           prompt: userMsg || 'Explain these images',

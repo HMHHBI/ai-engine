@@ -29,7 +29,7 @@ const scrollToBottom = async () => {
 const loadChats = async () => {
   chatsLoading.value = true;
   try {
-    const data = await getChats(userStore.token)
+    const data = await getChats()
     if (data && !data.detail) {
       chats.value = data
       scrollToBottom()
@@ -52,7 +52,7 @@ const openChat = async (id) => {
   localStorage.setItem('active_chat', id)
 
   try {
-    const data = await getChat(userStore.token, id)
+    const data = await getChat(id)
     messages.value = Array.isArray(data) ? data : []
     scrollToBottom()
   } finally {
@@ -62,7 +62,7 @@ const openChat = async (id) => {
 
 // NEW CHAT
 const newChat = async () => {
-  const data = await createChat(userStore.token)
+  const data = await createChat()
   await loadChats()
   await openChat(data.chat_id)
 }
@@ -70,7 +70,7 @@ const newChat = async () => {
 // DELETE CHAT
 const deleteChat = async (id) => {
   try {
-    await deleteChatApi(userStore.token, id)
+    await deleteChatApi(id)
     await loadChats()
     uiStore.addToast('Chat deleted successfully', 'success')
 
@@ -85,7 +85,7 @@ const deleteChat = async (id) => {
 // EDIT TITLE
 const handleUpdateTitle = async ({ id, title }) => {
   try {
-    await editTitleApi(userStore.token, id, title)
+    await editTitleApi(id, title)
     // Local state update karein taake foran nazar aaye
     const chat = chats.value.find((c) => c.id === id)
     if (chat) chat.title = title

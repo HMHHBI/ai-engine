@@ -26,7 +26,7 @@ watch(
   async (newId) => {
     if (!newId) return
     try {
-      const data = await getChatDetailApi(userStore.token, newId)
+      const data = await getChatDetailApi(newId)
       pdfContext.value = data.pdf_context || ''
     } catch (err) {
       console.error(err)

@@ -41,7 +41,7 @@ const emit = defineEmits([ 'edit-message', 'speak', 'regenerate', 'copy', 'downl
               <img
                 v-for="(img, idx) in parseImageData(msg.image_data)"
                 :key="idx"
-                :src="`data:image/png;base64,${img}`"
+                :src="img.startsWith('http') ? img : `data:image/png;base64,${img}`"
                 class="chat-img"
               />
             </template>

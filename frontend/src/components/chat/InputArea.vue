@@ -48,7 +48,7 @@ watch(
     <transition name="fade">
       <div v-if="selectedImages?.length > 0" class="multi-preview-container shadow-2xl">
         <div v-for="(img, idx) in selectedImages" :key="idx" class="preview-item">
-          <img :src="`data:image/png;base64,${img}`" class="mini-img-grid" />
+          <img :src="img.startsWith('http') ? img : `data:image/png;base64,${img}`" class="mini-img-grid" />
           <button @click="emit('remove-image', idx)" class="mini-close-btn">✕</button>
         </div>
       </div>
