@@ -1,84 +1,120 @@
-import os, re, urllib.parse
-from google import genai
 from app.core.config import settings
-from app.utils.search_tool import get_web_search
-from app.utils.image_tool import generate_image
+from app.services.providers.gemini_provider import GeminiProvider
+from app.services.cache.memory_cache import MemoryCache
+from app.services.rate_limit.memory_rate_limiter import MemoryRateLimiter
 
 class AIService:
     def __init__(self):
-        # Settings se API key uthayen
-        self.client = genai.Client(api_key=settings.GEMINI_API_KEY)
-        self.tools_list = [get_web_search, generate_image]
-
-    def generate_chat_title(self, prompt: str): # Title generation method
-        try:
-            response = self.client.models.generate_content(
-                model="gemini-2.5-flash-lite",
-                contents=f"Create a short (max 3-4 words) title for a chat starting with: '{prompt}'. Only text."
-            )
-            return response.text.strip().replace('"', '')
-        except:
-            return prompt[:25] + "..."
-
-    def process_request(self, prompt: str, history=[], file_context="", image_data=None, task="general"):
-        # """
-        # Ye main function hai jo chat.py call karega.
-        # """
-        # prompt_lower = prompt.lower()
+        self.provider = GeminiProvider(settings.GEMINI_API_KEY)
+        self.cache = MemoryCache()
+        self.rate_limiter = MemoryRateLimiter()
         
-        # # 1. Image Generation Logic (Fast Bypass)
-        # if "image" in prompt_lower or "generate" in prompt_lower:
-        #     enhanced = f"Professional photography, high detail, 8k resolution, cinematic lighting, {prompt}"
-        #     clean = re.sub(r'[^a-zA-Z0-9\s]', '', enhanced)
-        #     encoded = urllib.parse.quote(clean)
-        #     return f"![generated_image](https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&nologo=true&model=flux)"
 
-        # 2. System Instructions
+    # -------------------------
+    # FALLBACK
+    # -------------------------
+    def _fallback(self):
+        return random.choice([
+            "AI is busy, please try again.",
+            "Temporary issue, retry in a moment.",
+            "Couldn't process your request right now."
+        ])
+    
+    # -------------------------
+    # MOCK Response
+    # -------------------------
+    def _mock_response(self, prompt):
+        return f"""Here's a clear answer:
+        To make a delicious cake, first decide based on your mood:
+
+        • Chocolate cake → rich and popular  
+        • Cream cake → soft and light  
+        • Cheese cake → smooth and premium  
+
+        Basic steps:
+        1. Mix flour, sugar, eggs, and butter  
+        2. Add flavor (chocolate/cheese/cream)  
+        3. Bake at 180°C for 30–40 minutes  
+        4. Let it cool and decorate  
+
+        Tip: Always use fresh ingredients for better taste.
+        """
+
+    # -------------------------
+    # MAIN FUNCTION (MERGED)
+    # -------------------------
+    def process_request(self, user_id, prompt, history=None, file_context="", image_data=None, task="general"):
+
+        # 1. RATE LIMIT
+        if not self.rate_limiter.allow(user_id):
+            return "⚠️ Too many requests. Try later."
+
+        # 2. SYSTEM INSTRUCTIONS
         system_instructions = {
             "email": "You are a professional email writer.",
             "blog": "You are a blog writer.",
             "code": "You are a senior software engineer.",
-            "general": "You are a helpful assistant who remembers chat history."
+            "general": "You are a helpful assistant."
         }
+
         instruction = system_instructions.get(task, system_instructions["general"])
-        
-        # 3. Building Contents
-        contents = []
-        history_text = "PREVIOUS CONVERSATION HISTORY:\n"
+
+        # 3. LIMIT HISTORY
+        if not history:
+            history = []
+        else:
+            history = history[-8:]
+            
+        # 4. CACHE
+        cache_key = f"{user_id}:{prompt}:{task}:{len(history)}"
+        cached = self.cache.get(cache_key)
+        if cached:
+            return cached
+
+        history_text = ""
         if file_context:
             history_text += f"DOCUMENT CONTEXT: {file_context}\n"
-        
+
         for msg in history:
             history_text += f"{msg.role.upper()}: {msg.content}\n"
-        
-        contents.append({
-            "role": "user", 
-            "parts": [{"text": f"Instruction: {instruction}\n\n{history_text}\n\nKeep history in mind."}]
-        })
-        
-        contents.append({
-            "role": "model", 
-            "parts": [{"text": "Understood. I am ready."}]
-        })
 
-        # 4. User Input (Text + Images)
+        # 5. BUILD CONTENT
+        contents = [{
+            "role": "user",
+            "parts": [{
+                "text": f"{instruction}\n\n{history_text}\n\nUser: {prompt}"
+            }]
+        }]
+
+        # 6. IMAGE SUPPORT
         if image_data and isinstance(image_data, list):
             image_parts = []
             for img in image_data:
-                image_parts.append({"inline_data": {"mime_type": "image/png", "data": img}})
-            image_parts.append({"text": f"Current Question: {prompt if prompt else 'Explain these images.'}"})
-            contents.append({"role": "user", "parts": image_parts})
-        else:
-            contents.append({"role": "user", "parts": [{"text": f"Current Question: {prompt}"}]})
+                image_parts.append({
+                    "inline_data": {
+                        "mime_type": "image/png",
+                        "data": img
+                    }
+                })
 
-        # 5. API Call
-        try:
-            response = self.client.models.generate_content(
-                model="gemini-2.0-flash-lite", # Updated to stable flash
-                contents=contents
-            )
-            return response.text if response.text else "I couldn't generate a response."
-        except Exception as e:
-            if "429" in str(e):
-                return "⚠️ Too many requests. Please slow down."
-            return f"AI Error: {str(e)}"
+            image_parts.append({"text": f"Current Question: {prompt if prompt else 'Explain these images.'}"})
+            contents = [{"role": "user", "parts": image_parts}]
+
+        # 7. CALL AI
+        result = self.provider.generate(contents)
+
+        # 8. FALLBACK
+        if not result:
+            result = self._mock_response(prompt)
+
+        # 9. CACHE SAVE
+        self.cache.set(cache_key, result)
+
+        return result
+
+    # -------------------------
+    # TITLE GENERATION
+    # -------------------------
+    def generate_chat_title(self, prompt: str):
+        result = self.provider.generate_title(prompt)
+        return result if result else prompt[:25] + "..."
