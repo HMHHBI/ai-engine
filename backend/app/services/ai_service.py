@@ -1,3 +1,4 @@
+import random
 from app.core.config import settings
 from app.services.providers.gemini_provider import GeminiProvider
 from app.services.cache.memory_cache import MemoryCache
@@ -8,11 +9,45 @@ class AIService:
         self.provider = GeminiProvider(settings.GEMINI_API_KEY)
         self.cache = MemoryCache()
         self.rate_limiter = MemoryRateLimiter()
-        
 
     # -------------------------
-    # FALLBACK
+    # HELPER: SMART CHUNKING (Naya Function)
     # -------------------------
+    def get_relevant_context(self, question, full_text, chunk_size=3000):
+        if not full_text:
+            return ""
+    
+        # 1. User ke sawal ko saaf karein aur chote words (the, what, is) nikaal dein
+        ignore_words = {"what", "is", "the", "according", "to", "document", "framework", "of"}
+        keywords = [word.lower().strip("?,.") for word in question.split() 
+                if word.lower() not in ignore_words and len(word) > 2]
+    
+        # Agar koi keyword nahi mila (e.g. user sifr "Hi" kahe), toh pehla chunk bhej dein
+        if not keywords:
+            return full_text[:chunk_size]
+
+        # 2. Text ko chunks mein split karein
+        chunks = [full_text[i:i + chunk_size] for i in range(0, len(full_text), chunk_size)]
+    
+        scored_chunks = []
+        for chunk in chunks:
+            chunk_lower = chunk.lower()
+            # Score calculation: Kitne keywords match ho rahe hain
+            score = sum(1 for kw in keywords if kw in chunk_lower)
+            scored_chunks.append((score, chunk))
+    
+        # 3. Sort by score and pick top chunks
+        scored_chunks.sort(key=lambda x: x[0], reverse=True)
+    
+        # Sifr woh chunks jin ka score > 0 ho
+        relevant = [c[1] for c in scored_chunks[:3] if c[0] > 0]
+    
+        # 🛑 Crucial Fix: Agar koi match na miley toh pehle 2 chunks (Intro/Table of Contents) bhej dein
+        if not relevant:
+            return "\n---\n".join(chunks[:2])
+        
+        return "\n---\n".join(relevant)
+
     def _fallback(self):
         return random.choice([
             "AI is busy, please try again.",
@@ -20,9 +55,6 @@ class AIService:
             "Couldn't process your request right now."
         ])
     
-    # -------------------------
-    # MOCK Response
-    # -------------------------
     def _mock_response(self, prompt):
         return f"""Here's a clear answer:
         To make a delicious cake, first decide based on your mood:
@@ -41,7 +73,7 @@ class AIService:
         """
 
     # -------------------------
-    # MAIN FUNCTION (MERGED)
+    # MAIN FUNCTION (UPDATED)
     # -------------------------
     def process_request(self, user_id, prompt, history=None, file_context="", image_data=None, task="general"):
 
@@ -56,29 +88,24 @@ class AIService:
             "code": "You are a senior software engineer.",
             "general": "You are a helpful assistant."
         }
-
         instruction = system_instructions.get(task, system_instructions["general"])
 
-        # 3. LIMIT & PROCESS HISTORY (Fixing AttributeError)
+        # 3. LIMIT & PROCESS HISTORY
         processed_history = ""
         if history:
-            # Last 8 messages pick karein
             limited_history = history[-4:]
             for msg in limited_history:
-                # Check karein ke msg string hai ya object
                 if isinstance(msg, str):
                     processed_history += f"USER: {msg}\n"
                 else:
-                    # Agar object hai toh attributes safely access karein
                     role = getattr(msg, 'role', 'user').upper()
                     content = getattr(msg, 'content', str(msg))
-                    processed_history += f"{role}: {content}\n"
+                    if "app.db.models" not in content: # Clean junk
+                        processed_history += f"{role}: {content}\n"
                 
-        # 4. BUILD PDF CONTEXT
-        pdf_section = ""
-        if file_context:
-            pdf_section = f"\n[DOCUMENT CONTEXT]:\n{file_context}\n"
-        short_context = file_context[:50000] if file_context else ""
+        # 4. SMART PDF CONTEXT (UPDATED LOGIC)
+        # Ab hum poora text bhejney ke bajaye sirf relevant chunk nikal rahe hain
+        relevant_context = self.get_relevant_context(prompt, file_context)
             
         # 5. CACHE
         cache_key = f"{user_id}:{prompt}:{task}:{len(history or [])}"
@@ -86,18 +113,17 @@ class AIService:
         if cached:
             return cached
 
-        # 6. BUILD CONTENT (Gemini style)
-        # Instruction + PDF + History ko combine kar rahe hain
+        # 6. BUILD CONTENT (Strict Context)
         combined_text = f"""
         {instruction}
     
         CRITICAL RULES:
-        1. Answer the USER QUESTION using ONLY the [DOCUMENT    CONTEXT] below.
-        2. Ignore any technical debugging or Python objects mentioned in [CHAT HISTORY].
-        3. If the answer is not in the document, say: "I'm sorry, I can't find that in the uploaded document."
+        1. Use the [DOCUMENT CONTEXT] below to answer the user.
+        2. If the answer isn't there, say you can't find it in the document.
+        3. Keep it professional and concise.
 
         [DOCUMENT CONTEXT]:
-        {short_context}
+        {relevant_context}
 
         [CHAT HISTORY]:
         {processed_history}
@@ -115,7 +141,7 @@ class AIService:
             image_parts = []
             for img in image_data:
                 if img.startswith('http'):
-                    image_parts.append({"text": f"[Image Ref]: {img}"})
+                    image_parts.append({"text": f"[Referencing image]: {img}"})
                 else:
                     image_parts.append({
                         "inline_data": {
@@ -123,15 +149,15 @@ class AIService:
                             "data": img
                         }
                     })
-
-            image_parts.append({"text": f"Question: {prompt or 'Explain these images.'}"})
+            image_parts.append({"text": f"Question based on doc and images: {prompt}"})
             contents = [{"role": "user", "parts": image_parts}]
 
-         # 8. CALL AI with FALLBACK & CACHE
+        # 8. CALL AI
         try:
-            # ai_service.py mein generate call se pehle:
-            print(f"DEBUG - PDF Context Length: {len(file_context)}") 
-            print(f"DEBUG - Combined Text: {combined_text[:500]}...") # Shuru ka thora sa text
+            # Debugging logs terminal mein dekhne ke liye
+            print(f"DEBUG - Full Context Size: {len(file_context)} chars")
+            print(f"DEBUG - Sent Context Size: {len(relevant_context)} chars")
+            
             result = self.provider.generate(contents)
             if not result:
                 result = self._mock_response(prompt)
@@ -140,11 +166,10 @@ class AIService:
             return result
         except Exception as e:
             print(f"AI Service Error: {e}")
-            # Quota check ke liye specific message
             if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                return "🕒 Quota exhausted. Please wait a few seconds before trying again."
+                return "🕒 Quota exhausted. Please wait a few seconds."
             return "❌ AI is currently unavailable."
-
+        
     # -------------------------
     # TITLE GENERATION
     # -------------------------
