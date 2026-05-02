@@ -43,10 +43,14 @@ class ChatRepository:
     def add_message(db: Session, chat_id: int, role: str, content: str, image_data_list: list = None):
         cloud_urls = []
         if image_data_list:
+            images = json.loads(image_data_list) if isinstance(image_data_list, str) else image_data_list
             for img_base64 in image_data_list:
-                url = upload_image_to_cloud(img_base64, folder="chat_messages")
-                if url:
-                    cloud_urls.append(url)
+                if img_base64.startswith('http'):
+                    cloud_urls.append(img_base64)
+                else:
+                    url = upload_image_to_cloud(img_base64, folder="chat_messages")
+                    if url:
+                        cloud_urls.append(url)
     
         # DB mein ab URLs ki list (JSON string) save hogi, heavy Base64 nahi
         db_image_data = json.dumps(cloud_urls) if cloud_urls else None

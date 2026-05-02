@@ -3,9 +3,16 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 from app.core.config import settings
 
 # Engine setup
+# engine = create_engine(
+#     settings.DATABASE_URL, 
+#     connect_args={"check_same_thread": False} # SQLite ke liye zaroori hai
+# )
+
 engine = create_engine(
-    settings.DATABASE_URL, 
-    connect_args={"check_same_thread": False} # SQLite ke liye zaroori hai
+    settings.DATABASE_URL,
+    connect_args={
+        "options": "-c client_encoding=utf8"
+    }
 )
 
 # Session factory (Laravel ke DB connection ki tarah)

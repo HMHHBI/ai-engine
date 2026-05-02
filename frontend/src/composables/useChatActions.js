@@ -50,7 +50,7 @@ export function useChatActions(props, emit) {
     formData.append('file', file)
 
     try {
-      const data = await uploadPDFApi(userStore.token, props.chatId, formData)
+      const data = await uploadPDFApi(props.chatId, formData)
       pdfContext.value = data.text
       uiStore.addToast('PDF processed and added to context!', 'success')
     } catch (err) {

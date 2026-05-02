@@ -59,58 +59,91 @@ class AIService:
 
         instruction = system_instructions.get(task, system_instructions["general"])
 
-        # 3. LIMIT HISTORY
-        if not history:
-            history = []
-        else:
-            history = history[-8:]
+        # 3. LIMIT & PROCESS HISTORY (Fixing AttributeError)
+        processed_history = ""
+        if history:
+            # Last 8 messages pick karein
+            limited_history = history[-4:]
+            for msg in limited_history:
+                # Check karein ke msg string hai ya object
+                if isinstance(msg, str):
+                    processed_history += f"USER: {msg}\n"
+                else:
+                    # Agar object hai toh attributes safely access karein
+                    role = getattr(msg, 'role', 'user').upper()
+                    content = getattr(msg, 'content', str(msg))
+                    processed_history += f"{role}: {content}\n"
+                
+        # 4. BUILD PDF CONTEXT
+        pdf_section = ""
+        if file_context:
+            pdf_section = f"\n[DOCUMENT CONTEXT]:\n{file_context}\n"
+        short_context = file_context[:50000] if file_context else ""
             
-        # 4. CACHE
-        cache_key = f"{user_id}:{prompt}:{task}:{len(history)}"
+        # 5. CACHE
+        cache_key = f"{user_id}:{prompt}:{task}:{len(history or [])}"
         cached = self.cache.get(cache_key)
         if cached:
             return cached
 
-        history_text = ""
-        if file_context:
-            history_text += f"DOCUMENT CONTEXT: {file_context}\n"
+        # 6. BUILD CONTENT (Gemini style)
+        # Instruction + PDF + History ko combine kar rahe hain
+        combined_text = f"""
+        {instruction}
+    
+        CRITICAL RULES:
+        1. Answer the USER QUESTION using ONLY the [DOCUMENT    CONTEXT] below.
+        2. Ignore any technical debugging or Python objects mentioned in [CHAT HISTORY].
+        3. If the answer is not in the document, say: "I'm sorry, I can't find that in the uploaded document."
 
-        for msg in history:
-            history_text += f"{msg.role.upper()}: {msg.content}\n"
+        [DOCUMENT CONTEXT]:
+        {short_context}
 
-        # 5. BUILD CONTENT
+        [CHAT HISTORY]:
+        {processed_history}
+
+        USER QUESTION: {prompt}
+        """
+
         contents = [{
             "role": "user",
-            "parts": [{
-                "text": f"{instruction}\n\n{history_text}\n\nUser: {prompt}"
-            }]
+            "parts": [{"text": combined_text}]
         }]
 
-        # 6. IMAGE SUPPORT
+        # 7. IMAGE SUPPORT
         if image_data and isinstance(image_data, list):
             image_parts = []
             for img in image_data:
-                image_parts.append({
-                    "inline_data": {
-                        "mime_type": "image/png",
-                        "data": img
-                    }
-                })
+                if img.startswith('http'):
+                    image_parts.append({"text": f"[Image Ref]: {img}"})
+                else:
+                    image_parts.append({
+                        "inline_data": {
+                            "mime_type": "image/png",
+                            "data": img
+                        }
+                    })
 
-            image_parts.append({"text": f"Current Question: {prompt if prompt else 'Explain these images.'}"})
+            image_parts.append({"text": f"Question: {prompt or 'Explain these images.'}"})
             contents = [{"role": "user", "parts": image_parts}]
 
-        # 7. CALL AI
-        result = self.provider.generate(contents)
-
-        # 8. FALLBACK
-        if not result:
-            result = self._mock_response(prompt)
-
-        # 9. CACHE SAVE
-        self.cache.set(cache_key, result)
-
-        return result
+         # 8. CALL AI with FALLBACK & CACHE
+        try:
+            # ai_service.py mein generate call se pehle:
+            print(f"DEBUG - PDF Context Length: {len(file_context)}") 
+            print(f"DEBUG - Combined Text: {combined_text[:500]}...") # Shuru ka thora sa text
+            result = self.provider.generate(contents)
+            if not result:
+                result = self._mock_response(prompt)
+        
+            self.cache.set(cache_key, result)
+            return result
+        except Exception as e:
+            print(f"AI Service Error: {e}")
+            # Quota check ke liye specific message
+            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                return "🕒 Quota exhausted. Please wait a few seconds before trying again."
+            return "❌ AI is currently unavailable."
 
     # -------------------------
     # TITLE GENERATION

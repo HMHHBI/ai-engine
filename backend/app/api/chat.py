@@ -5,7 +5,7 @@ import time, json, base64
 
 from app.db.session import get_db
 from app.api.deps import get_current_user
-from app.db.models import User
+from app.db.models import User, Chat
 from app.schemas.chat_schema import AIRequest, ChatOut, MessageOut
 from app.repositories.chat_repo import ChatRepository
 from app.services.ai_service import AIService
@@ -78,20 +78,32 @@ def get_chat_details(
 # 7. AI Streaming (The main engine)
 @router.post("/stream")
 async def ai_stream(req: AIRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    chat = ChatRepository.get_by_id(db, req.chat_id, current_user.id)
-    if not chat: raise HTTPException(status_code=404, detail="Chat not found")
+     # 1. Poora Chat object uthayein taake PDF context miley
+    chat = db.query(Chat).filter(Chat.id == req.chat_id, Chat.user_id == current_user.id).first()
+    if not chat: 
+        raise HTTPException(status_code=404, detail="Chat not found")
 
-    # Limit check
-    if "image" in req.prompt.lower():
-        check_user_usage_limit(current_user, "image")
+    # 2. Ensure prompt is clean string
+    clean_prompt = str(req.prompt)
 
-    # Save user msg
-    # img_data = json.dumps(req.image_base64) if req.image_base64 else None
-    ChatRepository.add_message(db, req.chat_id, "user", req.prompt, req.image_base64)
+    # 3. Add User Message
+    ChatRepository.add_message(db, req.chat_id, "user", clean_prompt, req.image_base64)
 
-    # Gemini logic (Make sure process_request is updated in ai_service.py)
-    history = ChatRepository.get_history(db, req.chat_id, limit=11)
-    full_response = ai_service.process_request(req.prompt, history, chat.pdf_context, req.image_base64)
+    # 4. Fetch History
+    history = ChatRepository.get_history(db, req.chat_id, limit=8)
+
+    # 5. Call AI Service with explicit pdf_context
+    # Yahan check karein ke chat.pdf_context khali toh nahi
+    context_to_send = chat.pdf_context if chat.pdf_context else ""
+    
+    full_response = ai_service.process_request(
+        user_id=current_user.id,
+        prompt=clean_prompt,
+        history=history,
+        file_context=context_to_send,
+        image_data=req.image_base64,
+        task=req.task if hasattr(req, 'task') else "general"
+    )
 
     # Update Title if it's a new chat
     if chat.title == "New Chat":
