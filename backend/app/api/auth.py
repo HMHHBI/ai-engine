@@ -86,7 +86,7 @@ async def google_auth(data: dict, db: Session = Depends(get_db)):
             "token_type": "bearer",
             "user": {"name": user.name, "email": user.email, "profile_image": user.profile_image, "plan": user.plan.value if user.plan else "FREE"}
         }
-    except Exception:
+    except Exception as e:
         print("GOOGLE AUTH ERROR FULL:", repr(e))
         raise HTTPException(status_code=400, detail="Invalid Google Token")
 
