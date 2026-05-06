@@ -14,7 +14,6 @@ app = FastAPI(
 origins = [
     "http://localhost:5173",
     "https://ai-engine-kappa.vercel.app",  # later replace with your real Vercel URL
-    "*"
 ]
 
 app.add_middleware(
