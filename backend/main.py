@@ -11,9 +11,15 @@ app = FastAPI(
 )
 
 # 2. CORS Middleware (Frontend connection ke liye)
+origins = [
+    "http://localhost:5173",
+    "https://ai-engine-kappa.vercel.app",  # later replace with your real Vercel URL
+    "*"
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Aapke Vue frontend ka URL
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
