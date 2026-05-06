@@ -39,6 +39,8 @@ const login = async () => {
 
 const handleSuccess = async (response) => {
   try {
+    alert("SUCCESS TRIGGERED")
+    console.log("GOOGLE RESPONSE:", response)
     const { credential } = response
     // Centralized function use karein
     const data = await auth_google(credential)
