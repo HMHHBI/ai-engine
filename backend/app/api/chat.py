@@ -9,7 +9,7 @@ from app.db.models import User, Chat
 from app.schemas.chat_schema import AIRequest, ChatOut, MessageOut
 from app.repositories.chat_repo import ChatRepository
 from app.services.ai_service import AIService
-from app.utils.pdf_extractor import extract_text_from_pdf
+from app.utils.pdf_extractor import extract_text_from_pdf, PDFExtractionError
 from app.utils.limits import check_user_usage_limit, decrement_user_limit
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -126,11 +126,45 @@ async def ai_stream(req: AIRequest, db: Session = Depends(get_db), current_user:
 
 # 8. PDF Upload
 @router.post("/upload-pdf/{chat_id}")
-async def upload_pdf(chat_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
-    content = await file.read()
-    text = extract_text_from_pdf(content)
-    ChatRepository.update_pdf_context(db, chat_id, text)
-    return {"text": text, "filename": file.filename}
+async def upload_pdf(
+    chat_id: int, 
+    file: UploadFile = File(...), 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user) # <-- Security check lazmi add karen
+):
+    # 1. Pehle check karen ke chat user ki apni hai ya nahi (Security Validation)
+    chat = ChatRepository.get_by_id(db, chat_id, current_user.id)
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat nahi mili ya aap authorized nahi hain.")
+
+    # 2. Check karen ke file khali toh nahi ya extension galat toh nahi
+    if not file.filename.lower().endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="Sirf PDF files upload karne ki ijazat hai.")
+
+    try:
+        # File ka content read karen
+        content = await file.read()
+        
+        # Robust extractor se text extract karen
+        text = extract_text_from_pdf(content)
+        
+        # Database context ko update karen
+        ChatRepository.update_pdf_context(db, chat_id, text)
+        
+        return {
+            "status": "success",
+            "filename": file.filename,
+            "message": "PDF successfully parse aur save ho gayi hai."
+        }
+
+    except PDFExtractionError as e:
+        # Agar hamara naya custom error aaye (Encrypted, Corrupted, Scanned)
+        # Toh frontend ko saaf 400 Bad Request ka error dain taake user samajh sake
+        raise HTTPException(status_code=400, detail=str(e))
+        
+    except Exception as e:
+        # Agar koi aur un-expected error aa jaye background mein
+        raise HTTPException(status_code=500, detail="Server par file process karte hue koi masla aya hai.")
 
 # app/api/chat.py
 
