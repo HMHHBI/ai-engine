@@ -1,0 +1,52 @@
+services:
+  # 1. PostgreSQL Database with pgvector extension pre-installed
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: chat_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: mysecretpassword
+      POSTGRES_DB: chat_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # 2. Redis Cache & Rate Limiter
+  redis:
+    image: redis:7-alpine
+    container_name: chat_redis
+    restart: always
+    ports:
+      - "6379:6379"
+
+  # 3. FastAPI Backend
+  backend:
+    build: ./backend
+    container_name: chat_backend
+    restart: always
+    ports:
+      - "8000:8000"
+    env_file:               # 👈 YEH ADD KAREIN (Poori .env file container mein Inject ho gi)
+      - ./backend/.env
+    environment:
+      - DATABASE_URL=postgresql://postgres:mysecretpassword@db:5432/hassan_ai_db
+      - REDIS_URL=redis://redis:6379
+      - FRONTEND_URL=http://localhost   # 👈 Explicit backup override
+    depends_on:
+      - db
+      - redis
+
+  # 4. Vue Frontend
+  frontend:
+    build: ./frontend
+    container_name: chat_frontend
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

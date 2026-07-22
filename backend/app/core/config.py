@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str
     
+    # Frontend Reset URL
+    FRONTEND_URL: str
+    
     # Security
     SECRET_KEY: str
     ALGORITHM: str
