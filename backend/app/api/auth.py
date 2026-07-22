@@ -93,15 +93,20 @@ async def google_auth(data: dict, db: Session = Depends(get_db)):
 @router.post("/forgot-password")
 async def forgot_password(req: ForgotPasswordRequest, db: Session = Depends(get_db)):
     user = UserRepository.get_by_email(db, req.email)
-    if not user: return {"message": "If email is registered, reset link sent."}
+    if not user: 
+        return {"message": "If email is registered, reset link sent."}
 
     token = secrets.token_urlsafe(32)
     UserRepository.set_reset_token(db, req.email, token)
 
+    # 🟢 FIX: Dynamic URL from settings instead of hardcoded 5173
+    frontend_url = getattr(settings, "FRONTEND_URL", "http://localhost").rstrip('/')
+    reset_link = f"{frontend_url}/reset-password?token={token}"
+
     message = MessageSchema(
         subject="Hassan AI - Password Reset",
         recipients=[req.email],
-        body=f"Hi {user.name}, reset your password here: http://localhost:5173/reset-password?token={token}",
+        body=f"Hi {user.name}, reset your password here: {reset_link}",
         subtype=MessageType.html
     )
     fm = FastMail(conf)

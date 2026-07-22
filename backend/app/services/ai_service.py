@@ -11,43 +11,57 @@ class AIService:
         self.rate_limiter = MemoryRateLimiter()
 
     # -------------------------
-    # HELPER: SMART CHUNKING (Naya Function)
+    # HELPER: SMART CHUNKING (Improved & Robust Version)
     # -------------------------
     def get_relevant_context(self, question, full_text, chunk_size=3000):
         if not full_text:
             return ""
     
-        # 1. User ke sawal ko saaf karein aur chote words (the, what, is) nikaal dein
-        ignore_words = {"what", "is", "the", "according", "to", "document", "framework", "of"}
+        # 1. User ke sawal ko saaf karein aur chote stop words nikaal dein
+        ignore_words = {"what", "is", "the", "according", "to", "document", "framework", "of", "and"}
         keywords = [word.lower().strip("?,.") for word in question.split() 
-                if word.lower() not in ignore_words and len(word) > 2]
+                    if word.lower() not in ignore_words and len(word) > 2]
     
-        # Agar koi keyword nahi mila (e.g. user sifr "Hi" kahe), toh pehla chunk bhej dein
+        # Agar sifr "Hi" ya basic chat ho, toh document ka start context bhej dein
         if not keywords:
             return full_text[:chunk_size]
 
-        # 2. Text ko chunks mein split karein
-        chunks = [full_text[i:i + chunk_size] for i in range(0, len(full_text), chunk_size)]
-    
+        # 2. ROBUST CHUNKING: Words ki boundary par split karein taake word adha na tootay
+        words = full_text.split(" ")
+        chunks = []
+        current_chunk = []
+        current_length = 0
+        
+        for word in words:
+            current_chunk.append(word)
+            current_length += len(word) + 1
+            if current_length >= chunk_size:
+                chunks.append(" ".join(current_chunk))
+                current_chunk = []
+                current_length = 0
+        if current_chunk:
+            chunks.append(" ".join(current_chunk))
+
+        # 3. SCORING ENGINE
         scored_chunks = []
         for chunk in chunks:
             chunk_lower = chunk.lower()
-            # Score calculation: Kitne keywords match ho rahe hain
+            # Kitne makhsoos unique keywords is chunk mein majood hain
             score = sum(1 for kw in keywords if kw in chunk_lower)
             scored_chunks.append((score, chunk))
     
-        # 3. Sort by score and pick top chunks
+        # 4. Sort by score and pick top matches
         scored_chunks.sort(key=lambda x: x[0], reverse=True)
     
-        # Sifr woh chunks jin ka score > 0 ho
+        # Sifr woh chunks uthayein jin ka score > 0 ho (Top 3 Chunks)
         relevant = [c[1] for c in scored_chunks[:3] if c[0] > 0]
     
-        # 🛑 Crucial Fix: Agar koi match na miley toh pehle 2 chunks (Intro/Table of Contents) bhej dein
+        # Fallback Strategy: Agar koi exact word match na miley
         if not relevant:
             return "\n---\n".join(chunks[:2])
         
         return "\n---\n".join(relevant)
-
+    
     def _fallback(self):
         return random.choice([
             "AI is busy, please try again.",
