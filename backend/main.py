@@ -1,5 +1,10 @@
 import os
 from fastapi import FastAPI
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+
+from app.core.rate_limiter import limiter
+from app.core.exceptions import rate_limit_exceeded_handler, global_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from app.api.v1_router import api_router
@@ -9,6 +14,14 @@ app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION
 )
+
+# Attach Limiter to App State
+app.state.limiter = limiter
+app.add_middleware(SlowAPIMiddleware)
+
+# Add Handlers
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+app.add_exception_handler(Exception, global_exception_handler)
 
 # 2. CORS Middleware (Frontend connection ke liye)
 origins = [

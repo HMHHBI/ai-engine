@@ -1,111 +1,151 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+import base64
+import json
+import time
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-import time, json, base64
 
-from app.db.session import get_db
 from app.api.deps import get_current_user
-from app.db.models import User, Chat
-from app.schemas.chat_schema import AIRequest, ChatOut, MessageOut
+from app.core.rate_limiter import limiter
+from app.db.models import Chat, User
+from app.db.session import get_db
 from app.repositories.chat_repo import ChatRepository
+from app.schemas.chat_schema import AIRequest, ChatOut, MessageOut
 from app.services.ai_service import AIService
-from app.utils.pdf_extractor import extract_text_from_pdf, PDFExtractionError
 from app.utils.limits import check_user_usage_limit, decrement_user_limit
+from app.utils.pdf_extractor import PDFExtractionError, extract_text_from_pdf
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 ai_service = AIService()
 
-# 1. Naya Chat banana (Frontend needs this!)
+
+# 1. Naya Chat banana
 @router.post("/new")
-def create_chat(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+@limiter.limit("10/minute")
+def create_chat(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     chat = ChatRepository.create_chat(db, current_user.id)
     return {"chat_id": chat.id}
 
-# 2. Saari Chats ki list (Sidebar ke liye)
+
+# 2. Saari Chats ki list
 @router.get("/all", response_model=list[ChatOut])
-def get_all_chats(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+@limiter.limit("30/minute")
+def get_all_chats(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     return ChatRepository.get_all_by_user(db, current_user.id)
 
-# 3. Aik specific chat ki history (Frontend load hote hi ye call karta hai)
+
+# 3. Specific chat ki history
 @router.get("/{chat_id}")
-def get_chat_history(chat_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+@limiter.limit("30/minute")
+def get_chat_history(
+    request: Request,
+    chat_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     chat = ChatRepository.get_by_id(db, chat_id, current_user.id)
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
-    
-    messages = ChatRepository.get_history(db, chat_id, limit=50) # Repository function use karein
-    return [{"role": m.role, "text": m.content, "image_data": m.image_data} for m in messages]
+
+    messages = ChatRepository.get_history(db, chat_id, limit=50)
+    return [
+        {"role": m.role, "text": m.content, "image_data": m.image_data}
+        for m in messages
+    ]
+
 
 # 4. Delete Chat
 @router.delete("/{chat_id}")
-def delete_chat(chat_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+@limiter.limit("10/minute")
+def delete_chat(
+    request: Request,
+    chat_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     success = ChatRepository.delete_chat(db, chat_id, current_user.id)
-    if not success: raise HTTPException(status_code=404, detail="Chat not found")
+    if not success:
+        raise HTTPException(status_code=404, detail="Chat not found")
     return {"message": "Deleted"}
 
-# 5. Update Chat Title (Frontend jab manual rename kare ya AI title generate kare)
+
+# 5. Update Chat Title
 @router.put("/{chat_id}/title")
+@limiter.limit("20/minute")
 def update_chat_title(
-    chat_id: int, 
-    new_title: str, 
+    request: Request,
+    chat_id: int,
+    new_title: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user) # Security: Check user ownership
+    current_user: User = Depends(get_current_user),
 ):
     chat = ChatRepository.get_by_id(db, chat_id, current_user.id)
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
-    
+
     updated_chat = ChatRepository.update_title(db, chat_id, new_title)
     return {"id": updated_chat.id, "title": updated_chat.title}
 
-# 6. Get Chat Details (PDF context aur baqi info ke liye)
+
+# 6. Get Chat Details
 @router.get("/details/{chat_id}")
+@limiter.limit("30/minute")
 def get_chat_details(
-    chat_id: int, 
-    db: Session = Depends(get_db), 
-    current_user: User = Depends(get_current_user)
+    request: Request,
+    chat_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     chat = ChatRepository.get_by_id(db, chat_id, current_user.id)
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
-    
+
     return {
         "id": chat.id,
         "title": chat.title,
         "pdf_context": chat.pdf_context,
     }
-    
-# 7. AI Streaming (The main engine)
+
+
+# 7. AI Streaming (Strict protection limit)
 @router.post("/stream")
-async def ai_stream(req: AIRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-     # 1. Poora Chat object uthayein taake PDF context miley
-    chat = db.query(Chat).filter(Chat.id == req.chat_id, Chat.user_id == current_user.id).first()
-    if not chat: 
+@limiter.limit("15/minute")
+async def ai_stream(
+    request: Request,
+    req: AIRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    chat = (
+        db.query(Chat)
+        .filter(Chat.id == req.chat_id, Chat.user_id == current_user.id)
+        .first()
+    )
+    if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
 
-    # 2. Ensure prompt is clean string
     clean_prompt = str(req.prompt)
-
-    # 3. Add User Message
     ChatRepository.add_message(db, req.chat_id, "user", clean_prompt, req.image_base64)
-
-    # 4. Fetch History
     history = ChatRepository.get_history(db, req.chat_id, limit=8)
-
-    # 5. Call AI Service with explicit pdf_context
-    # Yahan check karein ke chat.pdf_context khali toh nahi
     context_to_send = chat.pdf_context if chat.pdf_context else ""
-    
+
     full_response = ai_service.process_request(
         user_id=current_user.id,
         prompt=clean_prompt,
         history=history,
         file_context=context_to_send,
         image_data=req.image_base64,
-        task=req.task if hasattr(req, 'task') else "general"
+        task=req.task if hasattr(req, "task") else "general",
     )
 
-    # Update Title if it's a new chat
     if chat.title == "New Chat":
         new_title = ai_service.generate_chat_title(req.prompt)
         ChatRepository.update_title(db, chat.id, new_title)
@@ -119,67 +159,68 @@ async def ai_stream(req: AIRequest, db: Session = Depends(get_db), current_user:
             for chunk in res_text.split(" "):
                 yield chunk + " "
                 time.sleep(0.01)
-        
+
         ChatRepository.add_message(db, req.chat_id, "ai", res_text)
 
     return StreamingResponse(generate(), media_type="text/plain")
 
-# 8. PDF Upload
+
+# 8. PDF Upload (Strict File limit)
 @router.post("/upload-pdf/{chat_id}")
+@limiter.limit("5/minute")
 async def upload_pdf(
-    chat_id: int, 
-    file: UploadFile = File(...), 
+    request: Request,
+    chat_id: int,
+    file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user) # <-- Security check lazmi add karen
+    current_user: User = Depends(get_current_user),
 ):
-    # 1. Pehle check karen ke chat user ki apni hai ya nahi (Security Validation)
     chat = ChatRepository.get_by_id(db, chat_id, current_user.id)
     if not chat:
-        raise HTTPException(status_code=404, detail="Chat nahi mili ya aap authorized nahi hain.")
+        raise HTTPException(
+            status_code=404,
+            detail="Chat nahi mili ya aap authorized nahi hain.",
+        )
 
-    # 2. Check karen ke file khali toh nahi ya extension galat toh nahi
-    if not file.filename.lower().endswith('.pdf'):
-        raise HTTPException(status_code=400, detail="Sirf PDF files upload karne ki ijazat hai.")
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(
+            status_code=400, detail="Sirf PDF files upload karne ki ijazat hai."
+        )
 
     try:
-        # File ka content read karen
         content = await file.read()
-        
-        # Robust extractor se text extract karen
         text = extract_text_from_pdf(content)
-        
-        # Database context ko update karen
         ChatRepository.update_pdf_context(db, chat_id, text)
-        
+
         return {
             "status": "success",
             "filename": file.filename,
-            "message": "PDF successfully parse aur save ho gayi hai."
+            "message": "PDF successfully parse aur save ho gayi hai.",
         }
 
     except PDFExtractionError as e:
-        # Agar hamara naya custom error aaye (Encrypted, Corrupted, Scanned)
-        # Toh frontend ko saaf 400 Bad Request ka error dain taake user samajh sake
         raise HTTPException(status_code=400, detail=str(e))
-        
+
     except Exception as e:
-        # Agar koi aur un-expected error aa jaye background mein
-        raise HTTPException(status_code=500, detail="Server par file process karte hue koi masla aya hai.")
+        raise HTTPException(
+            status_code=500,
+            detail="Server par file process karte hue koi masla aya hai.",
+        )
 
-# app/api/chat.py
 
+# 9. Cleanup Chat Messages
 @router.delete("/{chat_id}/cleanup/{after_index}")
+@limiter.limit("10/minute")
 def cleanup_chat_messages(
-    chat_id: int, 
-    after_index: int, 
-    db: Session = Depends(get_db), 
-    current_user: User = Depends(get_current_user)
+    request: Request,
+    chat_id: int,
+    after_index: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    # Pehle check karo ke chat is user ki hai ya nahi (Security)
     chat = ChatRepository.get_by_id(db, chat_id, current_user.id)
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
 
-    # Messages delete karo jo is index ke baad hain
     ChatRepository.delete_messages_after(db, chat_id, current_user.id, after_index)
     return {"message": "Database cleaned up successfully"}

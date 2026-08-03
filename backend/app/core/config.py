@@ -33,10 +33,16 @@ class Settings(BaseSettings):
     CLOUDINARY_API_KEY: str
     CLOUDINARY_API_SECRET: str
     
+    # CORS Settings
     ALLOWED_ORIGINS: str = ""
     
+    # Redis Settings
+    REDIS_HOST: str
+    REDIS_PORT: int
+    REDIS_URL: str
     class Config:
         env_file = ".env"
         extra = "ignore"
+        case_sensitive = True
 
 settings = Settings()

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from fastapi_mail import FastMail, MessageSchema, MessageType, ConnectionConfig
 from google.oauth2 import id_token
@@ -10,6 +10,7 @@ from app.schemas.user_schema import UserCreate, UserLogin, UserOut, ForgotPasswo
 from app.repositories.user_repo import UserRepository
 from app.core.security import create_access_token, verify_password, hash_password
 from app.core.config import settings
+from app.core.rate_limiter import limiter
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -26,7 +27,8 @@ conf = ConnectionConfig(
 )
 
 @router.post("/signup", response_model=UserOut)
-def signup(user_data: UserCreate, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def signup(request: Request, user_data: UserCreate, db: Session = Depends(get_db)):
     # 1. Check if user already exists
     existing_user = UserRepository.get_by_email(db, user_data.email)
     if existing_user:
@@ -42,7 +44,8 @@ def signup(user_data: UserCreate, db: Session = Depends(get_db)):
     return new_user
 
 @router.post("/login")
-def login(data: UserLogin, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def login(request: Request, data: UserLogin, db: Session = Depends(get_db)):
     # 1. Get user by email
     user = UserRepository.get_by_email(db, data.email)
     if not user or not verify_password(data.password, user.password):
@@ -62,7 +65,8 @@ def login(data: UserLogin, db: Session = Depends(get_db)):
     }
     
 @router.post("/google")
-async def google_auth(data: dict, db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+async def google_auth(request: Request, data: dict, db: Session = Depends(get_db)):
     token = data.get("token")
     
     print("TOKEN:", token)
@@ -91,7 +95,8 @@ async def google_auth(data: dict, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Invalid Google Token")
 
 @router.post("/forgot-password")
-async def forgot_password(req: ForgotPasswordRequest, db: Session = Depends(get_db)):
+@limiter.limit("3/minute")
+async def forgot_password(request: Request, req: ForgotPasswordRequest, db: Session = Depends(get_db)):
     user = UserRepository.get_by_email(db, req.email)
     if not user: 
         return {"message": "If email is registered, reset link sent."}
@@ -114,7 +119,8 @@ async def forgot_password(req: ForgotPasswordRequest, db: Session = Depends(get_
     return {"message": "Reset link sent"}
 
 @router.post("/reset-password")
-def reset_password(req: ResetPasswordRequest, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def reset_password(request: Request, req: ResetPasswordRequest, db: Session = Depends(get_db)):
     user = UserRepository.get_by_reset_token(db, req.token)
     if not user:
         raise HTTPException(status_code=400, detail="Invalid or expired token")
