@@ -1,3 +1,4 @@
+from starlette.concurrency import run_in_threadpool
 import asyncio
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
@@ -133,14 +134,25 @@ async def ai_stream(
     clean_prompt = str(req.prompt).strip()
 
     # A. User Prompt DB Persistence
-    ChatRepository.add_message(db, req.chat_id, "user", clean_prompt, req.image_base64)
+    await run_in_threadpool(
+        ChatRepository.add_message,
+        db,
+        req.chat_id,
+        "user",
+        clean_prompt,
+        req.image_base64,
+    )
 
     # B. Vector Similarity Search on pgvector
     query_vector = await EmbeddingService.generate_embedding(clean_prompt)
     context_chunks = []
     if query_vector:
-        context_chunks = VectorRepository.search_similar_chunks(
-            db=db, chat_id=req.chat_id, query_vector=query_vector, top_k=4
+        context_chunks = await run_in_threadpool(
+            VectorRepository.search_similar_chunks,
+            db=db,
+            chat_id=req.chat_id,
+            query_vector=query_vector,
+            top_k=4
         )
 
     # Hybrid Prompt Strategy
@@ -200,7 +212,7 @@ async def ai_stream(
     )
 
 
-# 8. PDF Upload & Ingestion (Unified Chunking & Vector Store Logic)
+# 8. PDF Upload & Ingestion (Optimized Non-Blocking Version)
 @router.post("/upload-pdf/{chat_id}")
 @limiter.limit("5/minute")
 async def upload_pdf(
@@ -227,9 +239,9 @@ async def upload_pdf(
     try:
         content = await file.read()
 
-        # Extract Text
+        # 1. Non-blocking Text Extraction (Threadpool)
         if filename.endswith(".pdf"):
-            text = extract_text_from_pdf(content)
+            text = await run_in_threadpool(extract_text_from_pdf, content)
         else:
             text = content.decode("utf-8", errors="ignore")
 
@@ -238,13 +250,18 @@ async def upload_pdf(
                 status_code=400, detail="File is empty or contains no readable text."
             )
 
-        # 1. Update minimal metadata in Chat
-        ChatRepository.update_pdf_context(db, chat_id, f"Indexed File: {file.filename}")
+        # 2. Non-blocking Metadata Update
+        await run_in_threadpool(
+            ChatRepository.update_pdf_context,
+            db,
+            chat_id,
+            f"Indexed File: {file.filename}",
+        )
 
-        # 2. Text Chunking
-        chunks = EmbeddingService.chunk_text(text, chunk_size=500, overlap=50)
+        # 3. Non-blocking Text Chunking (Threadpool)
+        chunks = await run_in_threadpool(EmbeddingService.chunk_text, text, 500, 50)
 
-        # 3. Parallel Vector Embedding Generation
+        # 4. Parallel Vector Embedding Generation (Async stays Async)
         vectors = await asyncio.gather(
             *[EmbeddingService.generate_embedding(c) for c in chunks]
         )
@@ -255,10 +272,13 @@ async def upload_pdf(
             if vector is not None
         ]
 
-        # 4. Save Chunks to VectorRepository
+        # 5. Non-blocking Vector Repository DB Write (Threadpool)
         if chunks_with_embeddings:
-            db_objs = VectorRepository.store_document_chunks(
-                db=db, chat_id=chat_id, chunks_with_embeddings=chunks_with_embeddings
+            db_objs = await run_in_threadpool(
+                VectorRepository.store_document_chunks,
+                db=db,
+                chat_id=chat_id,
+                chunks_with_embeddings=chunks_with_embeddings,
             )
             return {
                 "status": "success",

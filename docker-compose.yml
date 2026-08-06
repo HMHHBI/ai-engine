@@ -28,12 +28,15 @@ services:
     restart: always
     ports:
       - "8000:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway" # 👈 YEH ADD KAREIN (Host Network Access ke liye)
     env_file:               # 👈 YEH ADD KAREIN (Poori .env file container mein Inject ho gi)
       - ./backend/.env
     environment:
       - DATABASE_URL=postgresql://postgres:mysecretpassword@db:5432/hassan_ai_db
       - REDIS_URL=redis://redis:6379
       - FRONTEND_URL=http://localhost   # 👈 Explicit backup override
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434 # 👈 YEH ADD KAREIN
     depends_on:
       - db
       - redis

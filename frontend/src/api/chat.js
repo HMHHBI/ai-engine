@@ -1,4 +1,5 @@
 import apiClient from './apiClient'
+import { useUserStore } from '@/stores/userStore'
 
 // 1. Saari Chats ki list (Dashboard ke liye)
 export const getChats = async () => {
@@ -46,16 +47,46 @@ export const cleanupChatApi = async (chatId, index) => {
   return apiClient.delete(`/chat/${chatId}/cleanup/${index}`)
 }
 
-// 8. AI Streaming (Note: Streaming ke liye axios ke bajaye fetch use karna behtar hai)
+// 8. AI Streaming (Dynamic Payload Builder)
 export const streamAI = async (payload, signal) => {
   const token = localStorage.getItem('token')
+
+  // 1. Basic required fields (Inko convert karna zaroori hai)
+  const cleanPayload = {
+    chat_id: Number(payload.chat_id),
+    prompt: String(payload.prompt),
+    task: payload.task || 'general',
+    model: payload.model || 'ollama-llama3.2',
+  }
+
+  // 2. File Context handle karein
+  if (payload.file_context && payload.file_context.trim() !== '') {
+    cleanPayload.file_context = payload.file_context
+  }
+
+  // 3. Image Base64 handle karein - sirf valid array allow karein
+  if (Array.isArray(payload.image_base64) && payload.image_base64.length > 0) {
+    cleanPayload.image_base64 = payload.image_base64
+  }
+
+  // 4. Image Mime handle karein - STRICT Check
+  // Agar payload.image_mime empty string "" hui to yeh block skip ho jayega!
+  if (Array.isArray(payload.image_mime) && payload.image_mime.length > 0) {
+    cleanPayload.image_mime = payload.image_mime
+  } else if (typeof payload.image_mime === 'string' && payload.image_mime.trim() !== '') {
+    cleanPayload.image_mime = [payload.image_mime]
+  }
+
+  // Ab cleanPayload mein image_mime aur image_base64 ki key HOGI HI NAHI agar data nahi hai.
+  // Pydantic isko default None assign kar dega.
+
   const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/chat/stream`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(cleanPayload),
     signal: signal,
   })
 

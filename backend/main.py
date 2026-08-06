@@ -31,8 +31,8 @@ async def lifespan(app: FastAPI):
             print("✅ Successfully enabled pgvector extension.")
 
         # Create all tables (users, chats, document_chunks, etc.)
-        Base.metadata.create_all(bind=engine)
-        print("✅ All database tables synchronized successfully.")
+        # Base.metadata.create_all(bind=engine)
+        # print("✅ All database tables synchronized successfully.")
     except Exception as e:
         print(f"❌ Error initializing database on startup: {e}")
 
