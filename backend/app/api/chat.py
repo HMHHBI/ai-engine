@@ -114,7 +114,7 @@ def get_chat_details(
     }
 
 
-# 7. AI Streaming (Multi-Provider Factory + pgvector RAG)
+# 7. AI Streaming (Multi-Provider Factory + Smart RAG Check)
 @router.post("/stream")
 @limiter.limit("15/minute")
 async def ai_stream(
@@ -143,17 +143,22 @@ async def ai_stream(
         req.image_base64,
     )
 
-    # B. Vector Similarity Search on pgvector
-    query_vector = await EmbeddingService.generate_embedding(clean_prompt)
+    requested_model = req.model if req.model else "gemini-2.0-flash"
     context_chunks = []
-    if query_vector:
-        context_chunks = await run_in_threadpool(
-            VectorRepository.search_similar_chunks,
-            db=db,
-            chat_id=req.chat_id,
-            query_vector=query_vector,
-            top_k=4
+
+    # 💡 SMART CHECK: Sirf tab embedding aur RAG chalayein jab chat mein document/PDF context ho!
+    if chat.pdf_context:
+        query_vector = await EmbeddingService.generate_embedding(
+            clean_prompt, model_provider=requested_model
         )
+        if query_vector:
+            context_chunks = await run_in_threadpool(
+                VectorRepository.search_similar_chunks,
+                db=db,
+                chat_id=req.chat_id,
+                query_vector=query_vector,
+                top_k=4,
+            )
 
     # Hybrid Prompt Strategy
     if context_chunks:
@@ -173,7 +178,10 @@ async def ai_stream(
         )
 
     # C. Dynamic Provider Selection via Factory
-    requested_model = req.model if req.model else "ollama-llama3.2"
+    print(
+        f"\n🔥🔥🔥 [MODEL CHECK] CURRENTLY EXECUTING MODEL: {requested_model} 🔥🔥🔥\n",
+        flush=True,
+    )
     provider = LLMProviderFactory.get_provider(requested_model)
 
     # D. Auto Title Update
@@ -208,6 +216,7 @@ async def ai_stream(
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
+            "X-AI-Model": requested_model,
         },
     )
 
@@ -261,9 +270,14 @@ async def upload_pdf(
         # 3. Non-blocking Text Chunking (Threadpool)
         chunks = await run_in_threadpool(EmbeddingService.chunk_text, text, 500, 50)
 
-        # 4. Parallel Vector Embedding Generation (Async stays Async)
+        # 4. Parallel Dynamic Vector Embedding Generation
+        active_model = request.headers.get("X-AI-Model", "gemini-2.0-flash")
+
         vectors = await asyncio.gather(
-            *[EmbeddingService.generate_embedding(c) for c in chunks]
+            *[
+                EmbeddingService.generate_embedding(c, model_provider=active_model)
+                for c in chunks
+            ]
         )
 
         chunks_with_embeddings = [
