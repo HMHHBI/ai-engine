@@ -3,7 +3,7 @@ const props = defineProps({
   tasks: { type: Array, default: () => [] },
   models: { type: Array, default: () => [] },
   taskValue: { type: String, default: 'general' },
-  modelValue: { type: String, default: 'gemini-2.0-flash' },
+  modelValue: { type: String, default: 'gemini-2.5-flash' },
   pdfContext: { type: String, default: '' },
   loading: { type: Boolean, default: false }
 })

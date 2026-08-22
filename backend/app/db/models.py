@@ -51,6 +51,10 @@ class Chat(Base):
     title = Column(String, default="New Chat")
     pdf_context = Column(Text, nullable=True)
 
+    ai_provider = Column(String, nullable=True)
+    ai_model = Column(String, nullable=True)
+    embedding_provider = Column(String, nullable=True)
+
     owner = relationship("User", back_populates="chats")
     messages = relationship(
         "Message", back_populates="chat", cascade="all, delete-orphan"
@@ -98,6 +102,8 @@ class DocumentChunk(Base):
         Integer, ForeignKey("chats.id", ondelete="CASCADE"), nullable=False, index=True
     )
     content = Column(Text, nullable=False)
+    page_number = Column(Integer, nullable=True, index=True)
+    chunk_index = Column(Integer, nullable=True)
     embedding = Column(Vector(768), nullable=True)  # 768 for Ollama nomic-embed / mxbai
     created_at = Column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)

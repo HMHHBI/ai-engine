@@ -30,7 +30,7 @@ export const editTitleApi = async (id, newTitle) => {
 }
 
 export const getChatDetailApi = async (chatId) => {
-  const res = await apiClient.get(`/chat/${chatId}`)
+  const res = await apiClient.get(`/chat/details/${chatId}`)
   return res.data
 }
 

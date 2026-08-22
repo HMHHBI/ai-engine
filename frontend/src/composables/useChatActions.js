@@ -8,7 +8,7 @@ export function useChatActions(props, emit) {
   const uiStore = useUIStore()
 
   const currentTask = ref('general')
-  const selectedModel = ref('gemini-2.0-flash')
+  const selectedModel = ref('gemini-2.5-flash')
 
   const tasks = [
     { id: 'general', name: 'General Assistant', icon: '✨' },
@@ -19,9 +19,9 @@ export function useChatActions(props, emit) {
   ]
 
   const models = [
-    { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
+    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
     { id: 'ollama-llama3.2', name: 'Ollama Llama 3.2 (Local)' },
-    { id: 'gpt-4o', name: 'OpenAI GPT-4o' },
+    { id: 'openai-gpt-4o-mini', name: 'OpenAI GPT-4o Mini' },
   ]
 
   const loading = ref(false)
@@ -59,7 +59,7 @@ export function useChatActions(props, emit) {
 
     try {
       const data = await uploadPDFApi(props.chatId, formData)
-      pdfContext.value = data.text
+      pdfContext.value = data.pdf_context
       uiStore.addToast('PDF processed and added to context!', 'success')
     } catch (err) {
       uiStore.addToast('Error reading PDF', 'error')
@@ -139,7 +139,7 @@ export function useChatActions(props, emit) {
       const res = await streamAI(
         {
           task: currentTask.value || 'general',
-          model: selectedModel.value || 'gemini-2.0-flash',
+          model: selectedModel.value || 'gemini-2.5-flash',
           prompt: userMsg || 'Explain these images',
           chat_id: props.chatId,
           signal: signal,

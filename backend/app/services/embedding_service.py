@@ -1,60 +1,147 @@
 import os
 import httpx
-from typing import List, Optional
+from typing import List, Optional, Union
+from dataclasses import dataclass
 
 from app.core.config import settings
+from app.utils.pdf_extractor import PDFPage
 
+
+@dataclass(frozen=True)
+class DocumentChunk:
+    """A chunk of document text with its source metadata."""
+
+    text: str
+    page_number: int
+    chunk_index: int
 
 class EmbeddingService:
     @staticmethod
     def chunk_text(
-        text: str,
+        pages: Union[List[PDFPage], str],
         chunk_size: int = 500,
         overlap: int = 50,
-    ) -> List[str]:
+    ) -> List[DocumentChunk]:
         """
-        Split raw text into overlapping word-based chunks.
+        Split document text into overlapping word-based chunks
+        while preserving the source PDF page number.
 
-        Example:
-        chunk_size = 500
-        overlap = 50
+        For PDFs:
+            PDFPage(page_number=1, text="...")
+            PDFPage(page_number=2, text="...")
 
-        Chunk 1: words 0-499
-        Chunk 2: words 450-949
-        Chunk 3: words 900-1399
+        becomes:
+
+            DocumentChunk(
+                text="...",
+                page_number=1,
+                chunk_index=0,
+            )
         """
 
-        if not text or not text.strip():
+        if not pages:
             return []
 
         if chunk_size <= 0:
-            raise ValueError("chunk_size must be greater than 0")
+            raise ValueError(
+                "chunk_size must be greater than 0"
+            )
 
         if overlap < 0 or overlap >= chunk_size:
-            raise ValueError("overlap must be >= 0 and smaller than chunk_size")
+            raise ValueError(
+                "overlap must be >= 0 and smaller than chunk_size"
+            )
 
-        words = text.split()
+        # ---------------------------------------------------------
+        # PDF / PAGE-AWARE INPUT
+        # ---------------------------------------------------------
 
-        if not words:
-            return []
+        if isinstance(pages, list):
 
-        chunks: List[str] = []
+            chunks: List[DocumentChunk] = []
 
-        step = chunk_size - overlap
+            chunk_index = 0
 
-        for i in range(0, len(words), step):
-            chunk_words = words[i : i + chunk_size]
+            for page in pages:
 
-            if not chunk_words:
-                break
+                if not isinstance(page, PDFPage):
+                    raise TypeError(
+                        "Expected every item to be a PDFPage."
+                    )
 
-            chunks.append(" ".join(chunk_words))
+                words = page.text.split()
 
-            # Stop after the final chunk.
-            if i + chunk_size >= len(words):
-                break
+                if not words:
+                    continue
 
-        return chunks
+                step = chunk_size - overlap
+
+                for start in range(0, len(words), step):
+
+                    chunk_words = words[
+                        start : start + chunk_size
+                    ]
+
+                    if not chunk_words:
+                        break
+
+                    chunks.append(
+                        DocumentChunk(
+                            text=" ".join(chunk_words),
+                            page_number=page.page_number,
+                            chunk_index=chunk_index,
+                        )
+                    )
+
+                    chunk_index += 1
+
+                    if start + chunk_size >= len(words):
+                        break
+
+            return chunks
+
+        # ---------------------------------------------------------
+        # LEGACY STRING INPUT
+        # ---------------------------------------------------------
+
+        if isinstance(pages, str):
+
+            text = pages.strip()
+
+            if not text:
+                return []
+
+            words = text.split()
+
+            chunks: List[DocumentChunk] = []
+
+            step = chunk_size - overlap
+
+            for start in range(0, len(words), step):
+
+                chunk_words = words[
+                    start : start + chunk_size
+                ]
+
+                if not chunk_words:
+                    break
+
+                chunks.append(
+                    DocumentChunk(
+                        text=" ".join(chunk_words),
+                        page_number=0,
+                        chunk_index=len(chunks),
+                    )
+                )
+
+                if start + chunk_size >= len(words):
+                    break
+
+            return chunks
+
+        raise TypeError(
+            "pages must be a list of PDFPage objects or a string."
+        )
 
     @staticmethod
     async def generate_embedding(

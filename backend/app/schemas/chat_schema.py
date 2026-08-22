@@ -1,5 +1,5 @@
 from typing import List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 # AI Stream Request Schema
@@ -7,11 +7,10 @@ class AIRequest(BaseModel):
     chat_id: int
     prompt: str
     task: str = "general"
+    model: Optional[str] = None
     file_context: Optional[str] = None
     image_base64: Optional[List[str]] = None  # List of Base64 strings or URLs
     image_mime: Optional[List[str]] = None  # Mapped mime types per image
-    model: Optional[str] = "ollama-llama3.2"
-
 
 # Message Out Schema (For Chat History / Streaming Output)
 class MessageOut(BaseModel):

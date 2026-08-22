@@ -1,4 +1,5 @@
 import json
+from app.core.config import settings
 from sqlalchemy.orm import Session
 from app.db.models import Chat, Message, AILog
 from app.utils.cloudinary_tool import upload_image_to_cloud
@@ -22,7 +23,13 @@ class ChatRepository:
 
     @staticmethod
     def create_chat(db: Session, user_id: int, title: str = "New Chat"):
-        new_chat = Chat(user_id=user_id, title=title)
+        new_chat = Chat(
+            user_id=user_id,
+            title=title,
+            ai_provider=settings.DEFAULT_AI_PROVIDER,
+            ai_model=settings.DEFAULT_AI_MODEL,
+            embedding_provider=settings.DEFAULT_EMBEDDING_PROVIDER,
+            )
         db.add(new_chat)
         db.commit()
         db.refresh(new_chat)
