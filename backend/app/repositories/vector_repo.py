@@ -72,6 +72,7 @@ class VectorRepository:
         query_vector: list[float],
         top_k: int = 6,
         max_distance: float = 0.70,
+        adaptive_margin: float = 0.15,
     ) -> list[dict[str, Any]]:
 
         distance = DocumentChunk.embedding.cosine_distance(query_vector).label(
@@ -97,7 +98,13 @@ class VectorRepository:
 
         best_distance = float(results[0][1])
 
-        adaptive_limit = min(best_distance + 0.15, max_distance)
+        if best_distance > max_distance:
+            return []
+
+        adaptive_limit = min(
+            best_distance + adaptive_margin,
+            max_distance
+        )
 
         filtered_results = [
             (chunk, distance_value)
@@ -112,5 +119,5 @@ class VectorRepository:
                 "chunk_index": chunk.chunk_index,
                 "distance": float(distance_value),
             }
-            for chunk, distance_value in results
+            for chunk, distance_value in filtered_results
         ]

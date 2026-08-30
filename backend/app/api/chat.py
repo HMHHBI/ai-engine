@@ -273,7 +273,7 @@ async def ai_stream(
                 chat_id=req.chat_id,
                 query_vector=query_vector,
                 top_k=6,
-                max_distance=0.40,
+                max_distance=0.70,
             )
 
             # ------------------------------------------------

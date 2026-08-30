@@ -19,24 +19,16 @@ class EmbeddingService:
     @staticmethod
     def chunk_text(
         pages: Union[List[PDFPage], str],
-        chunk_size: int = 500,
-        overlap: int = 50,
+        chunk_size: int = 1200,
+        overlap: int = 200,
     ) -> List[DocumentChunk]:
         """
-        Split document text into overlapping word-based chunks
-        while preserving the source PDF page number.
+        Split PDF text into semantic-ish chunks using paragraph and
+        sentence boundaries instead of blindly splitting by words.
 
-        For PDFs:
-            PDFPage(page_number=1, text="...")
-            PDFPage(page_number=2, text="...")
+        Chunk size and overlap are measured approximately in characters.
 
-        becomes:
-
-            DocumentChunk(
-                text="...",
-                page_number=1,
-                chunk_index=0,
-            )
+        For PDF input, chunks remain page-aware and never cross page boundaries.
         """
 
         if not pages:
@@ -51,6 +43,215 @@ class EmbeddingService:
             raise ValueError(
                 "overlap must be >= 0 and smaller than chunk_size"
             )
+
+        def normalize_text(text: str) -> str:
+            """Normalize PDF whitespace without destroying paragraph structure."""
+            lines = [line.strip() for line in text.splitlines()]
+
+            paragraphs = []
+            current = []
+
+            for line in lines:
+                if not line:
+                    if current:
+                        paragraphs.append(" ".join(current))
+                        current = []
+                    continue
+
+                current.append(line)
+
+            if current:
+                paragraphs.append(" ".join(current))
+
+            return "\n\n".join(paragraphs).strip()
+
+        def split_sentences(text: str) -> List[str]:
+            """
+            Lightweight sentence splitter.
+
+            This intentionally avoids adding a heavyweight NLP dependency.
+            """
+            import re
+
+            sentences = re.split(
+                r"(?<=[.!?])\s+(?=[A-Z0-9\"'])",
+                text.strip(),
+            )
+
+            return [sentence.strip() for sentence in sentences if sentence.strip()]
+
+        def split_long_text(text: str) -> List[str]:
+            """
+            Split text that is larger than chunk_size while still preferring
+            word boundaries.
+            """
+            words = text.split()
+
+            pieces = []
+            current_words = []
+            current_length = 0
+
+            for word in words:
+                additional_length = len(word)
+                if current_words:
+                    additional_length += 1
+
+                if current_words and current_length + additional_length > chunk_size:
+                    pieces.append(" ".join(current_words))
+                    current_words = [word]
+                    current_length = len(word)
+                else:
+                    current_words.append(word)
+                    current_length += additional_length
+
+            if current_words:
+                pieces.append(" ".join(current_words))
+
+            return pieces
+
+        def create_chunks_for_page(
+            page_text: str,
+            page_number: int,
+            start_index: int,
+        ) -> tuple[List[DocumentChunk], int]:
+
+            text = normalize_text(page_text)
+
+            if not text:
+                return [], start_index
+
+            paragraphs = [
+                paragraph.strip()
+                for paragraph in text.split("\n\n")
+                if paragraph.strip()
+            ]
+
+            # Convert paragraphs into sentence groups.
+            units: List[str] = []
+
+            for paragraph in paragraphs:
+
+                if len(paragraph) <= chunk_size:
+                    sentences = split_sentences(paragraph)
+
+                    if sentences:
+                        units.extend(sentences)
+                    else:
+                        units.append(paragraph)
+
+                else:
+                    # Very large paragraph: sentence splitting first.
+                    sentences = split_sentences(paragraph)
+
+                    if sentences:
+                        for sentence in sentences:
+                            if len(sentence) <= chunk_size:
+                                units.append(sentence)
+                            else:
+                                units.extend(split_long_text(sentence))
+                    else:
+                        units.extend(split_long_text(paragraph))
+
+            chunks: List[DocumentChunk] = []
+
+            current_units: List[str] = []
+            current_length = 0
+
+            for unit in units:
+
+                unit_length = len(unit)
+
+                additional_length = (
+                    unit_length if not current_units else unit_length + 1
+                )
+
+                # -----------------------------------------------------
+                # Current chunk can accept this unit.
+                # -----------------------------------------------------
+
+                if current_units and current_length + additional_length > chunk_size:
+                    chunk_text = " ".join(current_units).strip()
+
+                    chunks.append(
+                        DocumentChunk(
+                            text=chunk_text,
+                            page_number=page_number,
+                            chunk_index=start_index,
+                        )
+                    )
+
+                    start_index += 1
+
+                    # -------------------------------------------------
+                    # Build overlap from the end of the previous chunk.
+                    # Prefer complete sentences/units.
+                    # -------------------------------------------------
+
+                    overlap_units = []
+                    overlap_length = 0
+
+                    for previous_unit in reversed(current_units):
+
+                        extra_length = (
+                            len(previous_unit)
+                            if not overlap_units
+                            else len(previous_unit) + 1
+                        )
+
+                        if overlap_length + extra_length > overlap:
+                            break
+
+                        overlap_units.insert(0, previous_unit)
+                        overlap_length += extra_length
+
+                    current_units = overlap_units
+                    current_length = overlap_length
+
+                # -----------------------------------------------------
+                # Add current unit.
+                # -----------------------------------------------------
+
+                if not current_units:
+                    current_units = [unit]
+                    current_length = unit_length
+
+                elif current_length + unit_length + 1 <= chunk_size:
+                    current_units.append(unit)
+                    current_length += unit_length + 1
+
+                else:
+                    # This can happen when the overlap itself is large.
+                    chunk_text = " ".join(current_units).strip()
+
+                    chunks.append(
+                        DocumentChunk(
+                            text=chunk_text,
+                            page_number=page_number,
+                            chunk_index=start_index,
+                        )
+                    )
+
+                    start_index += 1
+
+                    current_units = [unit]
+                    current_length = unit_length
+
+            # ---------------------------------------------------------
+            # Final chunk.
+            # ---------------------------------------------------------
+
+            if current_units:
+                chunks.append(
+                    DocumentChunk(
+                        text=" ".join(current_units).strip(),
+                        page_number=page_number,
+                        chunk_index=start_index,
+                    )
+                )
+
+                start_index += 1
+
+            return chunks, start_index
 
         # ---------------------------------------------------------
         # PDF / PAGE-AWARE INPUT
@@ -69,34 +270,13 @@ class EmbeddingService:
                         "Expected every item to be a PDFPage."
                     )
 
-                words = page.text.split()
-
-                if not words:
-                    continue
-
-                step = chunk_size - overlap
-
-                for start in range(0, len(words), step):
-
-                    chunk_words = words[
-                        start : start + chunk_size
-                    ]
-
-                    if not chunk_words:
-                        break
-
-                    chunks.append(
-                        DocumentChunk(
-                            text=" ".join(chunk_words),
-                            page_number=page.page_number,
-                            chunk_index=chunk_index,
-                        )
-                    )
-
-                    chunk_index += 1
-
-                    if start + chunk_size >= len(words):
-                        break
+                page_chunks, chunk_index = create_chunks_for_page(
+                    page.text,
+                    page.page_number,
+                    chunk_index,
+                )
+                
+                chunks.extend(page_chunks)
 
             return chunks
 
@@ -111,32 +291,11 @@ class EmbeddingService:
             if not text:
                 return []
 
-            words = text.split()
-
-            chunks: List[DocumentChunk] = []
-
-            step = chunk_size - overlap
-
-            for start in range(0, len(words), step):
-
-                chunk_words = words[
-                    start : start + chunk_size
-                ]
-
-                if not chunk_words:
-                    break
-
-                chunks.append(
-                    DocumentChunk(
-                        text=" ".join(chunk_words),
-                        page_number=0,
-                        chunk_index=len(chunks),
-                    )
-                )
-
-                if start + chunk_size >= len(words):
-                    break
-
+            chunks, _ = create_chunks_for_page(
+                text,
+                page_number=0,
+                start_index=0,
+            )
             return chunks
 
         raise TypeError(
