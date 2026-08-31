@@ -1,63 +1,126 @@
+from enum import Enum
 from typing import Optional
-from pydantic_settings import BaseSettings
+
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class AIProvider(str, Enum):
+    OLLAMA = "ollama"
+    GEMINI = "gemini"
+    OPENAI = "openai"
+
+
+class AIModel(str, Enum):
+    OLLAMA_LLAMA_3_2 = "llama3.2"
+    OLLAMA_DEEPSEEK_R1 = "deepseek-r1"
+    GEMINI_2_5_FLASH = "gemini-2.5-flash"
+    OPENAI_GPT_4O_MINI = "gpt-4o-mini"
+
+
+class EmbeddingProvider(str, Enum):
+    OLLAMA = "ollama"
+    GEMINI = "gemini"
 
 
 class Settings(BaseSettings):
-    # Project Info
-    PROJECT_NAME: str
-    VERSION: str
+    # ------------------------------------------------------------------
+    # Application
+    # ------------------------------------------------------------------
 
-    # CORS Settings
-    ALLOWED_ORIGINS: str = ""
+    PROJECT_NAME: str = "Hassan AI Engine"
+    VERSION: str = "1.0.0"
 
+    # ------------------------------------------------------------------
     # Database
+    # ------------------------------------------------------------------
+
     DATABASE_URL: str
 
-    # Frontend Reset URL
+    # ------------------------------------------------------------------
+    # Frontend / CORS
+    # ------------------------------------------------------------------
+
     FRONTEND_URL: str
+    ALLOWED_ORIGINS: str = ""
 
+    # ------------------------------------------------------------------
     # Security
+    # ------------------------------------------------------------------
+
     SECRET_KEY: str
-    ALGORITHM: str
-    ACCESS_TOKEN_EXPIRE_MINUTES: int
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
 
-    # AI CONFIGURATION
-    DEFAULT_AI_PROVIDER: str  # Provider used when the user/chat does not explicitly have a provider assigned.
-    DEFAULT_AI_MODEL: str  # Default LLM model for the selected provider.
-    DEFAULT_EMBEDDING_PROVIDER: str # Provider used to generate document/query embeddings.
+    # ------------------------------------------------------------------
+    # AI
+    # ------------------------------------------------------------------
 
+    DEFAULT_AI_PROVIDER: AIProvider = AIProvider.OLLAMA
+    DEFAULT_AI_MODEL: AIModel = AIModel.OLLAMA_LLAMA_3_2
+    DEFAULT_EMBEDDING_PROVIDER: EmbeddingProvider = EmbeddingProvider.OLLAMA
+
+    # ------------------------------------------------------------------
     # AI API Keys
+    # ------------------------------------------------------------------
+
     GEMINI_API_KEY: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
     ANTHROPIC_API_KEY: Optional[str] = None
 
+    # ------------------------------------------------------------------
     # Ollama
-    OLLAMA_BASE_URL: str
-    OLLAMA_LLM_MODEL: str
-    OLLAMA_EMBED_MODEL: str
+    # ------------------------------------------------------------------
 
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OLLAMA_LLM_MODEL: str = "llama3.2"
+    OLLAMA_EMBED_MODEL: str = "nomic-embed-text"
+
+    # ------------------------------------------------------------------
     # Google OAuth
+    # ------------------------------------------------------------------
+
     GOOGLE_CLIENT_ID: Optional[str] = None
 
-    # Email Settings
+    # ------------------------------------------------------------------
+    # Email
+    # ------------------------------------------------------------------
+
     MAIL_USERNAME: Optional[str] = None
     MAIL_PASSWORD: Optional[str] = None
     MAIL_FROM: Optional[str] = None
 
-    # Cloudinary Settings
+    # ------------------------------------------------------------------
+    # Cloudinary
+    # ------------------------------------------------------------------
+
     CLOUDINARY_NAME: str
     CLOUDINARY_API_KEY: str
     CLOUDINARY_API_SECRET: str
 
-    # Redis Settings
-    REDIS_HOST: str
-    REDIS_PORT: int
-    REDIS_URL: str
+    # ------------------------------------------------------------------
+    # Redis
+    # ------------------------------------------------------------------
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        extra = "ignore"
-        case_sensitive = True
+    REDIS_HOST: str = "localhost"
+    REDIS_PORT: int = 6379
+    REDIS_URL: str = "redis://localhost:6379"
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        extra="ignore",
+    )
+
+    # ------------------------------------------------------------------
+    # Provider/model consistency validation
+    # ------------------------------------------------------------------
+
+    @field_validator("DEFAULT_AI_MODEL")
+    @classmethod
+    def validate_default_model(cls, model: AIModel) -> AIModel:
+        return model
+
 
 settings = Settings()

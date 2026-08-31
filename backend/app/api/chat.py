@@ -1,15 +1,22 @@
-from starlette.concurrency import run_in_threadpool
+from __future__ import annotations
+
 import asyncio
+import logging
+from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import get_current_user
-from app.core.config import settings
+from app.core.config import (
+    AIModel,
+    AIProvider,
+    EmbeddingProvider,
+    settings,
+)
 from app.core.rate_limiter import limiter
-from app.db.models import Chat, User
-from app.db.session import SessionLocal, get_db
+from app.db.models import User
 from app.repositories.chat_repo import ChatRepository
 from app.repositories.vector_repo import VectorRepository
 from app.schemas.chat_schema import AIRequest, ChatOut
@@ -17,7 +24,135 @@ from app.services.embedding_service import EmbeddingService
 from app.services.providers.factory import LLMProviderFactory
 from app.utils.pdf_extractor import PDFExtractionError, extract_text_from_pdf
 
-router = APIRouter(prefix="/chat", tags=["chat"])
+logger = logging.getLogger(__name__)
+
+router = APIRouter(
+    prefix="/chat",
+    tags=["chat"],
+)
+
+
+# ============================================================
+# Helpers
+# ============================================================
+
+MODEL_ALIASES: dict[str, AIModel] = {
+    "ollama-llama3.2": AIModel.OLLAMA_LLAMA_3_2,
+    "ollama-deepseek-r1": AIModel.OLLAMA_DEEPSEEK_R1,
+    "openai-gpt-4o-mini": AIModel.OPENAI_GPT_4O_MINI,
+    "gemini-2.5-flash": AIModel.GEMINI_2_5_FLASH,
+}
+
+
+def _parse_ai_provider(value: str | AIProvider) -> AIProvider:
+    """
+    Normalize and validate an AI provider.
+    """
+    if isinstance(value, AIProvider):
+        return value
+
+    try:
+        return AIProvider(str(value).strip().lower())
+    except ValueError as exc:
+        valid = ", ".join(provider.value for provider in AIProvider)
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Unsupported AI provider '{value}'. " f"Supported providers: {valid}."
+            ),
+        ) from exc
+
+
+def _parse_ai_model(value: str | AIModel) -> AIModel:
+    """
+    Normalize and validate an AI model (supporting legacy UI keys).
+    """
+    if isinstance(value, AIModel):
+        return value
+
+    cleaned = str(value).strip()
+
+    if cleaned in MODEL_ALIASES:
+        return MODEL_ALIASES[cleaned]
+
+    try:
+        return AIModel(cleaned)
+    except ValueError as exc:
+        valid = ", ".join(model.value for model in AIModel)
+        raise HTTPException(
+            status_code=400,
+            detail=(f"Unsupported AI model '{value}'. " f"Supported models: {valid}."),
+        ) from exc
+
+
+def _parse_embedding_provider(
+    value: str | EmbeddingProvider,
+) -> EmbeddingProvider:
+    """
+    Normalize and validate an embedding provider.
+    """
+    if isinstance(value, EmbeddingProvider):
+        return value
+
+    try:
+        return EmbeddingProvider(str(value).strip().lower())
+    except ValueError as exc:
+        valid = ", ".join(provider.value for provider in EmbeddingProvider)
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Unsupported embedding provider '{value}'. "
+                f"Supported providers: {valid}."
+            ),
+        ) from exc
+
+
+def _resolve_ai_configuration(
+    *,
+    chat_provider: str | None,
+    chat_model: str | None,
+    requested_model: str | None,
+) -> tuple[AIProvider, AIModel]:
+    """
+    Resolve the effective provider/model configuration.
+
+    If requested_model is supplied, derive the matching provider from
+    the model registry. Otherwise, fallback to the chat's stored provider
+    or application default.
+    """
+    raw_model = requested_model or chat_model or settings.DEFAULT_AI_MODEL.value
+    model = _parse_ai_model(raw_model)
+
+    if requested_model:
+        provider = None
+        for candidate_provider in AIProvider:
+            supported = LLMProviderFactory.get_supported_models(candidate_provider)
+            if model in supported:
+                provider = candidate_provider
+                break
+
+        if provider is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"No provider is registered for model '{model.value}'.",
+            )
+    elif chat_provider:
+        provider = _parse_ai_provider(chat_provider)
+    else:
+        provider = settings.DEFAULT_AI_PROVIDER
+
+    try:
+        provider, model = LLMProviderFactory.validate_configuration(
+            provider=provider,
+            model=model,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
+
+    return provider, model
 
 
 # ============================================================
@@ -29,12 +164,15 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 @limiter.limit("10/minute")
 def create_chat(
     request: Request,
-    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    chat = ChatRepository.create_chat(db, current_user.id)
+    chat = ChatRepository.create_chat(
+        user_id=current_user.id,
+    )
 
-    return {"chat_id": chat.id}
+    return {
+        "chat_id": chat.id,
+    }
 
 
 # ============================================================
@@ -42,16 +180,17 @@ def create_chat(
 # ============================================================
 
 
-@router.get("/all", response_model=list[ChatOut])
+@router.get(
+    "/all",
+    response_model=list[ChatOut],
+)
 @limiter.limit("30/minute")
 def get_all_chats(
     request: Request,
-    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     return ChatRepository.get_all_by_user(
-        db,
-        current_user.id,
+        user_id=current_user.id,
     )
 
 
@@ -65,34 +204,31 @@ def get_all_chats(
 def get_chat_history(
     request: Request,
     chat_id: int,
-    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     chat = ChatRepository.get_by_id(
-        db,
-        chat_id,
-        current_user.id,
+        chat_id=chat_id,
+        user_id=current_user.id,
     )
 
     if not chat:
         raise HTTPException(
             status_code=404,
-            detail="Chat not found",
+            detail="Chat not found.",
         )
 
     messages = ChatRepository.get_history(
-        db,
-        chat_id,
+        chat_id=chat_id,
         limit=50,
     )
 
     return [
         {
-            "role": m.role,
-            "text": m.content,
-            "image_data": m.image_data,
+            "role": message.role,
+            "text": message.content,
+            "image_data": message.image_data,
         }
-        for m in messages
+        for message in messages
     ]
 
 
@@ -106,22 +242,22 @@ def get_chat_history(
 def delete_chat(
     request: Request,
     chat_id: int,
-    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     success = ChatRepository.delete_chat(
-        db,
-        chat_id,
-        current_user.id,
+        chat_id=chat_id,
+        user_id=current_user.id,
     )
 
     if not success:
         raise HTTPException(
             status_code=404,
-            detail="Chat not found",
+            detail="Chat not found.",
         )
 
-    return {"message": "Deleted"}
+    return {
+        "message": "Deleted",
+    }
 
 
 # ============================================================
@@ -135,26 +271,29 @@ def update_chat_title(
     request: Request,
     chat_id: int,
     new_title: str,
-    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     chat = ChatRepository.get_by_id(
-        db,
-        chat_id,
-        current_user.id,
+        chat_id=chat_id,
+        user_id=current_user.id,
     )
 
     if not chat:
         raise HTTPException(
             status_code=404,
-            detail="Chat not found",
+            detail="Chat not found.",
         )
 
     updated_chat = ChatRepository.update_title(
-        db,
-        chat_id,
-        new_title,
+        chat_id=chat_id,
+        new_title=new_title,
     )
+
+    if updated_chat is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Chat not found.",
+        )
 
     return {
         "id": updated_chat.id,
@@ -172,25 +311,26 @@ def update_chat_title(
 def get_chat_details(
     request: Request,
     chat_id: int,
-    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     chat = ChatRepository.get_by_id(
-        db,
-        chat_id,
-        current_user.id,
+        chat_id=chat_id,
+        user_id=current_user.id,
     )
 
     if not chat:
         raise HTTPException(
             status_code=404,
-            detail="Chat not found",
+            detail="Chat not found.",
         )
 
     return {
         "id": chat.id,
         "title": chat.title,
         "pdf_context": chat.pdf_context,
+        "ai_provider": chat.ai_provider,
+        "ai_model": chat.ai_model,
+        "embedding_provider": chat.embedding_provider,
     }
 
 
@@ -204,299 +344,239 @@ def get_chat_details(
 async def ai_stream(
     request: Request,
     req: AIRequest,
-    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # --------------------------------------------------------
+    # Validate prompt
+    # --------------------------------------------------------
+
+    clean_prompt = req.prompt.strip()
+
+    if not clean_prompt:
+        raise HTTPException(
+            status_code=400,
+            detail="Prompt cannot be empty.",
+        )
+
     # --------------------------------------------------------
     # Verify chat ownership
     # --------------------------------------------------------
 
-    chat = (
-        db.query(Chat)
-        .filter(
-            Chat.id == req.chat_id,
-            Chat.user_id == current_user.id,
-        )
-        .first()
+    chat = await asyncio.to_thread(
+        ChatRepository.get_by_id,
+        chat_id=req.chat_id,
+        user_id=current_user.id,
     )
 
     if not chat:
         raise HTTPException(
             status_code=404,
-            detail="Chat not found",
+            detail="Chat not found.",
         )
 
-    clean_prompt = str(req.prompt).strip()
+    # --------------------------------------------------------
+    # Resolve AI configuration
+    # --------------------------------------------------------
+
+    ai_provider, ai_model = _resolve_ai_configuration(
+        chat_provider=chat.ai_provider,
+        chat_model=chat.ai_model,
+        requested_model=req.model,
+    )
+
+    # --------------------------------------------------------
+    # Resolve embedding provider
+    # --------------------------------------------------------
+
+    raw_embedding_provider = (
+        chat.embedding_provider or settings.DEFAULT_EMBEDDING_PROVIDER.value
+    )
+
+    embedding_provider = _parse_embedding_provider(raw_embedding_provider)
 
     # --------------------------------------------------------
     # Save user message
     # --------------------------------------------------------
 
-    await run_in_threadpool(
+    await asyncio.to_thread(
         ChatRepository.add_message,
-        db,
         req.chat_id,
         "user",
         clean_prompt,
         req.image_base64,
     )
 
-    # --------------------------------------------------------
-    # AI / Embedding configuration
-    # --------------------------------------------------------
-
-    ai_provider = chat.ai_provider or settings.DEFAULT_AI_PROVIDER
-    ai_model = req.model or chat.ai_model or settings.DEFAULT_AI_MODEL
-    embedding_provider = (
-        chat.embedding_provider or settings.DEFAULT_EMBEDDING_PROVIDER
-    )
-
-    context_chunks: list[dict] = []
-
     # ========================================================
     # RAG
     # ========================================================
 
-    # Only perform embedding + vector search if this chat
-    # contains uploaded document context.
+    context_chunks: list[dict[str, Any]] = []
 
     if chat.pdf_context:
         query_vector = await EmbeddingService.generate_embedding(
             clean_prompt,
-            model_provider=embedding_provider,
+            model_provider=embedding_provider.value,
         )
 
         if query_vector:
-            context_chunks = await run_in_threadpool(
+            context_chunks = await asyncio.to_thread(
                 VectorRepository.search_similar_chunks,
-                db=db,
                 chat_id=req.chat_id,
                 query_vector=query_vector,
                 top_k=6,
                 max_distance=0.70,
-            )
-
-            # ------------------------------------------------
-            # RAG Debug Output
-            # ------------------------------------------------
-
-            print(
-                "\n🔎 RAG RETRIEVED CONTEXT",
-                flush=True,
-            )
-
-            for i, chunk in enumerate(
-                context_chunks,
-                start=1,
-            ):
-                print(
-                    f"\n--- CHUNK {i} ---",
-                    flush=True,
-                )
-
-                print(
-                    f"Page: {chunk['page_number']}",
-                    flush=True,
-                )
-
-                print(
-                    f"Chunk Index: {chunk['chunk_index']}",
-                    flush=True,
-                )
-
-                print(
-                    f"Distance: {chunk['distance']:.6f}",
-                    flush=True,
-                )
-
-                print(
-                    chunk["content"][:1500],
-                    flush=True,
-                )
-
-            print(
-                "\n🔎 END RAG CONTEXT\n",
-                flush=True,
+                adaptive_margin=0.15,
             )
 
     # ========================================================
-    # Build Grounded Context
+    # Build System Prompt
     # ========================================================
 
     if context_chunks:
-
-        context_parts = []
+        context_parts: list[str] = []
 
         for chunk in context_chunks:
             source_block = (
-                f"[Source]\n"
+                "[Source]\n"
                 f"Page: {chunk['page_number']}\n"
                 f"Chunk Index: {chunk['chunk_index']}\n"
                 f"Vector Distance: {chunk['distance']:.6f}\n"
-                f"Content:\n"
+                "Content:\n"
                 f"{chunk['content']}"
             )
-
             context_parts.append(source_block)
 
         context_str = "\n\n---\n\n".join(context_parts)
 
-        # ====================================================
-        # Strict Document Grounding Prompt
-        # ====================================================
-
         system_prompt = (
             "You are Hassan AI Engine, an intelligent "
             "document-grounded assistant.\n\n"
-            "The user is asking questions about an uploaded "
+            "The user is asking a question about an uploaded "
             "document. The retrieved context below is the "
-            "primary and authoritative source for document "
-            "questions.\n\n"
-            "IMPORTANT RULES:\n"
+            "authoritative source for document-specific claims.\n\n"
+            "RULES:\n"
             "1. Answer document questions strictly from the "
-            "retrieved document context.\n"
+            "retrieved context.\n"
             "2. Do not invent facts that are not supported "
             "by the retrieved context.\n"
             "3. Do not use general knowledge to fill gaps "
             "in the document.\n"
-            "4. Pay close attention to the exact wording "
-            "of the document.\n"
-            "5. Preserve the distinction between headings, "
-            "goals, practices, examples, explanations, "
-            "activities, and testing statements.\n"
-            "6. Do not combine separate statements simply "
+            "4. Preserve the exact distinction between "
+            "headings, goals, practices, examples, "
+            "activities, explanations, and tests.\n"
+            "5. Do not combine separate statements merely "
             "because they occur in the same process area.\n"
-            "7. If the user asks about order or relationship "
-            "such as 'before', 'after', 'during', 'before "
-            "assembly', or 'after integration', follow the "
-            "actual relationship described in the document.\n"
-            "8. If the document explicitly lists items, "
-            "prefer the explicit list rather than creating "
-            "your own list from nearby sentences.\n"
-            "9. If a statement is mentioned separately from "
-            "the main goals, do not incorrectly present it "
-            "as one of those goals.\n"
-            "10. If the retrieved context is insufficient "
-            "to answer the question, clearly say that the "
-            "relevant information was not retrieved instead "
-            "of guessing.\n"
-            "11. Treat temporal words such as 'before', 'after', "
-            "'during', 'then', and 'next' as strict constraints. "
-            "Do not infer a temporal relationship unless the "
-            "retrieved document explicitly supports it.\n"
-            "12. Do not answer a question by combining separate "
-            "sentences merely because they appear in the same "
-            "process area. Each claim must be supported by the "
-            "specific retrieved text.\n"
-            "13. If the question asks 'what activities are performed "
-            "before X', identify only activities explicitly described "
-            "as occurring before X. Do not include activities that "
-            "occur during or after X.\n"
-            "14. If the retrieved context contains relevant information "
-            "but does not explicitly establish the requested order or "
-            "relationship, say that the document context does not "
-            "explicitly establish that relationship.\n"
-            "15. When answering a document question, prefer a concise "
-            "answer directly supported by the retrieved passages over "
-            "a broader explanation assembled from nearby information.\n"
-            "16. When useful, mention the document page "
-            "number supporting the answer.\n\n"
+            "6. Treat temporal words such as before, after, "
+            "during, then, and next as strict constraints.\n"
+            "7. Do not infer a temporal relationship unless "
+            "the retrieved context explicitly supports it.\n"
+            "8. If the user asks for an explicit list, use "
+            "the list supported by the document rather than "
+            "constructing a new list from nearby statements.\n"
+            "9. If the retrieved context is insufficient, "
+            "state that the relevant information was not "
+            "retrieved instead of guessing.\n"
+            "10. When useful, mention the document page "
+            "supporting the answer.\n\n"
             "RETRIEVED DOCUMENT CONTEXT:\n\n"
             f"{context_str}"
         )
-
     else:
-
-        # ====================================================
-        # General AI Mode
-        # ====================================================
-
-
         system_prompt = (
             "You are Hassan AI Engine, a document-grounded assistant.\n\n"
-            "The user has uploaded a document and is asking questions "
-            "in this document-grounded chat.\n\n"
-            "No sufficiently relevant document context was retrieved "
-            "for this question.\n\n"
-            "IMPORTANT RULES:\n"
-            "1. Do NOT answer using general knowledge.\n"
-            "2. Do NOT guess.\n"
-            "3. Do NOT invent information from the document.\n"
-            "4. Clearly tell the user that the relevant information "
-            "was not retrieved from the uploaded document.\n"
+            "The user is asking about an uploaded document, "
+            "but no sufficiently relevant document context "
+            "was retrieved for this question.\n\n"
+            "Do not answer using general knowledge.\n"
+            "Do not guess.\n"
+            "Do not invent information from the document.\n"
+            "Tell the user that the relevant information was "
+            "not retrieved from the uploaded document."
         )
 
     # ========================================================
-    # AI Configuration Debug
+    # Provider
     # ========================================================
 
-    print(
-        "\n🔥 AI CHAT CONFIG"
-        f"\n   Provider: {ai_provider}"
-        f"\n   Model: {ai_model}"
-        f"\n   Embedding: {embedding_provider}\n",
-        flush=True,
+    try:
+        provider = LLMProviderFactory.get_provider(
+            provider=ai_provider,
+            model=ai_model,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
+
+    logger.info(
+        "Starting AI stream chat_id=%s provider=%s model=%s "
+        "embedding_provider=%s retrieved_chunks=%s",
+        req.chat_id,
+        ai_provider.value,
+        ai_model.value,
+        embedding_provider.value,
+        len(context_chunks),
     )
-
-    # ========================================================
-    # Dynamic Provider Selection
-    # ========================================================
-
-    provider = LLMProviderFactory.get_provider(ai_model)
 
     # ========================================================
     # Auto Chat Title
     # ========================================================
 
     if chat.title == "New Chat":
-
         new_title = (
             clean_prompt[:25] + "..." if len(clean_prompt) > 25 else clean_prompt
         )
 
-        ChatRepository.update_title(
-            db,
-            chat.id,
-            new_title,
+        await asyncio.to_thread(
+            ChatRepository.update_title,
+            chat_id=chat.id,
+            new_title=new_title,
         )
 
     # ========================================================
-    # SSE Streaming
+    # Streaming
     # ========================================================
 
     async def event_generator():
-
         full_text = ""
 
         try:
-
             async for token in provider.generate_stream(
                 prompt=clean_prompt,
                 system_prompt=system_prompt,
             ):
-
                 full_text += token
-
                 yield token
 
-        except Exception as e:
+        except Exception:
+            logger.exception(
+                "AI provider stream failed chat_id=%s provider=%s model=%s",
+                req.chat_id,
+                ai_provider.value,
+                ai_model.value,
+            )
 
-            error_msg = f"\n[Provider Execution Error: {str(e)}]"
+            error_message = (
+                "\n[The AI provider is temporarily unavailable. Please try again.]"
+            )
 
-            full_text += error_msg
-
-            yield error_msg
+            full_text += error_message
+            yield error_message
 
         finally:
-
-            if full_text:
-                with SessionLocal() as stream_db:
-                    await run_in_threadpool(
+            if full_text.strip():
+                try:
+                    await asyncio.to_thread(
                         ChatRepository.add_message,
-                        stream_db,
                         req.chat_id,
                         "ai",
                         full_text,
+                    )
+                except Exception:
+                    logger.exception(
+                        "Failed to persist AI response chat_id=%s",
+                        req.chat_id,
                     )
 
     return StreamingResponse(
@@ -506,7 +586,8 @@ async def ai_stream(
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
-            "X-AI-Model": ai_model,
+            "X-AI-Provider": ai_provider.value,
+            "X-AI-Model": ai_model.value,
         },
     )
 
@@ -522,13 +603,12 @@ async def upload_pdf(
     request: Request,
     chat_id: int,
     file: UploadFile = File(...),
-    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    chat = ChatRepository.get_by_id(
-        db,
-        chat_id,
-        current_user.id,
+    chat = await asyncio.to_thread(
+        ChatRepository.get_by_id,
+        chat_id=chat_id,
+        user_id=current_user.id,
     )
 
     if not chat:
@@ -537,24 +617,25 @@ async def upload_pdf(
             detail="Chat session missing or unauthorized.",
         )
 
-    filename = file.filename.lower()
+    filename = (file.filename or "").lower()
+    allowed_extensions = (".pdf", ".txt", ".md", ".json")
 
-    if not filename.endswith((".pdf", ".txt", ".md", ".json")):
+    if not filename.endswith(allowed_extensions):
         raise HTTPException(
             status_code=400,
-            detail=("Unsupported format. " "Allowed formats: .pdf, .txt, .md, .json"),
+            detail="Unsupported format. Allowed formats: .pdf, .txt, .md, .json",
         )
 
     try:
-
         content = await file.read()
 
-        # ----------------------------------------------------
-        # 1. Text Extraction
-        # ----------------------------------------------------
+        if not content:
+            raise HTTPException(
+                status_code=400,
+                detail="File is empty.",
+            )
 
         if filename.endswith(".pdf"):
-
             pages = await run_in_threadpool(
                 extract_text_from_pdf,
                 content,
@@ -563,7 +644,7 @@ async def upload_pdf(
             if not pages:
                 raise HTTPException(
                     status_code=400,
-                    detail=("PDF is empty or contains " "no readable text."),
+                    detail="PDF is empty or contains no readable text.",
                 )
 
             has_text = any(page.text and page.text.strip() for page in pages)
@@ -571,11 +652,9 @@ async def upload_pdf(
             if not has_text:
                 raise HTTPException(
                     status_code=400,
-                    detail=("PDF contains no readable text."),
+                    detail="PDF contains no readable text.",
                 )
-
         else:
-
             text = content.decode(
                 "utf-8",
                 errors="ignore",
@@ -584,24 +663,17 @@ async def upload_pdf(
             if not text.strip():
                 raise HTTPException(
                     status_code=400,
-                    detail=("File is empty or contains " "no readable text."),
+                    detail="File is empty or contains no readable text.",
                 )
 
-        # ----------------------------------------------------
-        # 3. Chunk Document
-        # ----------------------------------------------------
-
         if filename.endswith(".pdf"):
-
             chunks = await run_in_threadpool(
                 EmbeddingService.chunk_text,
                 pages,
                 500,
                 50,
             )
-
         else:
-
             chunks = await run_in_threadpool(
                 EmbeddingService.chunk_text,
                 text,
@@ -609,23 +681,23 @@ async def upload_pdf(
                 50,
             )
 
-        # ----------------------------------------------------
-        # 4. Generate Embeddings in Parallel
-        # ----------------------------------------------------
+        if not chunks:
+            raise HTTPException(
+                status_code=400,
+                detail="No usable document chunks were produced.",
+            )
 
-        embedding_provider = (
-            chat.embedding_provider or settings.DEFAULT_EMBEDDING_PROVIDER
+        embedding_provider = _parse_embedding_provider(
+            chat.embedding_provider or settings.DEFAULT_EMBEDDING_PROVIDER.value
         )
 
         semaphore = asyncio.Semaphore(4)
 
         async def generate_chunk_embedding(chunk):
-
             async with semaphore:
-
                 return await EmbeddingService.generate_embedding(
                     chunk.text,
-                    model_provider=embedding_provider,
+                    model_provider=embedding_provider.value,
                 )
 
         vectors = await asyncio.gather(
@@ -634,66 +706,58 @@ async def upload_pdf(
 
         chunks_with_embeddings = [
             (chunk, vector)
-            for chunk, vector in zip(
-                chunks,
-                vectors,
-            )
+            for chunk, vector in zip(chunks, vectors)
             if vector is not None
         ]
 
         failed_embeddings = len(chunks) - len(chunks_with_embeddings)
 
-        # ----------------------------------------------------
-        # 5. Store Chunks + Embeddings
-        # ----------------------------------------------------
-
-        if chunks_with_embeddings:
-
-            db_objs = await run_in_threadpool(
-                VectorRepository.replace_document_chunks,
-                db=db,
-                chat_id=chat_id,
-                chunks_with_embeddings=chunks_with_embeddings,
-                pdf_context=f"Indexed File: {file.filename}",
-            )
-
-            return {
-                "status": "success",
-                "filename": file.filename,
-                "pdf_context": f"Indexed File: {file.filename}",
-                "chunks_total": len(chunks),
-                "chunks_indexed": len(db_objs),
-                "chunks_failed": failed_embeddings,
-                "message": (
-                    f"Indexed "
-                    f"{len(chunks_with_embeddings)} "
-                    f"of {len(chunks)} chunks into pgvector."
-                ),
-            }
-
-        else:
-
+        if not chunks_with_embeddings:
             raise HTTPException(
                 status_code=500,
-                detail=("Failed to generate " "chunk embeddings."),
+                detail="Failed to generate chunk embeddings.",
             )
 
-    except PDFExtractionError as e:
+        db_objs = await asyncio.to_thread(
+            VectorRepository.replace_document_chunks,
+            chat_id=chat_id,
+            chunks_with_embeddings=chunks_with_embeddings,
+            pdf_context=f"Indexed File: {file.filename}",
+        )
 
+        return {
+            "status": "success",
+            "filename": file.filename,
+            "pdf_context": f"Indexed File: {file.filename}",
+            "chunks_total": len(chunks),
+            "chunks_indexed": len(db_objs),
+            "chunks_failed": failed_embeddings,
+            "embedding_provider": embedding_provider.value,
+            "message": (
+                f"Indexed {len(chunks_with_embeddings)} "
+                f"of {len(chunks)} chunks into pgvector."
+            ),
+        }
+
+    except PDFExtractionError as exc:
         raise HTTPException(
             status_code=400,
-            detail=str(e),
-        )
+            detail=str(exc),
+        ) from exc
 
     except HTTPException:
         raise
 
-    except Exception as e:
+    except Exception as exc:
+        logger.exception(
+            "Document ingestion failed chat_id=%s",
+            chat_id,
+        )
 
         raise HTTPException(
             status_code=500,
-            detail=("Server error during ingestion: " f"{str(e)}"),
-        )
+            detail="Server error during document ingestion.",
+        ) from exc
 
 
 # ============================================================
@@ -707,26 +771,20 @@ def cleanup_chat_messages(
     request: Request,
     chat_id: int,
     after_index: int,
-    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    chat = ChatRepository.get_by_id(
-        db,
-        chat_id,
-        current_user.id,
+    success = ChatRepository.delete_messages_after(
+        chat_id=chat_id,
+        user_id=current_user.id,
+        after_index=after_index,
     )
 
-    if not chat:
+    if not success:
         raise HTTPException(
             status_code=404,
-            detail="Chat not found",
+            detail="Chat not found.",
         )
 
-    ChatRepository.delete_messages_after(
-        db,
-        chat_id,
-        current_user.id,
-        after_index,
-    )
-
-    return {"message": "Database cleaned up successfully"}
+    return {
+        "message": "Messages cleaned up successfully.",
+    }
