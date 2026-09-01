@@ -228,6 +228,7 @@ def get_chat_history(
 
         messages = ChatRepository.get_history(
             chat_id=chat_id,
+            user_id=current_user.id,
             limit=50,
         )
 
@@ -304,19 +305,9 @@ def update_chat_title(
     current_user: User = Depends(get_current_user),
 ):
     try:
-        chat = ChatRepository.get_by_id(
-            chat_id=chat_id,
-            user_id=current_user.id,
-        )
-
-        if not chat:
-            raise HTTPException(
-                status_code=404,
-                detail="Chat not found.",
-            )
-
         updated_chat = ChatRepository.update_title(
             chat_id=chat_id,
+            user_id=current_user.id,
             new_title=new_title,
         )
 
@@ -429,13 +420,47 @@ async def ai_stream(
     )
     embedding_provider = _parse_embedding_provider(raw_embedding_provider)
 
-    await asyncio.to_thread(
-        ChatRepository.add_message,
-        req.chat_id,
-        "user",
-        clean_prompt,
-        req.image_base64,
-    )
+    new_title = None
+    if chat.title == "New Chat":
+        new_title = (
+            clean_prompt[:25] + "..." if len(clean_prompt) > 25 else clean_prompt
+        )
+
+    try:
+        prepared_message = await asyncio.to_thread(
+            ChatRepository.prepare_chat_turn,
+            chat_id=req.chat_id,
+            user_id=current_user.id,
+            content=clean_prompt,
+            new_title=new_title,
+            image_data_list=req.image_base64,
+        )
+    except ValueError as exc:
+        logger.warning(
+            "Failed to prepare chat turn chat_id=%s user_id=%s",
+            req.chat_id,
+            current_user.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except Exception:
+        logger.exception(
+            "Failed to prepare chat turn chat_id=%s user_id=%s",
+            req.chat_id,
+            current_user.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to prepare chat message.",
+        )
+
+    if prepared_message is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Chat not found.",
+        )
 
     context_chunks: list[dict[str, Any]] = []
 
@@ -514,16 +539,6 @@ async def ai_stream(
             detail=str(exc),
         ) from exc
 
-    if chat.title == "New Chat":
-        new_title = (
-            clean_prompt[:25] + "..." if len(clean_prompt) > 25 else clean_prompt
-        )
-        await asyncio.to_thread(
-            ChatRepository.update_title,
-            chat_id=chat.id,
-            new_title=new_title,
-        )
-
     async def event_generator():
         full_text = ""
         stream_succeeded = False
@@ -592,18 +607,29 @@ async def ai_stream(
         finally:
             if stream_succeeded and full_text.strip():
                 try:
-                    await asyncio.to_thread(
+                    persisted_message = await asyncio.to_thread(
                         ChatRepository.add_message,
-                        req.chat_id,
-                        "ai",
-                        full_text,
+                        chat_id=req.chat_id,
+                        user_id=current_user.id,
+                        role="ai",
+                        content=full_text,
                     )
+                    if persisted_message is None:
+                        logger.error(
+                            "AI response persistence rejected chat_id=%s user_id=%s",
+                            req.chat_id,
+                            current_user.id,
+                        )
+                        yield "\n[Response generated but could not be saved. Please retry.]"
+                except asyncio.CancelledError:
+                    raise
                 except Exception:
                     logger.exception(
                         "Failed to persist completed AI response chat_id=%s user_id=%s",
                         req.chat_id,
                         current_user.id,
                     )
+                    yield "\n[Response generated but could not be saved. Please retry.]"
 
     return StreamingResponse(
         event_generator(),

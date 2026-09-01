@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any, Optional
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, select
 
 from app.core.config import settings
 from app.db.models import AILog, Chat, Message
@@ -66,6 +66,7 @@ class ChatRepository:
     @staticmethod
     def update_title(
         chat_id: int,
+        user_id: int,
         new_title: str,
     ) -> Optional[Chat]:
         title = new_title.strip()
@@ -75,7 +76,10 @@ class ChatRepository:
 
         with session_scope() as db:
             chat = db.execute(
-                select(Chat).where(Chat.id == chat_id)
+                select(Chat).where(
+                    Chat.id == chat_id,
+                    Chat.user_id == user_id,
+                )
             ).scalar_one_or_none()
 
             if chat is None:
@@ -107,12 +111,105 @@ class ChatRepository:
             return True
 
     @staticmethod
+    def prepare_chat_turn(
+        chat_id: int,
+        user_id: int,
+        content: str,
+        new_title: Optional[str] = None,
+        image_data_list: Optional[list[str] | str] = None,
+    ) -> Message:
+        """
+        Atomically prepare a new chat turn.
+
+        The transaction verifies chat ownership, optionally updates the
+        chat title, processes message images, and inserts the user
+        message. Any failure rolls back the complete operation.
+        """
+        normalized_content = content.strip()
+
+        if not normalized_content:
+            raise ValueError("Message content cannot be empty.")
+
+        title: Optional[str] = None
+
+        if new_title is not None:
+            title = new_title.strip()
+
+            if not title:
+                raise ValueError("Chat title cannot be empty.")
+
+        cloud_urls: list[str] = []
+
+        if image_data_list:
+            if isinstance(image_data_list, str):
+                try:
+                    images = json.loads(image_data_list)
+                except json.JSONDecodeError as exc:
+                    raise ValueError("image_data_list contains invalid JSON.") from exc
+            else:
+                images = image_data_list
+
+            if not isinstance(images, list):
+                raise ValueError("image_data_list must be a list.")
+
+            for image in images:
+                image_value = str(image)
+
+                if image_value.startswith("http://") or image_value.startswith(
+                    "https://"
+                ):
+                    cloud_urls.append(image_value)
+                    continue
+
+                url = upload_image_to_cloud(
+                    image_value,
+                    folder="chat_messages",
+                )
+
+                if not url:
+                    raise ValueError("Failed to upload chat image.")
+
+                cloud_urls.append(url)
+
+        db_image_data = json.dumps(cloud_urls) if cloud_urls else None
+
+        with session_scope() as db:
+            chat = db.execute(
+                select(Chat).where(
+                    Chat.id == chat_id,
+                    Chat.user_id == user_id,
+                )
+            ).scalar_one_or_none()
+
+            if chat is None:
+                return None
+
+            if title is not None:
+                chat.title = title
+
+            new_message = Message(
+                chat_id=chat.id,
+                role="user",
+                content=normalized_content,
+                image_data=db_image_data,
+            )
+
+            db.add(new_message)
+            db.flush()
+
+            return new_message
+
+    @staticmethod
     def add_message(
         chat_id: int,
+        user_id: int,
         role: str,
         content: str,
         image_data_list: Optional[list[str] | str] = None,
-    ) -> Message:
+    ) -> Optional[Message]:
+        """
+        Insert a message only when the authenticated user owns the chat.
+        """
         normalized_role = role.strip().lower()
 
         if normalized_role not in {"user", "ai", "assistant"}:
@@ -151,19 +248,23 @@ class ChatRepository:
                     folder="chat_messages",
                 )
 
-                if url:
-                    cloud_urls.append(url)
+                if not url:
+                    raise ValueError("Failed to upload chat image.")
+
+                cloud_urls.append(url)
 
         db_image_data = json.dumps(cloud_urls) if cloud_urls else None
 
         with session_scope() as db:
-            # Verify chat exists before inserting the message.
             chat_exists = db.execute(
-                select(Chat.id).where(Chat.id == chat_id)
+                select(Chat.id).where(
+                    Chat.id == chat_id,
+                    Chat.user_id == user_id,
+                )
             ).scalar_one_or_none()
 
             if chat_exists is None:
-                raise ValueError(f"Chat {chat_id} does not exist.")
+                return None
 
             new_message = Message(
                 chat_id=chat_id,
@@ -180,11 +281,15 @@ class ChatRepository:
     @staticmethod
     def update_pdf_context(
         chat_id: int,
+        user_id: int,
         text: str,
     ) -> Optional[Chat]:
         with session_scope() as db:
             chat = db.execute(
-                select(Chat).where(Chat.id == chat_id)
+                select(Chat).where(
+                    Chat.id == chat_id,
+                    Chat.user_id == user_id,
+                )
             ).scalar_one_or_none()
 
             if chat is None:
@@ -218,12 +323,26 @@ class ChatRepository:
     @staticmethod
     def get_history(
         chat_id: int,
+        user_id: int,
         limit: int = 10,
     ) -> list[Message]:
+        """
+        Retrieve message history only for a chat owned by user_id.
+        """
         if limit <= 0:
             raise ValueError("limit must be greater than zero.")
 
         with session_scope() as db:
+            chat_exists = db.execute(
+                select(Chat.id).where(
+                    Chat.id == chat_id,
+                    Chat.user_id == user_id,
+                )
+            ).scalar_one_or_none()
+
+            if chat_exists is None:
+                return []
+
             messages = list(
                 db.execute(
                     select(Message)
@@ -248,7 +367,6 @@ class ChatRepository:
 
         user_id is verified through the chat ownership check.
         """
-
         if after_index < 0:
             raise ValueError("after_index cannot be negative.")
 

@@ -101,7 +101,7 @@ def test_failed_stream_is_not_persisted(client, user_and_chat):
             headers=auth_headers(user),
         )
 
-    history = ChatRepository.get_history(chat_id=chat.id)
+    history = ChatRepository.get_history(chat_id=chat.id, user_id=user.id)
     ai_messages = [m for m in history if m.role == "ai"]
     assert len(ai_messages) == 0
 
@@ -127,7 +127,7 @@ def test_successful_stream_is_persisted(client, user_and_chat):
         )
         assert response.status_code == 200
 
-    history = ChatRepository.get_history(chat_id=chat.id)
+    history = ChatRepository.get_history(chat_id=chat.id, user_id=user.id)
     ai_messages = [m for m in history if m.role == "ai"]
     assert len(ai_messages) == 1
     assert ai_messages[0].content == "Complete AI Response."
