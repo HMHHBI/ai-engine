@@ -53,6 +53,16 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
 
     # ------------------------------------------------------------------
+    # File Upload Security
+    # ------------------------------------------------------------------
+
+    MAX_UPLOAD_SIZE_BYTES: int = 10 * 1024 * 1024
+    MAX_PDF_PAGES: int = 100
+    MAX_EXTRACTED_TEXT_CHARS: int = 2_000_000
+    MAX_DOCUMENT_CHUNKS: int = 5_000
+    MAX_CHUNK_EMBEDDINGS: int = 5_000
+
+    # ------------------------------------------------------------------
     # AI
     # ------------------------------------------------------------------
 
@@ -121,6 +131,24 @@ class Settings(BaseSettings):
     @classmethod
     def validate_default_model(cls, model: AIModel) -> AIModel:
         return model
+
+    # ------------------------------------------------------------------
+    # Upload Validation
+    # ------------------------------------------------------------------
+    
+    @field_validator(
+        "MAX_UPLOAD_SIZE_BYTES",
+        "MAX_PDF_PAGES",
+        "MAX_EXTRACTED_TEXT_CHARS",
+        "MAX_DOCUMENT_CHUNKS",
+        "MAX_CHUNK_EMBEDDINGS",
+        mode="before",
+    )
+    @classmethod
+    def validate_upload_limits(cls, value: int) -> int:
+        if int(value) <= 0:
+            raise ValueError("Upload security limits must be positive.")
+        return int(value)
 
 
 settings = Settings()

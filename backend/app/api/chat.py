@@ -4,7 +4,7 @@ import asyncio
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
@@ -22,7 +22,14 @@ from app.repositories.vector_repo import VectorRepository
 from app.schemas.chat_schema import AIRequest, ChatOut
 from app.services.embedding_service import EmbeddingService
 from app.services.providers.factory import LLMProviderFactory
-from app.utils.pdf_extractor import PDFExtractionError, extract_text_from_pdf
+from app.utils.file_validation import (
+    read_upload_with_limit,
+    sanitize_filename,
+    validate_content_type,
+    validate_extension,
+    validate_pdf_signature,
+)
+from app.utils.pdf_extractor import PDFExtractionError, PDFPage, extract_text_from_pdf
 
 logger = logging.getLogger(__name__)
 
@@ -45,9 +52,6 @@ MODEL_ALIASES: dict[str, AIModel] = {
 
 
 def _parse_ai_provider(value: str | AIProvider) -> AIProvider:
-    """
-    Normalize and validate an AI provider.
-    """
     if isinstance(value, AIProvider):
         return value
 
@@ -57,16 +61,11 @@ def _parse_ai_provider(value: str | AIProvider) -> AIProvider:
         valid = ", ".join(provider.value for provider in AIProvider)
         raise HTTPException(
             status_code=400,
-            detail=(
-                f"Unsupported AI provider '{value}'. " f"Supported providers: {valid}."
-            ),
+            detail=f"Unsupported AI provider '{value}'. Supported providers: {valid}.",
         ) from exc
 
 
 def _parse_ai_model(value: str | AIModel) -> AIModel:
-    """
-    Normalize and validate an AI model (supporting legacy UI keys).
-    """
     if isinstance(value, AIModel):
         return value
 
@@ -81,16 +80,13 @@ def _parse_ai_model(value: str | AIModel) -> AIModel:
         valid = ", ".join(model.value for model in AIModel)
         raise HTTPException(
             status_code=400,
-            detail=(f"Unsupported AI model '{value}'. " f"Supported models: {valid}."),
+            detail=f"Unsupported AI model '{value}'. Supported models: {valid}.",
         ) from exc
 
 
 def _parse_embedding_provider(
     value: str | EmbeddingProvider,
 ) -> EmbeddingProvider:
-    """
-    Normalize and validate an embedding provider.
-    """
     if isinstance(value, EmbeddingProvider):
         return value
 
@@ -100,10 +96,7 @@ def _parse_embedding_provider(
         valid = ", ".join(provider.value for provider in EmbeddingProvider)
         raise HTTPException(
             status_code=400,
-            detail=(
-                f"Unsupported embedding provider '{value}'. "
-                f"Supported providers: {valid}."
-            ),
+            detail=f"Unsupported embedding provider '{value}'. Supported providers: {valid}.",
         ) from exc
 
 
@@ -113,13 +106,6 @@ def _resolve_ai_configuration(
     chat_model: str | None,
     requested_model: str | None,
 ) -> tuple[AIProvider, AIModel]:
-    """
-    Resolve the effective provider/model configuration.
-
-    If requested_model is supplied, derive the matching provider from
-    the model registry. Otherwise, fallback to the chat's stored provider
-    or application default.
-    """
     raw_model = requested_model or chat_model or settings.DEFAULT_AI_MODEL.value
     model = _parse_ai_model(raw_model)
 
@@ -346,10 +332,6 @@ async def ai_stream(
     req: AIRequest,
     current_user: User = Depends(get_current_user),
 ):
-    # --------------------------------------------------------
-    # Validate prompt
-    # --------------------------------------------------------
-
     clean_prompt = req.prompt.strip()
 
     if not clean_prompt:
@@ -357,10 +339,6 @@ async def ai_stream(
             status_code=400,
             detail="Prompt cannot be empty.",
         )
-
-    # --------------------------------------------------------
-    # Verify chat ownership
-    # --------------------------------------------------------
 
     chat = await asyncio.to_thread(
         ChatRepository.get_by_id,
@@ -374,29 +352,16 @@ async def ai_stream(
             detail="Chat not found.",
         )
 
-    # --------------------------------------------------------
-    # Resolve AI configuration
-    # --------------------------------------------------------
-
     ai_provider, ai_model = _resolve_ai_configuration(
         chat_provider=chat.ai_provider,
         chat_model=chat.ai_model,
         requested_model=req.model,
     )
 
-    # --------------------------------------------------------
-    # Resolve embedding provider
-    # --------------------------------------------------------
-
     raw_embedding_provider = (
         chat.embedding_provider or settings.DEFAULT_EMBEDDING_PROVIDER.value
     )
-
     embedding_provider = _parse_embedding_provider(raw_embedding_provider)
-
-    # --------------------------------------------------------
-    # Save user message
-    # --------------------------------------------------------
 
     await asyncio.to_thread(
         ChatRepository.add_message,
@@ -405,10 +370,6 @@ async def ai_stream(
         clean_prompt,
         req.image_base64,
     )
-
-    # ========================================================
-    # RAG
-    # ========================================================
 
     context_chunks: list[dict[str, Any]] = []
 
@@ -429,13 +390,8 @@ async def ai_stream(
                 adaptive_margin=0.15,
             )
 
-    # ========================================================
-    # Build System Prompt
-    # ========================================================
-
     if context_chunks:
         context_parts: list[str] = []
-
         for chunk in context_chunks:
             source_block = (
                 "[Source]\n"
@@ -448,7 +404,6 @@ async def ai_stream(
             context_parts.append(source_block)
 
         context_str = "\n\n---\n\n".join(context_parts)
-
         system_prompt = (
             "You are Hassan AI Engine, an intelligent "
             "document-grounded assistant.\n\n"
@@ -456,29 +411,16 @@ async def ai_stream(
             "document. The retrieved context below is the "
             "authoritative source for document-specific claims.\n\n"
             "RULES:\n"
-            "1. Answer document questions strictly from the "
-            "retrieved context.\n"
-            "2. Do not invent facts that are not supported "
-            "by the retrieved context.\n"
-            "3. Do not use general knowledge to fill gaps "
-            "in the document.\n"
-            "4. Preserve the exact distinction between "
-            "headings, goals, practices, examples, "
-            "activities, explanations, and tests.\n"
-            "5. Do not combine separate statements merely "
-            "because they occur in the same process area.\n"
-            "6. Treat temporal words such as before, after, "
-            "during, then, and next as strict constraints.\n"
-            "7. Do not infer a temporal relationship unless "
-            "the retrieved context explicitly supports it.\n"
-            "8. If the user asks for an explicit list, use "
-            "the list supported by the document rather than "
-            "constructing a new list from nearby statements.\n"
-            "9. If the retrieved context is insufficient, "
-            "state that the relevant information was not "
-            "retrieved instead of guessing.\n"
-            "10. When useful, mention the document page "
-            "supporting the answer.\n\n"
+            "1. Answer document questions strictly from the retrieved context.\n"
+            "2. Do not invent facts that are not supported by the retrieved context.\n"
+            "3. Do not use general knowledge to fill gaps in the document.\n"
+            "4. Preserve the exact distinction between headings, goals, practices, examples, activities, explanations, and tests.\n"
+            "5. Do not combine separate statements merely because they occur in the same process area.\n"
+            "6. Treat temporal words such as before, after, during, then, and next as strict constraints.\n"
+            "7. Do not infer a temporal relationship unless the retrieved context explicitly supports it.\n"
+            "8. If the user asks for an explicit list, use the list supported by the document rather than constructing a new list from nearby statements.\n"
+            "9. If the retrieved context is insufficient, state that the relevant information was not retrieved instead of guessing.\n"
+            "10. When useful, mention the document page supporting the answer.\n\n"
             "RETRIEVED DOCUMENT CONTEXT:\n\n"
             f"{context_str}"
         )
@@ -495,10 +437,6 @@ async def ai_stream(
             "not retrieved from the uploaded document."
         )
 
-    # ========================================================
-    # Provider
-    # ========================================================
-
     try:
         provider = LLMProviderFactory.get_provider(
             provider=ai_provider,
@@ -510,38 +448,18 @@ async def ai_stream(
             detail=str(exc),
         ) from exc
 
-    logger.info(
-        "Starting AI stream chat_id=%s provider=%s model=%s "
-        "embedding_provider=%s retrieved_chunks=%s",
-        req.chat_id,
-        ai_provider.value,
-        ai_model.value,
-        embedding_provider.value,
-        len(context_chunks),
-    )
-
-    # ========================================================
-    # Auto Chat Title
-    # ========================================================
-
     if chat.title == "New Chat":
         new_title = (
             clean_prompt[:25] + "..." if len(clean_prompt) > 25 else clean_prompt
         )
-
         await asyncio.to_thread(
             ChatRepository.update_title,
             chat_id=chat.id,
             new_title=new_title,
         )
 
-    # ========================================================
-    # Streaming
-    # ========================================================
-
     async def event_generator():
         full_text = ""
-
         try:
             async for token in provider.generate_stream(
                 prompt=clean_prompt,
@@ -549,7 +467,6 @@ async def ai_stream(
             ):
                 full_text += token
                 yield token
-
         except Exception:
             logger.exception(
                 "AI provider stream failed chat_id=%s provider=%s model=%s",
@@ -557,14 +474,11 @@ async def ai_stream(
                 ai_provider.value,
                 ai_model.value,
             )
-
             error_message = (
                 "\n[The AI provider is temporarily unavailable. Please try again.]"
             )
-
             full_text += error_message
             yield error_message
-
         finally:
             if full_text.strip():
                 try:
@@ -594,7 +508,7 @@ async def ai_stream(
 
 
 # ============================================================
-# 8. PDF Upload & Ingestion
+# 8. Hardened Document Upload & Ingestion
 # ============================================================
 
 
@@ -618,148 +532,119 @@ async def upload_pdf(
             detail="Chat session missing or unauthorized.",
         )
 
-    filename = (file.filename or "").lower()
-    allowed_extensions = (".pdf", ".txt", ".md", ".json")
+    # 1. Filename sanitization, extension & MIME validation
+    safe_filename = sanitize_filename(file.filename)
+    extension = validate_extension(safe_filename)
+    validate_content_type(extension, file.content_type)
 
-    if not filename.endswith(allowed_extensions):
-        raise HTTPException(
-            status_code=400,
-            detail="Unsupported format. Allowed formats: .pdf, .txt, .md, .json",
-        )
+    # 2. Bounded upload read (RAM limit protection)
+    content = await read_upload_with_limit(file)
 
-    try:
-        content = await file.read()
-
-        if not content:
-            raise HTTPException(
-                status_code=400,
-                detail="File is empty.",
-            )
-
-        if filename.endswith(".pdf"):
+    # 3. Content extraction
+    if extension == ".pdf":
+        validate_pdf_signature(content)
+        try:
             pages = await run_in_threadpool(
                 extract_text_from_pdf,
                 content,
             )
-
-            if not pages:
-                raise HTTPException(
-                    status_code=400,
-                    detail="PDF is empty or contains no readable text.",
-                )
-
-            has_text = any(page.text and page.text.strip() for page in pages)
-
-            if not has_text:
-                raise HTTPException(
-                    status_code=400,
-                    detail="PDF contains no readable text.",
-                )
-        else:
-            text = content.decode(
-                "utf-8",
-                errors="ignore",
-            )
-
-            if not text.strip():
-                raise HTTPException(
-                    status_code=400,
-                    detail="File is empty or contains no readable text.",
-                )
-
-        if filename.endswith(".pdf"):
-            chunks = await run_in_threadpool(
-                EmbeddingService.chunk_text,
-                pages,
-                500,
-                50,
-            )
-        else:
-            chunks = await run_in_threadpool(
-                EmbeddingService.chunk_text,
-                text,
-                500,
-                50,
-            )
-
-        if not chunks:
+        except PDFExtractionError as exc:
             raise HTTPException(
                 status_code=400,
-                detail="No usable document chunks were produced.",
-            )
-
-        embedding_provider = _parse_embedding_provider(
-            chat.embedding_provider or settings.DEFAULT_EMBEDDING_PROVIDER.value
-        )
-
-        semaphore = asyncio.Semaphore(4)
-
-        async def generate_chunk_embedding(chunk):
-            async with semaphore:
-                return await EmbeddingService.generate_embedding(
-                    chunk.text,
-                    model_provider=embedding_provider.value,
-                )
-
-        vectors = await asyncio.gather(
-            *[generate_chunk_embedding(chunk) for chunk in chunks]
-        )
-
-        chunks_with_embeddings = [
-            (chunk, vector)
-            for chunk, vector in zip(chunks, vectors)
-            if vector is not None
-        ]
-
-        failed_embeddings = len(chunks) - len(chunks_with_embeddings)
-
-        if not chunks_with_embeddings:
+                detail=str(exc),
+            ) from exc
+    else:
+        try:
+            text = content.decode("utf-8")
+        except UnicodeDecodeError as exc:
             raise HTTPException(
-                status_code=500,
-                detail="Failed to generate chunk embeddings.",
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                detail="Text file must be valid UTF-8.",
+            ) from exc
+
+        if not text.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="File is empty or contains no readable text.",
             )
+        pages = [PDFPage(page_number=1, text=text)]
 
-        db_objs = await asyncio.to_thread(
-            VectorRepository.replace_document_chunks,
-            user_id=current_user.id,
-            chat_id=chat_id,
-            chunks_with_embeddings=chunks_with_embeddings,
-            pdf_context=f"Indexed File: {file.filename}",
-        )
+    # 4. Chunking and limits
+    chunks = await run_in_threadpool(
+        EmbeddingService.chunk_text,
+        pages,
+        500,
+        50,
+    )
 
-        return {
-            "status": "success",
-            "filename": file.filename,
-            "pdf_context": f"Indexed File: {file.filename}",
-            "chunks_total": len(chunks),
-            "chunks_indexed": len(db_objs),
-            "chunks_failed": failed_embeddings,
-            "embedding_provider": embedding_provider.value,
-            "message": (
-                f"Indexed {len(chunks_with_embeddings)} "
-                f"of {len(chunks)} chunks into pgvector."
-            ),
-        }
-
-    except PDFExtractionError as exc:
+    if not chunks:
         raise HTTPException(
             status_code=400,
-            detail=str(exc),
-        ) from exc
-
-    except HTTPException:
-        raise
-
-    except Exception as exc:
-        logger.exception(
-            "Document ingestion failed chat_id=%s",
-            chat_id,
+            detail="No usable document chunks were produced.",
         )
 
+    if len(chunks) > settings.MAX_DOCUMENT_CHUNKS:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Document produces too many chunks for processing.",
+        )
+
+    if len(chunks) > settings.MAX_CHUNK_EMBEDDINGS:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Document exceeds the maximum embedding workload.",
+        )
+
+    embedding_provider = _parse_embedding_provider(
+        chat.embedding_provider or settings.DEFAULT_EMBEDDING_PROVIDER.value
+    )
+
+    semaphore = asyncio.Semaphore(4)
+
+    async def generate_chunk_embedding(chunk):
+        async with semaphore:
+            return await EmbeddingService.generate_embedding(
+                chunk.text,
+                model_provider=embedding_provider.value,
+            )
+
+    vectors = await asyncio.gather(
+        *[generate_chunk_embedding(chunk) for chunk in chunks]
+    )
+
+    chunks_with_embeddings = [
+        (chunk, vector) for chunk, vector in zip(chunks, vectors) if vector is not None
+    ]
+
+    failed_embeddings = len(chunks) - len(chunks_with_embeddings)
+
+    if not chunks_with_embeddings:
         raise HTTPException(
             status_code=500,
-            detail="Server error during document ingestion.",
-        ) from exc
+            detail="Failed to generate chunk embeddings.",
+        )
+
+    db_objs = await asyncio.to_thread(
+        VectorRepository.replace_document_chunks,
+        user_id=current_user.id,
+        chat_id=chat_id,
+        chunks_with_embeddings=chunks_with_embeddings,
+        pdf_context=f"Indexed File: {safe_filename}",
+    )
+
+    return {
+        "status": "success",
+        "filename": safe_filename,
+        "pdf_context": f"Indexed File: {safe_filename}",
+        "chunks_total": len(chunks),
+        "chunks_indexed": len(db_objs),
+        "chunks_failed": failed_embeddings,
+        "embedding_provider": embedding_provider.value,
+        "message": (
+            f"Indexed {len(chunks_with_embeddings)} "
+            f"of {len(chunks)} chunks into pgvector."
+        ),
+    }
 
 
 # ============================================================
