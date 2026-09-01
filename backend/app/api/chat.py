@@ -21,6 +21,11 @@ from app.repositories.chat_repo import ChatRepository
 from app.repositories.vector_repo import VectorRepository
 from app.schemas.chat_schema import AIRequest, ChatOut
 from app.services.embedding_service import EmbeddingService
+from app.services.providers.errors import (
+    AIProviderError,
+    AIProviderTimeout,
+    AIProviderUnavailable,
+)
 from app.services.providers.factory import LLMProviderFactory
 from app.utils.file_validation import (
     read_upload_with_limit,
@@ -528,19 +533,61 @@ async def ai_stream(
                 prompt=clean_prompt,
                 system_prompt=system_prompt,
             ):
+                if await request.is_disconnected():
+                    logger.info(
+                        "Client disconnected during AI stream chat_id=%s user_id=%s",
+                        req.chat_id,
+                        current_user.id,
+                    )
+                    raise asyncio.CancelledError
+
+                if not token:
+                    continue
+
                 full_text += token
                 yield token
 
             stream_succeeded = True
 
-        except Exception:
-            logger.exception(
-                "AI provider stream failed chat_id=%s provider=%s model=%s",
+        except asyncio.CancelledError:
+            logger.info(
+                "AI stream cancelled chat_id=%s user_id=%s",
                 req.chat_id,
-                ai_provider.value,
-                ai_model.value,
+                current_user.id,
+            )
+            raise
+
+        except AIProviderTimeout:
+            logger.warning(
+                "AI stream timeout chat_id=%s user_id=%s",
+                req.chat_id,
+                current_user.id,
+            )
+            yield "\n[The AI provider timed out. Please try again.]"
+
+        except AIProviderUnavailable:
+            logger.warning(
+                "AI provider unavailable chat_id=%s user_id=%s",
+                req.chat_id,
+                current_user.id,
             )
             yield "\n[The AI provider is temporarily unavailable. Please try again.]"
+
+        except AIProviderError:
+            logger.exception(
+                "AI provider stream failure chat_id=%s user_id=%s",
+                req.chat_id,
+                current_user.id,
+            )
+            yield "\n[Unable to complete the AI request.]"
+
+        except Exception:
+            logger.exception(
+                "Unexpected AI stream failure chat_id=%s user_id=%s",
+                req.chat_id,
+                current_user.id,
+            )
+            yield "\n[Unable to complete the request right now.]"
 
         finally:
             if stream_succeeded and full_text.strip():
@@ -553,8 +600,9 @@ async def ai_stream(
                     )
                 except Exception:
                     logger.exception(
-                        "Failed to persist AI response chat_id=%s",
+                        "Failed to persist completed AI response chat_id=%s user_id=%s",
                         req.chat_id,
+                        current_user.id,
                     )
 
     return StreamingResponse(
@@ -768,7 +816,9 @@ def cleanup_chat_messages(
         raise
     except Exception:
         logger.exception(
-            "Failed to cleanup messages chat_id=%s user_id=%s", chat_id, current_user.id
+            "Failed to cleanup messages chat_id=%s user_id=%s",
+            chat_id,
+            current_user.id,
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

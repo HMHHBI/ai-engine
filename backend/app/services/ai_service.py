@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import random
 from typing import AsyncGenerator
 
 from app.core.config import AIModel, AIProvider
 from app.services.cache.memory_cache import MemoryCache
+from app.services.providers.errors import (
+    AIProviderConfigurationError,
+    AIProviderError,
+    AIProviderTimeout,
+    AIProviderUnavailable,
+)
 from app.services.providers.factory import LLMProviderFactory
 from app.services.rate_limit.memory_rate_limiter import MemoryRateLimiter
 
@@ -39,10 +46,8 @@ class AIService:
             return AIProvider(str(provider).strip().lower())
         except ValueError as exc:
             valid = ", ".join(item.value for item in AIProvider)
-
             raise ValueError(
-                f"Unsupported AI provider '{provider}'. "
-                f"Supported providers: {valid}."
+                f"Unsupported AI provider '{provider}'. Supported providers: {valid}."
             ) from exc
 
     @staticmethod
@@ -56,9 +61,8 @@ class AIService:
             return AIModel(str(model).strip())
         except ValueError as exc:
             valid = ", ".join(item.value for item in AIModel)
-
             raise ValueError(
-                f"Unsupported AI model '{model}'. " f"Supported models: {valid}."
+                f"Unsupported AI model '{model}'. Supported models: {valid}."
             ) from exc
 
     @staticmethod
@@ -85,17 +89,6 @@ class AIService:
         provider: AIProvider | str = AIProvider.OLLAMA,
         model: AIModel | str = AIModel.OLLAMA_LLAMA_3_2,
     ) -> AsyncGenerator[str, None]:
-        """
-        Execute an LLM request and stream tokens.
-
-        Provider and model are intentionally separate parameters.
-        The factory validates that the selected combination is legal.
-        """
-
-        # --------------------------------------------------------
-        # Validate input
-        # --------------------------------------------------------
-
         clean_prompt = prompt.strip()
 
         if not clean_prompt:
@@ -104,7 +97,6 @@ class AIService:
 
         try:
             normalized_provider = self._normalize_provider(provider)
-
             normalized_model = self._normalize_model(model)
 
             normalized_provider, normalized_model = (
@@ -113,31 +105,18 @@ class AIService:
                     model=normalized_model,
                 )
             )
-
-        except ValueError as exc:
+        except ValueError:
             logger.warning(
                 "Invalid AI configuration provider=%s model=%s",
                 provider,
                 model,
             )
-
-            yield f"[Configuration Error: {exc}]"
+            yield "[Configuration Error: invalid AI configuration.]"
             return
-
-        # --------------------------------------------------------
-        # Rate limiting
-        # --------------------------------------------------------
 
         if not self.rate_limiter.allow(user_id):
-            yield (
-                "Rate limit exceeded. "
-                "Please wait a moment before sending more messages."
-            )
+            yield "Rate limit exceeded. Please wait a moment before sending more messages."
             return
-
-        # --------------------------------------------------------
-        # System prompt
-        # --------------------------------------------------------
 
         system_instructions = {
             "email": (
@@ -152,7 +131,7 @@ class AIService:
                 "You are a senior full-stack software engineer. "
                 "Provide production-quality technical solutions."
             ),
-            "general": ("You are a helpful and intelligent AI assistant."),
+            "general": "You are a helpful and intelligent AI assistant.",
         }
 
         base_instruction = system_instructions.get(
@@ -166,34 +145,26 @@ class AIService:
             system_prompt += (
                 "\n\n"
                 "DOCUMENT GROUNDING RULES:\n"
-                "1. Answer document-specific questions only "
-                "from the provided document context.\n"
+                "1. Answer document-specific questions only from the provided document context.\n"
                 "2. Do not invent facts not supported by the context.\n"
-                "3. Do not use general knowledge to fill missing "
-                "document information.\n"
-                "4. If the context is insufficient, explicitly "
-                "say so instead of guessing.\n\n"
+                "3. Do not use general knowledge to fill missing document information.\n"
+                "4. If the context is insufficient, explicitly say so instead of guessing.\n\n"
                 "[DOCUMENT CONTEXT]\n"
                 f"{rag_context}"
             )
-
-        # --------------------------------------------------------
-        # Provider
-        # --------------------------------------------------------
 
         try:
             llm_provider = LLMProviderFactory.get_provider(
                 provider=normalized_provider,
                 model=normalized_model,
             )
-        except ValueError as exc:
+        except ValueError:
             logger.warning(
                 "Provider creation failed provider=%s model=%s",
                 normalized_provider.value,
                 normalized_model.value,
             )
-
-            yield f"[Configuration Error: {exc}]"
+            yield "[Configuration Error: invalid AI configuration.]"
             return
 
         logger.info(
@@ -204,10 +175,6 @@ class AIService:
             task,
         )
 
-        # --------------------------------------------------------
-        # Stream
-        # --------------------------------------------------------
-
         try:
             async for chunk in llm_provider.generate_stream(
                 prompt=clean_prompt,
@@ -215,17 +182,61 @@ class AIService:
                 history=chat_history,
                 temperature=0.2,
             ):
-                yield chunk
+                if chunk:
+                    yield chunk
 
-        except Exception:
-            logger.exception(
-                "AIService stream failed " "user_id=%s provider=%s model=%s",
+        except asyncio.CancelledError:
+            logger.info(
+                "AI stream cancelled user_id=%s provider=%s model=%s",
                 user_id,
                 normalized_provider.value,
                 normalized_model.value,
             )
+            raise
 
-            yield (f"\n[System Error: {self._fallback()}]")
+        except AIProviderTimeout:
+            logger.warning(
+                "AI provider timeout user_id=%s provider=%s model=%s",
+                user_id,
+                normalized_provider.value,
+                normalized_model.value,
+            )
+            yield "\n[The AI provider timed out. Please try again.]"
+
+        except AIProviderUnavailable:
+            logger.warning(
+                "AI provider unavailable user_id=%s provider=%s model=%s",
+                user_id,
+                normalized_provider.value,
+                normalized_model.value,
+            )
+            yield "\n[The AI provider is temporarily unavailable. Please try again.]"
+
+        except AIProviderConfigurationError:
+            logger.error(
+                "AI provider configuration failure provider=%s model=%s",
+                normalized_provider.value,
+                normalized_model.value,
+            )
+            yield "\n[The AI provider is not configured correctly.]"
+
+        except AIProviderError:
+            logger.exception(
+                "AI provider error user_id=%s provider=%s model=%s",
+                user_id,
+                normalized_provider.value,
+                normalized_model.value,
+            )
+            yield "\n[The AI provider could not complete the request.]"
+
+        except Exception:
+            logger.exception(
+                "AIService stream failed user_id=%s provider=%s model=%s",
+                user_id,
+                normalized_provider.value,
+                normalized_model.value,
+            )
+            yield f"\n[System Error: {self._fallback()}]"
 
     # ============================================================
     # Chat Title
@@ -237,11 +248,6 @@ class AIService:
         provider: AIProvider | str = AIProvider.OLLAMA,
         model: AIModel | str = AIModel.OLLAMA_LLAMA_3_2,
     ) -> str:
-        """
-        Generate a short title using the explicitly selected
-        provider/model combination.
-        """
-
         clean_prompt = prompt.strip()
 
         if not clean_prompt:
@@ -249,7 +255,6 @@ class AIService:
 
         try:
             normalized_provider = self._normalize_provider(provider)
-
             normalized_model = self._normalize_model(model)
 
             normalized_provider, normalized_model = (
@@ -277,14 +282,12 @@ class AIService:
                 return clean_prompt[:25]
 
             title = response.strip().replace('"', "").replace("'", "")
-
             return title[:80]
 
         except Exception:
             logger.exception(
-                "Failed to generate chat title " "provider=%s model=%s",
+                "Failed to generate chat title provider=%s model=%s",
                 provider,
                 model,
             )
-
             return clean_prompt[:25]

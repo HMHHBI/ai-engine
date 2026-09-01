@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from typing import AsyncGenerator, Dict, List, Optional
 
@@ -11,10 +13,10 @@ class BaseLLMProvider(ABC):
         system_prompt: Optional[str] = None,
         history: Optional[List[Dict[str, str]]] = None,
         temperature: float = 0.2,
-        **kwargs
+        **kwargs,
     ) -> str:
-        """Non-streaming text response"""
-        pass
+        """Generate a complete non-streaming response."""
+        raise NotImplementedError
 
     @abstractmethod
     async def generate_stream(
@@ -23,7 +25,7 @@ class BaseLLMProvider(ABC):
         system_prompt: Optional[str] = None,
         history: Optional[List[Dict[str, str]]] = None,
         temperature: float = 0.2,
-        **kwargs
+        **kwargs,
     ) -> AsyncGenerator[str, None]:
-        """True SSE Token-by-token streaming response"""
-        pass
+        """Generate a cancellable asynchronous token stream."""
+        raise NotImplementedError

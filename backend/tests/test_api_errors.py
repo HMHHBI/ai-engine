@@ -8,6 +8,7 @@ import pytest
 from app.core.security import create_access_token
 from app.repositories.chat_repo import ChatRepository
 from app.repositories.user_repo import UserRepository
+from app.services.providers.errors import AIProviderUnavailable
 from app.utils.pdf_extractor import PDFExtractionError
 
 
@@ -57,7 +58,7 @@ def test_stream_provider_failure_yields_safe_message(client, user_and_chat):
 
     async def mock_failing_stream(*args, **kwargs):
         yield "Initial tokens "
-        raise RuntimeError("Upstream provider exploded")
+        raise AIProviderUnavailable()
 
     mock_provider = MagicMock()
     mock_provider.generate_stream = mock_failing_stream
@@ -77,14 +78,15 @@ def test_stream_provider_failure_yields_safe_message(client, user_and_chat):
         assert (
             "[The AI provider is temporarily unavailable. Please try again.]" in content
         )
-        assert "Upstream provider exploded" not in content
 
 
 def test_failed_stream_is_not_persisted(client, user_and_chat):
     user, chat = user_and_chat
 
     async def mock_failing_stream(*args, **kwargs):
-        raise RuntimeError("Upstream provider died immediately")
+        if False:
+            yield "never reached"
+        raise AIProviderUnavailable()
 
     mock_provider = MagicMock()
     mock_provider.generate_stream = mock_failing_stream
