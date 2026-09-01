@@ -421,6 +421,7 @@ async def ai_stream(
         if query_vector:
             context_chunks = await asyncio.to_thread(
                 VectorRepository.search_similar_chunks,
+                user_id=current_user.id,
                 chat_id=req.chat_id,
                 query_vector=query_vector,
                 top_k=6,
@@ -720,6 +721,7 @@ async def upload_pdf(
 
         db_objs = await asyncio.to_thread(
             VectorRepository.replace_document_chunks,
+            user_id=current_user.id,
             chat_id=chat_id,
             chunks_with_embeddings=chunks_with_embeddings,
             pdf_context=f"Indexed File: {file.filename}",
