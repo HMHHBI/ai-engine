@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import AsyncGenerator, Dict, List, Optional
-
 import httpx
 
 from app.core.config import settings
@@ -22,7 +22,9 @@ class OllamaProvider(BaseLLMProvider):
         self,
         model_name: str = "llama3.2",
         *,
-        timeout: float = 120.0,
+        connect_timeout: float = 10.0,
+        read_timeout: float = 60.0,
+        total_timeout: float = 120.0,
     ) -> None:
         self.base_url = getattr(
             settings,
@@ -30,7 +32,13 @@ class OllamaProvider(BaseLLMProvider):
             "http://host.docker.internal:11434",
         ).rstrip("/")
         self.model = model_name
-        self.timeout = timeout
+        self.timeout_config = httpx.Timeout(
+            timeout=total_timeout,
+            connect=connect_timeout,
+            read=read_timeout,
+            write=10.0,
+            pool=5.0,
+        )
 
     @staticmethod
     def _build_messages(
@@ -39,25 +47,11 @@ class OllamaProvider(BaseLLMProvider):
         history: Optional[List[Dict[str, str]]],
     ) -> list[dict[str, str]]:
         messages: list[dict[str, str]] = []
-
         if system_prompt:
-            messages.append(
-                {
-                    "role": "system",
-                    "content": system_prompt,
-                }
-            )
-
+            messages.append({"role": "system", "content": system_prompt})
         if history:
             messages.extend(history)
-
-        messages.append(
-            {
-                "role": "user",
-                "content": prompt,
-            }
-        )
-
+        messages.append({"role": "user", "content": prompt})
         return messages
 
     async def generate_response(
@@ -68,44 +62,23 @@ class OllamaProvider(BaseLLMProvider):
         temperature: float = 0.2,
         **kwargs,
     ) -> str:
-        messages = self._build_messages(
-            prompt,
-            system_prompt,
-            history,
-        )
+        messages = self._build_messages(prompt, system_prompt, history)
+        timeout = kwargs.get("timeout", self.timeout_config)
 
         try:
-            timeout = kwargs.get(
-                "timeout",
-                self.timeout,
-            )
-
-            async with httpx.AsyncClient(
-                timeout=timeout,
-            ) as client:
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.post(
                     f"{self.base_url}/api/chat",
                     json={
                         "model": self.model,
                         "messages": messages,
                         "stream": False,
-                        "options": {
-                            "temperature": temperature,
-                        },
+                        "options": {"temperature": temperature},
                     },
                 )
-
                 response.raise_for_status()
-
                 data = response.json()
-
-                content = data.get(
-                    "message",
-                    {},
-                ).get(
-                    "content",
-                    "",
-                )
+                content = data.get("message", {}).get("content", "")
 
                 if not isinstance(content, str):
                     raise AIProviderResponseError(
@@ -115,12 +88,8 @@ class OllamaProvider(BaseLLMProvider):
                 return content
 
         except httpx.TimeoutException as exc:
-            logger.warning(
-                "Ollama request timed out model=%s",
-                self.model,
-            )
+            logger.warning("Ollama request timed out model=%s", self.model)
             raise AIProviderTimeout() from exc
-
         except httpx.HTTPStatusError as exc:
             logger.warning(
                 "Ollama returned HTTP error status=%s model=%s",
@@ -128,12 +97,8 @@ class OllamaProvider(BaseLLMProvider):
                 self.model,
             )
             raise AIProviderUnavailable() from exc
-
         except httpx.RequestError as exc:
-            logger.warning(
-                "Ollama network request failed model=%s",
-                self.model,
-            )
+            logger.warning("Ollama network request failed model=%s", self.model)
             raise AIProviderUnavailable() from exc
 
     async def generate_stream(
@@ -144,21 +109,11 @@ class OllamaProvider(BaseLLMProvider):
         temperature: float = 0.2,
         **kwargs,
     ) -> AsyncGenerator[str, None]:
-        messages = self._build_messages(
-            prompt,
-            system_prompt,
-            history,
-        )
-
-        timeout = kwargs.get(
-            "timeout",
-            self.timeout,
-        )
+        messages = self._build_messages(prompt, system_prompt, history)
+        timeout = kwargs.get("timeout", self.timeout_config)
 
         try:
-            async with httpx.AsyncClient(
-                timeout=timeout,
-            ) as client:
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 async with client.stream(
                     "POST",
                     f"{self.base_url}/api/chat",
@@ -166,9 +121,7 @@ class OllamaProvider(BaseLLMProvider):
                         "model": self.model,
                         "messages": messages,
                         "stream": True,
-                        "options": {
-                            "temperature": temperature,
-                        },
+                        "options": {"temperature": temperature},
                     },
                 ) as response:
                     response.raise_for_status()
@@ -185,24 +138,15 @@ class OllamaProvider(BaseLLMProvider):
                             ) from exc
 
                         content = data.get("message", {}).get("content", "")
-
                         if content:
                             yield content
 
         except asyncio.CancelledError:
-            logger.info(
-                "Ollama stream cancelled model=%s",
-                self.model,
-            )
+            logger.info("Ollama stream cancelled model=%s", self.model)
             raise
-
         except httpx.TimeoutException as exc:
-            logger.warning(
-                "Ollama stream timed out model=%s",
-                self.model,
-            )
+            logger.warning("Ollama stream timed out model=%s", self.model)
             raise AIProviderTimeout() from exc
-
         except httpx.HTTPStatusError as exc:
             logger.warning(
                 "Ollama stream HTTP error status=%s model=%s",
@@ -210,10 +154,6 @@ class OllamaProvider(BaseLLMProvider):
                 self.model,
             )
             raise AIProviderUnavailable() from exc
-
         except httpx.RequestError as exc:
-            logger.warning(
-                "Ollama stream network failure model=%s",
-                self.model,
-            )
+            logger.warning("Ollama stream network failure model=%s", self.model)
             raise AIProviderUnavailable() from exc

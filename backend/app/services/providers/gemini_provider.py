@@ -36,7 +36,6 @@ class GeminiProvider(BaseLLMProvider):
         )
 
         self.client = genai.Client(api_key=api_key) if api_key else None
-
         self.model_name = model_name
         self.timeout = timeout
 
@@ -49,28 +48,20 @@ class GeminiProvider(BaseLLMProvider):
         full_text = ""
 
         if system_prompt:
-            full_text += f"System Instruction:\n" f"{system_prompt}\n\n"
+            full_text += f"System Instruction:\n{system_prompt}\n\n"
 
         if history:
             for msg in history:
-                role = msg.get(
-                    "role",
-                    "user",
-                )
-                text = msg.get(
-                    "content",
-                    msg.get("text", ""),
-                )
-                full_text += f"{role.capitalize()}: " f"{text}\n"
+                role = msg.get("role", "user")
+                text = msg.get("content", msg.get("text", ""))
+                full_text += f"{role.capitalize()}: {text}\n"
 
         full_text += f"User: {prompt}"
-
         return full_text
 
     def _require_client(self):
         if not self.client:
             raise AIProviderConfigurationError("Gemini provider is not configured.")
-
         return self.client
 
     async def generate_response(
@@ -82,17 +73,8 @@ class GeminiProvider(BaseLLMProvider):
         **kwargs,
     ) -> str:
         client = self._require_client()
-
-        contents = self._format_contents(
-            prompt,
-            system_prompt,
-            history,
-        )
-
-        timeout = kwargs.get(
-            "timeout",
-            self.timeout,
-        )
+        contents = self._format_contents(prompt, system_prompt, history)
+        timeout = kwargs.get("timeout", self.timeout)
 
         try:
             result = await asyncio.wait_for(
@@ -104,36 +86,19 @@ class GeminiProvider(BaseLLMProvider):
                 timeout=timeout,
             )
 
-            text = getattr(
-                result,
-                "text",
-                None,
-            )
-
+            text = getattr(result, "text", None)
             if not text:
                 raise AIProviderResponseError("Gemini returned an empty response.")
-
             return text
 
         except asyncio.TimeoutError as exc:
-            logger.warning(
-                "Gemini request timed out model=%s",
-                self.model_name,
-            )
+            logger.warning("Gemini request timed out model=%s", self.model_name)
             raise AIProviderTimeout() from exc
-
         except asyncio.CancelledError:
-            logger.info(
-                "Gemini request cancelled model=%s",
-                self.model_name,
-            )
+            logger.info("Gemini request cancelled model=%s", self.model_name)
             raise
-
         except APIError as exc:
-            logger.warning(
-                "Gemini API request failed model=%s",
-                self.model_name,
-            )
+            logger.warning("Gemini API request failed model=%s", self.model_name)
             raise AIProviderUnavailable() from exc
 
     async def generate_stream(
@@ -145,20 +110,11 @@ class GeminiProvider(BaseLLMProvider):
         **kwargs,
     ) -> AsyncGenerator[str, None]:
         client = self._require_client()
-
-        contents = self._format_contents(
-            prompt,
-            system_prompt,
-            history,
-        )
-
-        timeout = kwargs.get(
-            "timeout",
-            self.timeout,
-        )
+        contents = self._format_contents(prompt, system_prompt, history)
+        timeout = kwargs.get("timeout", self.timeout)
 
         loop = asyncio.get_running_loop()
-        queue: asyncio.Queue = asyncio.Queue()
+        queue: asyncio.Queue = asyncio.Queue(maxsize=32)
         sentinel = object()
         stop_event = threading.Event()
 
@@ -173,39 +129,23 @@ class GeminiProvider(BaseLLMProvider):
                     if stop_event.is_set():
                         break
 
-                    text = getattr(
-                        chunk,
-                        "text",
-                        None,
-                    )
-
+                    text = getattr(chunk, "text", None)
                     if text:
-                        asyncio.run_coroutine_threadsafe(
-                            queue.put(text),
-                            loop,
-                        ).result()
+                        loop.call_soon_threadsafe(queue.put_nowait, text)
 
             except BaseException as exc:
-                asyncio.run_coroutine_threadsafe(
-                    queue.put(exc),
-                    loop,
-                ).result()
-
+                if not stop_event.is_set():
+                    loop.call_soon_threadsafe(queue.put_nowait, exc)
             finally:
-                asyncio.run_coroutine_threadsafe(
-                    queue.put(sentinel),
-                    loop,
-                ).result()
+                loop.call_soon_threadsafe(queue.put_nowait, sentinel)
 
-        worker_task = asyncio.create_task(asyncio.to_thread(worker))
+        worker_thread = threading.Thread(target=worker, daemon=True)
+        worker_thread.start()
 
         try:
             while True:
                 try:
-                    item = await asyncio.wait_for(
-                        queue.get(),
-                        timeout=timeout,
-                    )
+                    item = await asyncio.wait_for(queue.get(), timeout=timeout)
                 except asyncio.TimeoutError as exc:
                     stop_event.set()
                     raise AIProviderTimeout() from exc
@@ -216,31 +156,14 @@ class GeminiProvider(BaseLLMProvider):
                 if isinstance(item, asyncio.CancelledError):
                     raise item
 
-                if isinstance(item, APIError):
-                    raise AIProviderUnavailable() from item
-
-                if isinstance(item, BaseException):
+                if isinstance(item, (APIError, BaseException)):
                     raise AIProviderUnavailable() from item
 
                 yield str(item)
 
         except asyncio.CancelledError:
             stop_event.set()
-
-            logger.info(
-                "Gemini stream cancelled model=%s",
-                self.model_name,
-            )
-
+            logger.info("Gemini stream cancelled model=%s", self.model_name)
             raise
-
         finally:
             stop_event.set()
-
-            if not worker_task.done():
-                worker_task.cancel()
-
-            try:
-                await worker_task
-            except asyncio.CancelledError:
-                pass
