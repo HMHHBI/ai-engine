@@ -152,13 +152,21 @@ def create_chat(
     request: Request,
     current_user: User = Depends(get_current_user),
 ):
-    chat = ChatRepository.create_chat(
-        user_id=current_user.id,
-    )
-
-    return {
-        "chat_id": chat.id,
-    }
+    try:
+        chat = ChatRepository.create_chat(
+            user_id=current_user.id,
+        )
+        return {
+            "chat_id": chat.id,
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to create chat user_id=%s", current_user.id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to create new chat session.",
+        )
 
 
 # ============================================================
@@ -175,9 +183,18 @@ def get_all_chats(
     request: Request,
     current_user: User = Depends(get_current_user),
 ):
-    return ChatRepository.get_all_by_user(
-        user_id=current_user.id,
-    )
+    try:
+        return ChatRepository.get_all_by_user(
+            user_id=current_user.id,
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to fetch chats user_id=%s", current_user.id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to fetch chat history.",
+        )
 
 
 # ============================================================
@@ -192,30 +209,41 @@ def get_chat_history(
     chat_id: int,
     current_user: User = Depends(get_current_user),
 ):
-    chat = ChatRepository.get_by_id(
-        chat_id=chat_id,
-        user_id=current_user.id,
-    )
-
-    if not chat:
-        raise HTTPException(
-            status_code=404,
-            detail="Chat not found.",
+    try:
+        chat = ChatRepository.get_by_id(
+            chat_id=chat_id,
+            user_id=current_user.id,
         )
 
-    messages = ChatRepository.get_history(
-        chat_id=chat_id,
-        limit=50,
-    )
+        if not chat:
+            raise HTTPException(
+                status_code=404,
+                detail="Chat not found.",
+            )
 
-    return [
-        {
-            "role": message.role,
-            "text": message.content,
-            "image_data": message.image_data,
-        }
-        for message in messages
-    ]
+        messages = ChatRepository.get_history(
+            chat_id=chat_id,
+            limit=50,
+        )
+
+        return [
+            {
+                "role": message.role,
+                "text": message.content,
+                "image_data": message.image_data,
+            }
+            for message in messages
+        ]
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception(
+            "Failed to get chat history chat_id=%s user_id=%s", chat_id, current_user.id
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to fetch messages.",
+        )
 
 
 # ============================================================
@@ -230,20 +258,31 @@ def delete_chat(
     chat_id: int,
     current_user: User = Depends(get_current_user),
 ):
-    success = ChatRepository.delete_chat(
-        chat_id=chat_id,
-        user_id=current_user.id,
-    )
-
-    if not success:
-        raise HTTPException(
-            status_code=404,
-            detail="Chat not found.",
+    try:
+        success = ChatRepository.delete_chat(
+            chat_id=chat_id,
+            user_id=current_user.id,
         )
 
-    return {
-        "message": "Deleted",
-    }
+        if not success:
+            raise HTTPException(
+                status_code=404,
+                detail="Chat not found.",
+            )
+
+        return {
+            "message": "Deleted",
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception(
+            "Failed to delete chat chat_id=%s user_id=%s", chat_id, current_user.id
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to delete chat.",
+        )
 
 
 # ============================================================
@@ -259,32 +298,43 @@ def update_chat_title(
     new_title: str,
     current_user: User = Depends(get_current_user),
 ):
-    chat = ChatRepository.get_by_id(
-        chat_id=chat_id,
-        user_id=current_user.id,
-    )
-
-    if not chat:
-        raise HTTPException(
-            status_code=404,
-            detail="Chat not found.",
+    try:
+        chat = ChatRepository.get_by_id(
+            chat_id=chat_id,
+            user_id=current_user.id,
         )
 
-    updated_chat = ChatRepository.update_title(
-        chat_id=chat_id,
-        new_title=new_title,
-    )
+        if not chat:
+            raise HTTPException(
+                status_code=404,
+                detail="Chat not found.",
+            )
 
-    if updated_chat is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Chat not found.",
+        updated_chat = ChatRepository.update_title(
+            chat_id=chat_id,
+            new_title=new_title,
         )
 
-    return {
-        "id": updated_chat.id,
-        "title": updated_chat.title,
-    }
+        if updated_chat is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Chat not found.",
+            )
+
+        return {
+            "id": updated_chat.id,
+            "title": updated_chat.title,
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception(
+            "Failed to update title chat_id=%s user_id=%s", chat_id, current_user.id
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to update chat title.",
+        )
 
 
 # ============================================================
@@ -299,25 +349,36 @@ def get_chat_details(
     chat_id: int,
     current_user: User = Depends(get_current_user),
 ):
-    chat = ChatRepository.get_by_id(
-        chat_id=chat_id,
-        user_id=current_user.id,
-    )
-
-    if not chat:
-        raise HTTPException(
-            status_code=404,
-            detail="Chat not found.",
+    try:
+        chat = ChatRepository.get_by_id(
+            chat_id=chat_id,
+            user_id=current_user.id,
         )
 
-    return {
-        "id": chat.id,
-        "title": chat.title,
-        "pdf_context": chat.pdf_context,
-        "ai_provider": chat.ai_provider,
-        "ai_model": chat.ai_model,
-        "embedding_provider": chat.embedding_provider,
-    }
+        if not chat:
+            raise HTTPException(
+                status_code=404,
+                detail="Chat not found.",
+            )
+
+        return {
+            "id": chat.id,
+            "title": chat.title,
+            "pdf_context": chat.pdf_context,
+            "ai_provider": chat.ai_provider,
+            "ai_model": chat.ai_model,
+            "embedding_provider": chat.embedding_provider,
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception(
+            "Failed to get chat details chat_id=%s user_id=%s", chat_id, current_user.id
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to fetch chat details.",
+        )
 
 
 # ============================================================
@@ -460,6 +521,8 @@ async def ai_stream(
 
     async def event_generator():
         full_text = ""
+        stream_succeeded = False
+
         try:
             async for token in provider.generate_stream(
                 prompt=clean_prompt,
@@ -467,6 +530,9 @@ async def ai_stream(
             ):
                 full_text += token
                 yield token
+
+            stream_succeeded = True
+
         except Exception:
             logger.exception(
                 "AI provider stream failed chat_id=%s provider=%s model=%s",
@@ -474,13 +540,10 @@ async def ai_stream(
                 ai_provider.value,
                 ai_model.value,
             )
-            error_message = (
-                "\n[The AI provider is temporarily unavailable. Please try again.]"
-            )
-            full_text += error_message
-            yield error_message
+            yield "\n[The AI provider is temporarily unavailable. Please try again.]"
+
         finally:
-            if full_text.strip():
+            if stream_succeeded and full_text.strip():
                 try:
                     await asyncio.to_thread(
                         ChatRepository.add_message,
@@ -508,7 +571,7 @@ async def ai_stream(
 
 
 # ============================================================
-# 8. Hardened Document Upload & Ingestion (Atomic)
+# 8. Hardened Document Upload & Ingestion
 # ============================================================
 
 
@@ -520,141 +583,156 @@ async def upload_pdf(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
 ):
-    chat = await asyncio.to_thread(
-        ChatRepository.get_by_id,
-        chat_id=chat_id,
-        user_id=current_user.id,
-    )
-
-    if not chat:
-        raise HTTPException(
-            status_code=404,
-            detail="Chat session missing or unauthorized.",
+    try:
+        chat = await asyncio.to_thread(
+            ChatRepository.get_by_id,
+            chat_id=chat_id,
+            user_id=current_user.id,
         )
 
-    # 1. Filename sanitization, extension & MIME validation
-    safe_filename = sanitize_filename(file.filename)
-    extension = validate_extension(safe_filename)
-    validate_content_type(extension, file.content_type)
-
-    # 2. Bounded upload read (RAM limit protection)
-    content = await read_upload_with_limit(file)
-
-    # 3. Content extraction
-    if extension == ".pdf":
-        validate_pdf_signature(content)
-        try:
-            pages = await run_in_threadpool(
-                extract_text_from_pdf,
-                content,
+        if not chat:
+            raise HTTPException(
+                status_code=404,
+                detail="Chat session missing or unauthorized.",
             )
-        except PDFExtractionError as exc:
+
+        safe_filename = sanitize_filename(file.filename)
+        extension = validate_extension(safe_filename)
+        validate_content_type(extension, file.content_type)
+
+        content = await read_upload_with_limit(file)
+
+        if extension == ".pdf":
+            validate_pdf_signature(content)
+            try:
+                pages = await run_in_threadpool(
+                    extract_text_from_pdf,
+                    content,
+                )
+            except PDFExtractionError:
+                logger.warning(
+                    "PDF rejected during extraction chat_id=%s user_id=%s",
+                    chat_id,
+                    current_user.id,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="The uploaded document could not be processed.",
+                )
+        else:
+            try:
+                text = content.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                    detail="Text file must be valid UTF-8.",
+                ) from exc
+
+            if not text.strip():
+                raise HTTPException(
+                    status_code=400,
+                    detail="File is empty or contains no readable text.",
+                )
+            pages = [PDFPage(page_number=1, text=text)]
+
+        chunks = await run_in_threadpool(
+            EmbeddingService.chunk_text,
+            pages,
+            500,
+            50,
+        )
+
+        if not chunks:
             raise HTTPException(
                 status_code=400,
-                detail=str(exc),
-            ) from exc
-    else:
-        try:
-            text = content.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-                detail="Text file must be valid UTF-8.",
-            ) from exc
-
-        if not text.strip():
-            raise HTTPException(
-                status_code=400,
-                detail="File is empty or contains no readable text.",
-            )
-        pages = [PDFPage(page_number=1, text=text)]
-
-    # 4. Chunking and limits
-    chunks = await run_in_threadpool(
-        EmbeddingService.chunk_text,
-        pages,
-        500,
-        50,
-    )
-
-    if not chunks:
-        raise HTTPException(
-            status_code=400,
-            detail="No usable document chunks were produced.",
-        )
-
-    if len(chunks) > settings.MAX_DOCUMENT_CHUNKS:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="Document produces too many chunks for processing.",
-        )
-
-    if len(chunks) > settings.MAX_CHUNK_EMBEDDINGS:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="Document exceeds the maximum embedding workload.",
-        )
-
-    embedding_provider = _parse_embedding_provider(
-        chat.embedding_provider or settings.DEFAULT_EMBEDDING_PROVIDER.value
-    )
-
-    semaphore = asyncio.Semaphore(4)
-
-    async def generate_chunk_embedding(chunk):
-        async with semaphore:
-            return await EmbeddingService.generate_embedding(
-                chunk.text,
-                model_provider=embedding_provider.value,
+                detail="No usable document chunks were produced.",
             )
 
-    vectors = await asyncio.gather(
-        *[generate_chunk_embedding(chunk) for chunk in chunks]
-    )
+        if len(chunks) > settings.MAX_DOCUMENT_CHUNKS:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="Document produces too many chunks for processing.",
+            )
 
-    chunks_with_embeddings = [
-        (chunk, vector) for chunk, vector in zip(chunks, vectors) if vector is not None
-    ]
+        if len(chunks) > settings.MAX_CHUNK_EMBEDDINGS:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="Document exceeds the maximum embedding workload.",
+            )
 
-    failed_embeddings = len(chunks) - len(chunks_with_embeddings)
+        embedding_provider = _parse_embedding_provider(
+            chat.embedding_provider or settings.DEFAULT_EMBEDDING_PROVIDER.value
+        )
 
-    # Ingestion Atomicity Guard: Agar 1 bhi chunk embedding fail ho to purana document touch nahi hoga
-    if failed_embeddings > 0 or len(chunks_with_embeddings) != len(chunks):
-        logger.error(
-            "Document ingestion aborted: %s/%s chunk embeddings failed. "
-            "Preserving previous chat state. chat_id=%s user_id=%s",
-            failed_embeddings,
-            len(chunks),
+        semaphore = asyncio.Semaphore(4)
+
+        async def generate_chunk_embedding(chunk):
+            async with semaphore:
+                return await EmbeddingService.generate_embedding(
+                    chunk.text,
+                    model_provider=embedding_provider.value,
+                )
+
+        vectors = await asyncio.gather(
+            *[generate_chunk_embedding(chunk) for chunk in chunks]
+        )
+
+        chunks_with_embeddings = [
+            (chunk, vector)
+            for chunk, vector in zip(chunks, vectors)
+            if vector is not None
+        ]
+
+        failed_embeddings = len(chunks) - len(chunks_with_embeddings)
+
+        if failed_embeddings > 0 or len(chunks_with_embeddings) != len(chunks):
+            logger.error(
+                "Document ingestion aborted: %s/%s chunk embeddings failed. "
+                "Preserving previous chat state. chat_id=%s user_id=%s",
+                failed_embeddings,
+                len(chunks),
+                chat_id,
+                current_user.id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Document embedding failed. Existing document was not changed.",
+            )
+
+        db_objs = await asyncio.to_thread(
+            VectorRepository.replace_document_chunks,
+            user_id=current_user.id,
+            chat_id=chat_id,
+            chunks_with_embeddings=chunks_with_embeddings,
+            pdf_context=f"Indexed File: {safe_filename}",
+        )
+
+        return {
+            "status": "success",
+            "filename": safe_filename,
+            "pdf_context": f"Indexed File: {safe_filename}",
+            "chunks_total": len(chunks),
+            "chunks_indexed": len(db_objs),
+            "chunks_failed": 0,
+            "embedding_provider": embedding_provider.value,
+            "message": (
+                f"Indexed {len(chunks_with_embeddings)} "
+                f"of {len(chunks)} chunks into pgvector."
+            ),
+        }
+
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception(
+            "Unexpected error in upload_pdf chat_id=%s user_id=%s",
             chat_id,
             current_user.id,
         )
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Document embedding failed. Existing document was not changed.",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Server error during document ingestion.",
         )
-
-    # 6. Atomic DB Replacement (Delete old chunks + Insert new chunks + Update pdf_context in 1 transaction)
-    db_objs = await asyncio.to_thread(
-        VectorRepository.replace_document_chunks,
-        user_id=current_user.id,
-        chat_id=chat_id,
-        chunks_with_embeddings=chunks_with_embeddings,
-        pdf_context=f"Indexed File: {safe_filename}",
-    )
-
-    return {
-        "status": "success",
-        "filename": safe_filename,
-        "pdf_context": f"Indexed File: {safe_filename}",
-        "chunks_total": len(chunks),
-        "chunks_indexed": len(db_objs),
-        "chunks_failed": 0,
-        "embedding_provider": embedding_provider.value,
-        "message": (
-            f"Indexed {len(chunks_with_embeddings)} "
-            f"of {len(chunks)} chunks into pgvector."
-        ),
-    }
 
 
 # ============================================================
@@ -670,18 +748,29 @@ def cleanup_chat_messages(
     after_index: int,
     current_user: User = Depends(get_current_user),
 ):
-    success = ChatRepository.delete_messages_after(
-        chat_id=chat_id,
-        user_id=current_user.id,
-        after_index=after_index,
-    )
-
-    if not success:
-        raise HTTPException(
-            status_code=404,
-            detail="Chat not found.",
+    try:
+        success = ChatRepository.delete_messages_after(
+            chat_id=chat_id,
+            user_id=current_user.id,
+            after_index=after_index,
         )
 
-    return {
-        "message": "Messages cleaned up successfully.",
-    }
+        if not success:
+            raise HTTPException(
+                status_code=404,
+                detail="Chat not found.",
+            )
+
+        return {
+            "message": "Messages cleaned up successfully.",
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception(
+            "Failed to cleanup messages chat_id=%s user_id=%s", chat_id, current_user.id
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to cleanup messages.",
+        )
