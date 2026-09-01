@@ -37,6 +37,12 @@ class Settings(BaseSettings):
 
     DATABASE_URL: str
 
+    DB_POOL_SIZE: int = 10
+    DB_MAX_OVERFLOW: int = 20
+    DB_POOL_TIMEOUT: float = 30.0
+    DB_POOL_RECYCLE: int = 1800
+    DB_POOL_PRE_PING: bool = True
+
     # ------------------------------------------------------------------
     # Frontend / CORS
     # ------------------------------------------------------------------
@@ -69,6 +75,23 @@ class Settings(BaseSettings):
     DEFAULT_AI_PROVIDER: AIProvider = AIProvider.OLLAMA
     DEFAULT_AI_MODEL: AIModel = AIModel.OLLAMA_LLAMA_3_2
     DEFAULT_EMBEDDING_PROVIDER: EmbeddingProvider = EmbeddingProvider.OLLAMA
+
+    # ------------------------------------------------------------------
+    # AI Timeout / Lifecycle Configuration
+    # ------------------------------------------------------------------
+
+    AI_CONNECT_TIMEOUT: float = 10.0
+    AI_READ_TIMEOUT: float = 60.0
+    AI_WRITE_TIMEOUT: float = 10.0
+    AI_POOL_TIMEOUT: float = 5.0
+
+    AI_REQUEST_TIMEOUT: float = 120.0
+    AI_STREAM_MAX_SECONDS: float = 120.0
+
+    # Gemini worker lifecycle
+    GEMINI_WORKER_JOIN_TIMEOUT: float = 0.5
+    GEMINI_QUEUE_SIZE: int = 32
+    GEMINI_QUEUE_POLL_SECONDS: float = 0.25
 
     # ------------------------------------------------------------------
     # AI API Keys
@@ -135,7 +158,7 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     # Upload Validation
     # ------------------------------------------------------------------
-    
+
     @field_validator(
         "MAX_UPLOAD_SIZE_BYTES",
         "MAX_PDF_PAGES",
@@ -149,6 +172,34 @@ class Settings(BaseSettings):
         if int(value) <= 0:
             raise ValueError("Upload security limits must be positive.")
         return int(value)
+
+    # ------------------------------------------------------------------
+    # Infrastructure Validation
+    # ------------------------------------------------------------------
+
+    @field_validator(
+        "DB_POOL_SIZE",
+        "DB_MAX_OVERFLOW",
+        "DB_POOL_TIMEOUT",
+        "DB_POOL_RECYCLE",
+        "AI_CONNECT_TIMEOUT",
+        "AI_READ_TIMEOUT",
+        "AI_WRITE_TIMEOUT",
+        "AI_POOL_TIMEOUT",
+        "AI_REQUEST_TIMEOUT",
+        "AI_STREAM_MAX_SECONDS",
+        "GEMINI_WORKER_JOIN_TIMEOUT",
+        "GEMINI_QUEUE_SIZE",
+        "GEMINI_QUEUE_POLL_SECONDS",
+        mode="before",
+    )
+    @classmethod
+    def validate_positive_infrastructure_values(cls, value: float) -> float:
+        if float(value) <= 0:
+            raise ValueError(
+                "Infrastructure and timeout settings must be positive."
+            )
+        return value
 
 
 settings = Settings()

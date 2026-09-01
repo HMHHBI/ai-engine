@@ -20,6 +20,7 @@ from app.db.models import User
 from app.repositories.chat_repo import ChatRepository
 from app.repositories.vector_repo import VectorRepository
 from app.schemas.chat_schema import AIRequest, ChatOut
+from app.services.chat_service import ChatApplicationService
 from app.services.embedding_service import EmbeddingService
 from app.services.providers.errors import (
     AIProviderError,
@@ -427,8 +428,7 @@ async def ai_stream(
         )
 
     try:
-        prepared_message = await asyncio.to_thread(
-            ChatRepository.prepare_chat_turn,
+        prepared_message = await ChatApplicationService.prepare_chat_turn(
             chat_id=req.chat_id,
             user_id=current_user.id,
             content=clean_prompt,

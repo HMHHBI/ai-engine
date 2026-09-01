@@ -11,9 +11,12 @@ engine = create_engine(
     connect_args={
         "options": "-c client_encoding=utf8",
     },
-    pool_pre_ping=True,
+    pool_size=settings.DB_POOL_SIZE,
+    max_overflow=settings.DB_MAX_OVERFLOW,
+    pool_timeout=settings.DB_POOL_TIMEOUT,
+    pool_recycle=settings.DB_POOL_RECYCLE,
+    pool_pre_ping=settings.DB_POOL_PRE_PING,
 )
-
 
 SessionLocal = sessionmaker(
     bind=engine,

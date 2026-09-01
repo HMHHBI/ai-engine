@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Optional
+from typing import Optional
 
 from sqlalchemy import delete, select
 
 from app.core.config import settings
 from app.db.models import AILog, Chat, Message
 from app.db.session import session_scope
-from app.utils.cloudinary_tool import upload_image_to_cloud
 
 
 class ChatRepository:
@@ -18,6 +17,9 @@ class ChatRepository:
     Repository methods own their database sessions. This prevents
     request-scoped SQLAlchemy sessions from being passed into async
     threadpool execution.
+
+    External side effects such as Cloudinary uploads are intentionally
+    handled by the application/service layer.
     """
 
     @staticmethod
@@ -116,14 +118,18 @@ class ChatRepository:
         user_id: int,
         content: str,
         new_title: Optional[str] = None,
-        image_data_list: Optional[list[str] | str] = None,
-    ) -> Message:
+        image_urls: Optional[list[str] | str] = None,
+    ) -> Optional[Message]:
         """
         Atomically prepare a new chat turn.
 
-        The transaction verifies chat ownership, optionally updates the
-        chat title, processes message images, and inserts the user
-        message. Any failure rolls back the complete operation.
+        The transaction verifies chat ownership, locks the chat row,
+        conditionally initializes the title, and inserts the user
+        message.
+
+        External image uploads must already have been completed by
+        the application layer. This repository only persists the
+        resulting URLs.
         """
         normalized_content = content.strip()
 
@@ -138,53 +144,51 @@ class ChatRepository:
             if not title:
                 raise ValueError("Chat title cannot be empty.")
 
-        cloud_urls: list[str] = []
+        normalized_image_urls: list[str] = []
 
-        if image_data_list:
-            if isinstance(image_data_list, str):
+        if image_urls:
+            if isinstance(image_urls, str):
                 try:
-                    images = json.loads(image_data_list)
+                    images = json.loads(image_urls)
                 except json.JSONDecodeError as exc:
-                    raise ValueError("image_data_list contains invalid JSON.") from exc
+                    raise ValueError("image_urls contains invalid JSON.") from exc
             else:
-                images = image_data_list
+                images = image_urls
 
             if not isinstance(images, list):
-                raise ValueError("image_data_list must be a list.")
+                raise ValueError("image_urls must be a list.")
 
             for image in images:
-                image_value = str(image)
+                image_value = str(image).strip()
 
-                if image_value.startswith("http://") or image_value.startswith(
-                    "https://"
-                ):
-                    cloud_urls.append(image_value)
-                    continue
+                if not image_value.startswith(("http://", "https://")):
+                    raise ValueError("image_urls must contain absolute URLs only.")
 
-                url = upload_image_to_cloud(
+                normalized_image_urls.append(
                     image_value,
-                    folder="chat_messages",
                 )
 
-                if not url:
-                    raise ValueError("Failed to upload chat image.")
-
-                cloud_urls.append(url)
-
-        db_image_data = json.dumps(cloud_urls) if cloud_urls else None
+        db_image_data = (
+            json.dumps(normalized_image_urls) if normalized_image_urls else None
+        )
 
         with session_scope() as db:
             chat = db.execute(
-                select(Chat).where(
+                select(Chat)
+                .where(
                     Chat.id == chat_id,
                     Chat.user_id == user_id,
                 )
+                .with_for_update()
             ).scalar_one_or_none()
 
             if chat is None:
                 return None
 
-            if title is not None:
+            # Only the first successful concurrent turn initializes
+            # the default title. A later concurrent request cannot
+            # overwrite an already initialized title.
+            if title is not None and chat.title == "New Chat":
                 chat.title = title
 
             new_message = Message(
@@ -212,7 +216,11 @@ class ChatRepository:
         """
         normalized_role = role.strip().lower()
 
-        if normalized_role not in {"user", "ai", "assistant"}:
+        if normalized_role not in {
+            "user",
+            "ai",
+            "assistant",
+        }:
             raise ValueError(
                 "Invalid message role. " "Expected 'user', 'ai', or 'assistant'."
             )
@@ -220,7 +228,7 @@ class ChatRepository:
         if not content.strip():
             raise ValueError("Message content cannot be empty.")
 
-        cloud_urls: list[str] = []
+        db_image_data = None
 
         if image_data_list:
             if isinstance(image_data_list, str):
@@ -234,26 +242,17 @@ class ChatRepository:
             if not isinstance(images, list):
                 raise ValueError("image_data_list must be a list.")
 
-            for image in images:
-                image_value = str(image)
+            normalized_images = [str(image).strip() for image in images]
 
-                if image_value.startswith("http://") or image_value.startswith(
-                    "https://"
-                ):
-                    cloud_urls.append(image_value)
-                    continue
+            if any(
+                not image.startswith(("http://", "https://"))
+                for image in normalized_images
+            ):
+                raise ValueError("image_data_list must contain URLs only.")
 
-                url = upload_image_to_cloud(
-                    image_value,
-                    folder="chat_messages",
-                )
-
-                if not url:
-                    raise ValueError("Failed to upload chat image.")
-
-                cloud_urls.append(url)
-
-        db_image_data = json.dumps(cloud_urls) if cloud_urls else None
+            db_image_data = json.dumps(
+                normalized_images,
+            )
 
         with session_scope() as db:
             chat_exists = db.execute(

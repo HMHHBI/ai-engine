@@ -110,18 +110,15 @@ def test_prepare_chat_turn_rolls_back_title_when_message_insert_fails(
 
     chat_id = chat.id
 
-    with patch(
-        "app.repositories.chat_repo.upload_image_to_cloud",
-        side_effect=RuntimeError("Cloudinary failure"),
-    ):
-        with pytest.raises(RuntimeError):
-            ChatRepository.prepare_chat_turn(
-                chat_id=chat_id,
-                user_id=user.id,
-                content="This must roll back.",
-                new_title="This must roll back.",
-                image_data_list=["base64-image-data"],
-            )
+    # Invalid non-URL image triggers validation failure before committing title
+    with pytest.raises(ValueError):
+        ChatRepository.prepare_chat_turn(
+            chat_id=chat_id,
+            user_id=user.id,
+            content="This must roll back.",
+            new_title="This must roll back.",
+            image_urls=["not-a-valid-http-url"],
+        )
 
     db_session.expire_all()
 
