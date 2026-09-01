@@ -508,7 +508,7 @@ async def ai_stream(
 
 
 # ============================================================
-# 8. Hardened Document Upload & Ingestion
+# 8. Hardened Document Upload & Ingestion (Atomic)
 # ============================================================
 
 
@@ -618,12 +618,22 @@ async def upload_pdf(
 
     failed_embeddings = len(chunks) - len(chunks_with_embeddings)
 
-    if not chunks_with_embeddings:
+    # Ingestion Atomicity Guard: Agar 1 bhi chunk embedding fail ho to purana document touch nahi hoga
+    if failed_embeddings > 0 or len(chunks_with_embeddings) != len(chunks):
+        logger.error(
+            "Document ingestion aborted: %s/%s chunk embeddings failed. "
+            "Preserving previous chat state. chat_id=%s user_id=%s",
+            failed_embeddings,
+            len(chunks),
+            chat_id,
+            current_user.id,
+        )
         raise HTTPException(
-            status_code=500,
-            detail="Failed to generate chunk embeddings.",
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Document embedding failed. Existing document was not changed.",
         )
 
+    # 6. Atomic DB Replacement (Delete old chunks + Insert new chunks + Update pdf_context in 1 transaction)
     db_objs = await asyncio.to_thread(
         VectorRepository.replace_document_chunks,
         user_id=current_user.id,
@@ -638,7 +648,7 @@ async def upload_pdf(
         "pdf_context": f"Indexed File: {safe_filename}",
         "chunks_total": len(chunks),
         "chunks_indexed": len(db_objs),
-        "chunks_failed": failed_embeddings,
+        "chunks_failed": 0,
         "embedding_provider": embedding_provider.value,
         "message": (
             f"Indexed {len(chunks_with_embeddings)} "
