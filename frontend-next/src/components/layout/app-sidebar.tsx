@@ -15,6 +15,7 @@ import { useTheme } from "next-themes";
 import { useRouter } from "next/navigation";
 
 import { IconButton } from "@/components/ui/icon-button";
+import { ChatHistoryList } from "@/features/chat/components/chat-history-list";
 import { chatSessionActions } from "@/features/chat/actions/chat-session-actions";
 import { authActions } from "@/features/auth/actions/auth-actions";
 import { useAuthStore } from "@/features/auth";
@@ -119,21 +120,22 @@ export function AppSidebar({
           </button>
         </div>
 
-        {/* Navigation */}
-        <nav className="flex-1 px-3">
-          <div className="space-y-1">
-            <button
-              type="button"
+        {/* Chat history */}
+        <nav className="min-h-0 flex-1 overflow-y-auto px-3">
+          <div className="space-y-2">
+            <div
               className={cn(
-                "flex h-10 w-full items-center rounded-lg",
-                "bg-secondary text-foreground",
-                "text-sm",
+                "flex h-10 items-center rounded-lg",
+                "text-sm text-muted-foreground",
                 collapsed ? "justify-center" : "gap-3 px-3",
               )}
             >
               <MessageSquare className="size-4 shrink-0" />
-              {!collapsed && <span>Chats</span>}
-            </button>
+
+              {!collapsed && <span className="font-medium">Chats</span>}
+            </div>
+
+            {!collapsed && <ChatHistoryList onSelectChat={onCloseMobile} />}
           </div>
         </nav>
 

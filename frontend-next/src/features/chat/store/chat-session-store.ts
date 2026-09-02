@@ -1,0 +1,67 @@
+import { create } from "zustand";
+
+import type { ChatSession } from "@/types/api";
+
+interface ChatSessionStore {
+  sessions: ChatSession[];
+  isLoading: boolean;
+  error: string | null;
+
+  setSessions: (sessions: ChatSession[]) => void;
+  addSession: (session: ChatSession) => void;
+  updateSession: (chatId: number, updates: Partial<ChatSession>) => void;
+  removeSession: (chatId: number) => void;
+
+  setLoading: (loading: boolean) => void;
+  setError: (error: string | null) => void;
+  reset: () => void;
+}
+
+export const useChatSessionStore = create<ChatSessionStore>((set) => ({
+  sessions: [],
+  isLoading: false,
+  error: null,
+
+  setSessions: (sessions) =>
+    set({
+      sessions,
+      error: null,
+    }),
+
+  addSession: (session) =>
+    set((state) => ({
+      sessions: [
+        session,
+        ...state.sessions.filter(
+          (existing) => existing.id !== session.id,
+        ),
+      ],
+    })),
+
+  updateSession: (chatId, updates) =>
+    set((state) => ({
+      sessions: state.sessions.map((session) =>
+        session.id === chatId
+          ? { ...session, ...updates }
+          : session,
+      ),
+    })),
+
+  removeSession: (chatId) =>
+    set((state) => ({
+      sessions: state.sessions.filter(
+        (session) => session.id !== chatId,
+      ),
+    })),
+
+  setLoading: (isLoading) => set({ isLoading }),
+
+  setError: (error) => set({ error }),
+
+  reset: () =>
+    set({
+      sessions: [],
+      isLoading: false,
+      error: null,
+    }),
+}));
