@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { useTheme } from "next-themes";
+import { useRouter } from "next/navigation";
 
 import { IconButton } from "@/components/ui/icon-button";
 import { chatSessionActions } from "@/features/chat/actions/chat-session-actions";
@@ -32,6 +33,7 @@ export function AppSidebar({
   onToggleCollapse,
   onCloseMobile,
 }: AppSidebarProps) {
+  const router = useRouter();
   const { resolvedTheme, setTheme } = useTheme();
   const user = useAuthStore((state) => state.user);
 
@@ -92,9 +94,14 @@ export function AppSidebar({
         <div className="p-3">
           <button
             type="button"
-            onClick={() => {
-              void chatSessionActions.createChat();
-              onCloseMobile();
+            onClick={async () => {
+              try {
+                const newId = await chatSessionActions.createChat();
+                onCloseMobile();
+                router.push(`/dashboard/chat/${newId}`);
+              } catch {
+                // Keep gracefully on current view
+              }
             }}
             className={cn(
               "flex w-full items-center rounded-lg",
