@@ -3,6 +3,7 @@
 import {
   ChevronLeft,
   ChevronRight,
+  LoaderCircle,
   LogOut,
   MessageSquare,
   Moon,
@@ -11,6 +12,7 @@ import {
   Sun,
   X,
 } from "lucide-react";
+import { useState } from "react";
 import { useTheme } from "next-themes";
 import { useRouter } from "next/navigation";
 
@@ -37,8 +39,24 @@ export function AppSidebar({
   const router = useRouter();
   const { resolvedTheme, setTheme } = useTheme();
   const user = useAuthStore((state) => state.user);
+  const [isCreatingChat, setIsCreatingChat] = useState(false);
 
   const isDark = resolvedTheme === "dark";
+
+  async function handleNewChat() {
+    if (isCreatingChat) return;
+
+    setIsCreatingChat(true);
+    try {
+      const newId = await chatSessionActions.createChat();
+      onCloseMobile();
+      router.push(`/dashboard/chat/${newId}`);
+    } catch {
+      // Keep gracefully on current view
+    } finally {
+      setIsCreatingChat(false);
+    }
+  }
 
   return (
     <>
@@ -95,28 +113,28 @@ export function AppSidebar({
         <div className="p-3">
           <button
             type="button"
-            onClick={async () => {
-              try {
-                const newId = await chatSessionActions.createChat();
-                onCloseMobile();
-                router.push(`/dashboard/chat/${newId}`);
-              } catch {
-                // Keep gracefully on current view
-              }
-            }}
+            disabled={isCreatingChat}
+            onClick={() => void handleNewChat()}
             className={cn(
               "flex w-full items-center rounded-lg",
               "bg-primary text-primary-foreground",
               "text-sm font-medium",
               "transition-opacity hover:opacity-90",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "disabled:pointer-events-none disabled:opacity-50",
               collapsed
                 ? "justify-center px-0 h-10"
                 : "justify-start gap-2 px-3 h-10",
             )}
           >
-            <Plus className="size-4 shrink-0" />
-            {!collapsed && <span>New chat</span>}
+            {isCreatingChat ? (
+              <LoaderCircle className="size-4 shrink-0 animate-spin" />
+            ) : (
+              <Plus className="size-4 shrink-0" />
+            )}
+            {!collapsed && (
+              <span>{isCreatingChat ? "Creating..." : "New chat"}</span>
+            )}
           </button>
         </div>
 

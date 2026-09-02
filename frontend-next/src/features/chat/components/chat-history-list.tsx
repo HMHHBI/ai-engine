@@ -2,11 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { MessageSquareDashed } from "lucide-react";
 
 import { chatSessionActions } from "@/features/chat/actions/chat-session-actions";
 import { useChatSessionStore } from "@/features/chat/store/chat-session-store";
 import { ChatHistoryItem } from "@/features/chat/components/chat-history-item";
 import { ChatDeleteDialog } from "@/features/chat/components/chat-delete-dialog";
+import { Skeleton } from "@/components/feedback/skeleton";
+import { ErrorState } from "@/components/feedback/error-state";
+import { EmptyState } from "@/components/feedback/empty-state";
 
 interface ChatHistoryListProps {
   onSelectChat?: () => void;
@@ -22,12 +26,34 @@ export function ChatHistoryList({ onSelectChat }: ChatHistoryListProps) {
   const mutatingChatIds = useChatSessionStore((state) => state.mutatingChatIds);
 
   const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
+  const [retrying, setRetrying] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     void chatSessionActions.loadChats().catch(() => {});
   }, []);
 
   const targetSession = sessions.find((s) => s.id === deleteTargetId);
+
+  async function handleRetry() {
+    setRetrying(true);
+    try {
+      await chatSessionActions.loadChats();
+    } finally {
+      setRetrying(false);
+    }
+  }
+
+  async function handleCreateChat() {
+    setCreating(true);
+    try {
+      const newId = await chatSessionActions.createChat();
+      onSelectChat?.();
+      router.push(`/dashboard/chat/${newId}`);
+    } finally {
+      setCreating(false);
+    }
+  }
 
   async function handleDeleteConfirm() {
     if (deleteTargetId === null) return;
@@ -39,19 +65,15 @@ export function ChatHistoryList({ onSelectChat }: ChatHistoryListProps) {
         router.replace("/dashboard");
       }
     } catch {
-      // Keep state intact on failure
       setDeleteTargetId(null);
     }
   }
 
   if (isLoading) {
     return (
-      <div className="space-y-1">
-        {Array.from({ length: 5 }).map((_, index) => (
-          <div
-            key={index}
-            className="h-10 animate-pulse rounded-lg bg-secondary"
-          />
+      <div className="space-y-2 py-1">
+        {Array.from({ length: 6 }).map((_, index) => (
+          <Skeleton key={index} className="h-9 w-full rounded-lg" />
         ))}
       </div>
     );
@@ -59,26 +81,28 @@ export function ChatHistoryList({ onSelectChat }: ChatHistoryListProps) {
 
   if (error) {
     return (
-      <div className="px-2 py-3 text-xs text-muted-foreground">
-        <p>Unable to load chats.</p>
-        <button
-          type="button"
-          onClick={() => {
-            void chatSessionActions.loadChats().catch(() => {});
-          }}
-          className="mt-1 text-foreground underline underline-offset-2"
-        >
-          Retry
-        </button>
-      </div>
+      <ErrorState
+        title="Unable to load chats"
+        message={error}
+        actionLabel="Retry"
+        retrying={retrying}
+        onAction={() => void handleRetry()}
+        className="px-1 py-4"
+      />
     );
   }
 
   if (sessions.length === 0) {
     return (
-      <div className="px-2 py-3 text-xs text-muted-foreground">
-        No conversations yet.
-      </div>
+      <EmptyState
+        icon={<MessageSquareDashed className="size-4" />}
+        title="No conversations yet"
+        description="Start a new conversation with AI Engine."
+        actionLabel="New chat"
+        actionLoading={creating}
+        onAction={() => void handleCreateChat()}
+        className="px-1 py-6"
+      />
     );
   }
 
