@@ -3,7 +3,6 @@ import type {
   ChatDetailsResponse,
   ChatMessage,
   ChatSession,
-  StreamPayload,
   UploadPdfResponse,
 } from "@/types/api";
 
@@ -65,7 +64,7 @@ export const chatApi = {
    * `/chat/stream` belongs to chatStreamService because it has
    * AbortController + ReadableStream lifecycle semantics.
    */
-  stream(_payload: StreamPayload): never {
+  stream(): never {
     throw new Error(
       "Use chatStreamService for /chat/stream instead.",
     );
