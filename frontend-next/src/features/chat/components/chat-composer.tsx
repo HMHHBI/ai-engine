@@ -7,30 +7,29 @@ import {
   LoaderCircle,
   Square,
 } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { chatActions } from "@/features/chat/actions/chat-actions";
-import { useChatStore } from "@/features/chat/store/chat-store";
-import { chatApi } from "@/lib/api/chat";
-import { cn } from "@/lib/utils";
-
 import { ImageAttachmentList } from "@/features/chat/components/image-attachment-list";
 import { PdfAttachment as PdfAttachmentView } from "@/features/chat/components/pdf-attachment";
-
+import { useChatStore } from "@/features/chat/store/chat-store";
 import type {
   ImageAttachment,
   PdfAttachment,
 } from "@/features/chat/types/attachments";
-
 import {
   fileToBase64,
   validateImage,
   validatePdf,
 } from "@/features/chat/utils/attachment-utils";
+import { chatApi } from "@/lib/api/chat";
+import { cn } from "@/lib/utils";
 
 interface ChatComposerProps {
   chatId: number | null;
 }
+
+const TEXTAREA_MAX_HEIGHT = 220;
 
 export function ChatComposer({ chatId }: ChatComposerProps) {
   const [prompt, setPrompt] = useState("");
@@ -38,6 +37,7 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
   const [pdf, setPdf] = useState<PdfAttachment | null>(null);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
 
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const pdfInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -53,6 +53,22 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
     prompt.trim().length > 0 &&
     !isStreaming &&
     !isUploadingPdf;
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+
+    if (!textarea) {
+      return;
+    }
+
+    textarea.style.height = "auto";
+
+    const nextHeight = Math.min(textarea.scrollHeight, TEXTAREA_MAX_HEIGHT);
+
+    textarea.style.height = `${nextHeight}px`;
+    textarea.style.overflowY =
+      textarea.scrollHeight > TEXTAREA_MAX_HEIGHT ? "auto" : "hidden";
+  }, [prompt]);
 
   function clearAttachmentError() {
     setAttachmentError(null);
@@ -172,6 +188,7 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
     for (const image of images) {
       URL.revokeObjectURL(image.previewUrl);
     }
+
     setImages([]);
   }
 
@@ -181,6 +198,7 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
     }
 
     const value = prompt.trim();
+
     const imageBase64 = images.map((image) => image.base64);
     const imageMime = images.map((image) => image.mimeType);
 
@@ -196,7 +214,7 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
 
       clearImages();
     } catch {
-      // Stream state handled by chatActions
+      // Stream state is handled by chatActions.
     }
   }
 
@@ -213,10 +231,10 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
 
   return (
     <div className="border-t border-border bg-background">
-      <div className="mx-auto w-full max-w-3xl px-4 py-4">
+      <div className="mx-auto w-full max-w-3xl px-3 py-3 sm:px-4 sm:py-4">
         <div
           className={cn(
-            "relative rounded-2xl border border-border bg-card",
+            "relative overflow-hidden rounded-2xl border border-border bg-card",
             "shadow-sm transition-colors",
             "focus-within:border-ring",
           )}
@@ -232,6 +250,7 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
           )}
 
           <textarea
+            ref={textareaRef}
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
             onKeyDown={handleKeyDown}
@@ -241,7 +260,7 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
             }
             rows={1}
             className={cn(
-              "block min-h-14 w-full resize-none",
+              "block max-h-55 min-h-14 w-full resize-none",
               "bg-transparent px-4 pb-14 pt-4",
               "text-sm leading-6 text-foreground",
               "outline-none placeholder:text-muted-foreground",
@@ -305,8 +324,7 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
                 title="Stop generating"
                 className={cn(
                   "flex size-9 items-center justify-center",
-                  "rounded-xl bg-secondary",
-                  "text-foreground",
+                  "rounded-xl bg-secondary text-foreground",
                   "transition-colors hover:bg-muted",
                   "focus-visible:outline-none",
                   "focus-visible:ring-2 focus-visible:ring-ring",
