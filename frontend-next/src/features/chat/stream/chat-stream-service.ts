@@ -34,9 +34,19 @@ export interface ChatStreamHandlers {
 
 export class ChatStreamService {
   private controller: AbortController | null = null;
+  private activeStreamId = 0;
+  private activeChatId: number | null = null;
 
   get isStreaming(): boolean {
     return this.controller !== null;
+  }
+
+  get currentChatId(): number | null {
+    return this.activeChatId;
+  }
+
+  get currentStreamId(): number {
+    return this.activeStreamId;
   }
 
   async stream(
@@ -46,7 +56,16 @@ export class ChatStreamService {
     this.abort();
 
     const controller = new AbortController();
+    const streamId = ++this.activeStreamId;
+
     this.controller = controller;
+    this.activeChatId = payload.chat_id;
+
+    const isCurrentStream = (): boolean =>
+      this.activeStreamId === streamId &&
+      this.controller === controller &&
+      this.activeChatId === payload.chat_id &&
+      !controller.signal.aborted;
 
     handlers.onEvent?.({
       type: "streamStarted",
@@ -109,7 +128,7 @@ export class ChatStreamService {
             break;
           }
 
-          if (controller.signal.aborted) {
+          if (!isCurrentStream()) {
             return;
           }
 
@@ -117,7 +136,7 @@ export class ChatStreamService {
             stream: true,
           });
 
-          if (chunk) {
+          if (chunk && isCurrentStream()) {
             handlers.onEvent?.({
               type: "chunkReceived",
               chunk,
@@ -127,14 +146,14 @@ export class ChatStreamService {
 
         const finalChunk = decoder.decode();
 
-        if (finalChunk) {
+        if (finalChunk && isCurrentStream()) {
           handlers.onEvent?.({
             type: "chunkReceived",
             chunk: finalChunk,
           });
         }
 
-        if (!controller.signal.aborted) {
+        if (isCurrentStream()) {
           handlers.onEvent?.({
             type: "streamCompleted",
           });
@@ -144,18 +163,16 @@ export class ChatStreamService {
       }
     } catch (error) {
       if (this.isAbortError(error) || controller.signal.aborted) {
-        const abortError = new ApiError(
+        handlers.onEvent?.({
+          type: "streamCancelled",
+        });
+
+        throw new ApiError(
           "The AI stream was cancelled.",
           "STREAM_ABORTED",
           undefined,
           error,
         );
-
-        handlers.onEvent?.({
-          type: "streamCancelled",
-        });
-
-        throw abortError;
       }
 
       const apiError =
@@ -168,31 +185,45 @@ export class ChatStreamService {
               error,
             );
 
-      handlers.onEvent?.({
-        type: "streamFailed",
-        error: apiError,
-      });
+      if (isCurrentStream()) {
+        handlers.onEvent?.({
+          type: "streamFailed",
+          error: apiError,
+        });
+      }
 
       throw apiError;
     } finally {
       if (this.controller === controller) {
         this.controller = null;
+        this.activeChatId = null;
       }
     }
   }
 
   abort(): void {
-    if (!this.controller) {
+    this.activeStreamId += 1;
+
+    const controller = this.controller;
+
+    this.controller = null;
+    this.activeChatId = null;
+
+    controller?.abort();
+  }
+
+  abortChat(chatId: number): void {
+    if (this.activeChatId !== chatId) {
       return;
     }
 
-    this.controller.abort();
-    this.controller = null;
+    this.abort();
   }
 
   private isAbortError(error: unknown): boolean {
     return (
-      error instanceof DOMException && error.name === "AbortError"
+      error instanceof DOMException &&
+      error.name === "AbortError"
     );
   }
 
@@ -214,7 +245,10 @@ export class ChatStreamService {
     }
   }
 
-  private getErrorMessage(body: unknown, fallback: string): string {
+  private getErrorMessage(
+    body: unknown,
+    fallback: string,
+  ): string {
     if (typeof body === "string" && body.trim()) {
       return body;
     }

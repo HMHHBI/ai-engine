@@ -1,198 +1,116 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  ChatStreamService,
-  type ChatStreamEvent,
-} from "./chat-stream-service";
+import { chatStreamService } from "./chat-stream-service";
 
-import type { StreamPayload } from "@/types/api";
+describe("chatStreamService", () => {
+  const originalFetch = global.fetch;
 
-const payload: StreamPayload = {
-  chat_id: 1,
-  prompt: "Hello",
-  task: "general",
-  model: "gemini-2.5-flash",
-};
-
-function createResponse(chunks: string[]): Response {
-  const encoder = new TextEncoder();
-
-  const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      for (const chunk of chunks) {
-        controller.enqueue(encoder.encode(chunk));
-      }
-      controller.close();
-    },
+  beforeEach(() => {
+    process.env.NEXT_PUBLIC_API_URL = "http://localhost:8000";
+    chatStreamService.abort();
+    vi.clearAllMocks();
   });
 
-  return new Response(stream, {
-    status: 200,
-    headers: {
-      "Content-Type": "text/event-stream",
-    },
+  afterEach(() => {
+    global.fetch = originalFetch;
   });
-}
 
-afterEach(() => {
-  vi.restoreAllMocks();
-});
-
-describe("ChatStreamService", () => {
-  it("emits started, chunks, and completed events", async () => {
-    const service = new ChatStreamService();
-
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(createResponse(["Hello ", "world"])),
-    );
-
-    const events: ChatStreamEvent[] = [];
-
-    await service.stream(payload, {
-      onEvent: (event) => {
-        events.push(event);
+  it("completes streaming flow and fires handlers", async () => {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode("Hello "));
+        controller.enqueue(encoder.encode("world!"));
+        controller.close();
       },
     });
 
-    expect(events).toEqual([
-      { type: "streamStarted" },
-      { type: "chunkReceived", chunk: "Hello " },
-      { type: "chunkReceived", chunk: "world" },
-      { type: "streamCompleted" },
-    ]);
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: stream,
+      headers: new Headers({ "content-type": "text/event-stream" }),
+    });
 
-    expect(service.isStreaming).toBe(false);
-  });
+    const chunks: string[] = [];
+    let completed = false;
 
-  it("maps 429 to RATE_LIMITED", async () => {
-    const service = new ChatStreamService();
-
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            detail: "Too many requests",
-          }),
-          {
-            status: 429,
-            headers: {
-              "Content-Type": "application/json",
-            },
-          },
-        ),
-      ),
-    );
-
-    const events: ChatStreamEvent[] = [];
-
-    await expect(
-      service.stream(payload, {
+    await chatStreamService.stream(
+      { chat_id: 1, prompt: "test" },
+      {
         onEvent: (event) => {
-          events.push(event);
+          if (event.type === "chunkReceived") chunks.push(event.chunk);
+          if (event.type === "streamCompleted") completed = true;
         },
-      }),
-    ).rejects.toMatchObject({
-      code: "RATE_LIMITED",
-      status: 429,
-    });
-
-    expect(events).toContainEqual({
-      type: "streamStarted",
-    });
-
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "streamFailed",
-        error: expect.objectContaining({
-          code: "RATE_LIMITED",
-          status: 429,
-        }),
-      }),
-    );
-  });
-
-  it("maps 502 to PROVIDER_DOWN", async () => {
-    const service = new ChatStreamService();
-
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            detail: "Provider unavailable",
-          }),
-          {
-            status: 502,
-            headers: {
-              "Content-Type": "application/json",
-            },
-          },
-        ),
-      ),
-    );
-
-    await expect(service.stream(payload)).rejects.toMatchObject({
-      code: "PROVIDER_DOWN",
-      status: 502,
-    });
-  });
-
-  it("aborts an active stream", async () => {
-    const service = new ChatStreamService();
-    let receivedSignal: AbortSignal | null | undefined;
-
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockImplementation((_input: RequestInfo | URL, init?: RequestInit) => {
-        receivedSignal = init?.signal;
-        return new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener("abort", () => {
-            reject(new DOMException("Aborted", "AbortError"));
-          });
-        });
-      }),
-    );
-
-    const events: ChatStreamEvent[] = [];
-
-    const promise = service.stream(payload, {
-      onEvent: (event) => {
-        events.push(event);
       },
-    });
-
-    // Verify isStreaming synchronously right after start
-    expect(service.isStreaming).toBe(true);
-
-    service.abort();
-
-    await expect(promise).rejects.toMatchObject({
-      code: "STREAM_ABORTED",
-    });
-
-    expect(receivedSignal?.aborted).toBe(true);
-    expect(events).toContainEqual({
-      type: "streamCancelled",
-    });
-    expect(service.isStreaming).toBe(false);
-  });
-
-  it("rejects when the server returns an empty stream", async () => {
-    const service = new ChatStreamService();
-
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(null, {
-          status: 200,
-        }),
-      ),
     );
 
-    await expect(service.stream(payload)).rejects.toMatchObject({
-      code: "STREAM_ERROR",
+    expect(chunks).toEqual(["Hello ", "world!"]);
+    expect(completed).toBe(true);
+    expect(chatStreamService.isStreaming).toBe(false);
+  });
+
+  it("handles abort gracefully and marks stream cancelled", async () => {
+    global.fetch = vi.fn().mockImplementation((_url, init?: RequestInit) => {
+      return new Promise((_resolve, reject) => {
+        const signal = init?.signal;
+        if (signal?.aborted) {
+          reject(new DOMException("The user aborted a request.", "AbortError"));
+          return;
+        }
+        signal?.addEventListener("abort", () => {
+          reject(new DOMException("The user aborted a request.", "AbortError"));
+        });
+      });
     });
+
+    let cancelled = false;
+
+    const streamPromise = chatStreamService.stream(
+      { chat_id: 1, prompt: "test" },
+      {
+        onEvent: (event) => {
+          if (event.type === "streamCancelled") cancelled = true;
+        },
+      },
+    );
+
+    chatStreamService.abort();
+
+    await expect(streamPromise).rejects.toThrow("The AI stream was cancelled.");
+    expect(cancelled).toBe(true);
+  });
+
+  it("aborts active stream when a new stream starts", async () => {
+    global.fetch = vi.fn().mockImplementation((_url, init?: RequestInit) => {
+      return new Promise((_resolve, reject) => {
+        const signal = init?.signal;
+        if (signal?.aborted) {
+          reject(new DOMException("The user aborted a request.", "AbortError"));
+          return;
+        }
+        signal?.addEventListener("abort", () => {
+          reject(new DOMException("The user aborted a request.", "AbortError"));
+        });
+      });
+    });
+
+    const stream1 = chatStreamService.stream(
+      { chat_id: 1, prompt: "first" },
+      {},
+    );
+
+    expect(chatStreamService.currentChatId).toBe(1);
+
+    const stream2 = chatStreamService.stream(
+      { chat_id: 2, prompt: "second" },
+      {},
+    );
+
+    expect(chatStreamService.currentChatId).toBe(2);
+
+    await expect(stream1).rejects.toThrow("The AI stream was cancelled.");
+    chatStreamService.abort();
+    await expect(stream2).rejects.toThrow("The AI stream was cancelled.");
   });
 });

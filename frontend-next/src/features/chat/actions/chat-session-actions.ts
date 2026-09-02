@@ -1,4 +1,5 @@
 import { chatApi } from "@/lib/api/chat";
+import { chatRequestController } from "@/features/chat/stream/chat-request-controller";
 import { useChatStore } from "@/features/chat/store/chat-store";
 import { useChatSessionStore } from "@/features/chat/store/chat-session-store";
 import type { ChatSession } from "@/types/api";
@@ -123,6 +124,8 @@ class ChatSessionActions {
   }
 
   async loadChat(chatId: number): Promise<boolean> {
+    chatRequestController.invalidate();
+
     const requestGeneration = ++this.hydrationGeneration;
 
     useChatStore.getState().setChatLoading(chatId, true);
@@ -150,6 +153,7 @@ class ChatSessionActions {
   }
 
   clearActiveChat(): void {
+    chatRequestController.invalidate();
     this.invalidateHydration();
     useChatStore.getState().setActiveChat(null);
   }

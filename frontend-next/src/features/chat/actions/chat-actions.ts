@@ -1,5 +1,6 @@
 import { ApiError } from "@/lib/errors/api-error";
 import { chatStreamService } from "@/features/chat/stream/chat-stream-service";
+import { chatRequestController } from "@/features/chat/stream/chat-request-controller";
 import { chatSessionActions } from "@/features/chat/actions/chat-session-actions";
 import { useChatStore } from "@/features/chat/store/chat-store";
 import { useChatSessionStore } from "@/features/chat/store/chat-session-store";
@@ -20,6 +21,10 @@ class ChatActions {
     if (!trimmedPrompt) {
       throw new Error("Prompt cannot be empty.");
     }
+
+    const requestId = chatRequestController.next();
+    const isCurrentRequest = (): boolean =>
+      chatRequestController.isCurrent(requestId);
 
     const store = useChatStore.getState();
     const session = useChatSessionStore
@@ -55,6 +60,10 @@ class ChatActions {
     try {
       await chatStreamService.stream(payload, {
         onEvent: (event) => {
+          if (!isCurrentRequest()) {
+            return;
+          }
+
           switch (event.type) {
             case "streamStarted":
               useChatStore.getState().setStreamingStatus(chatId, "streaming");
@@ -84,6 +93,10 @@ class ChatActions {
         },
       });
     } catch (error) {
+      if (!isCurrentRequest()) {
+        return;
+      }
+
       if (error instanceof ApiError && error.code === "STREAM_ABORTED") {
         store.setStreamingStatus(chatId, "cancelled");
         return;
@@ -95,7 +108,16 @@ class ChatActions {
   }
 
   stopStreaming(): void {
-    chatStreamService.abort();
+    chatRequestController.invalidate();
+  }
+
+  cancelForChat(chatId: number): void {
+    chatRequestController.cancelChat(chatId);
+    useChatStore.getState().setStreamingStatus(chatId, "cancelled");
+  }
+
+  invalidate(): void {
+    chatRequestController.invalidate();
   }
 }
 

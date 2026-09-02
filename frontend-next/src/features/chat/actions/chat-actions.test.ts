@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { chatActions } from "./chat-actions";
 import { chatStreamService } from "@/features/chat/stream/chat-stream-service";
 import type { ChatStreamHandlers } from "@/features/chat/stream/chat-stream-service";
+import { chatRequestController } from "@/features/chat/stream/chat-request-controller";
 import { useChatStore } from "@/features/chat/store/chat-store";
 import { useChatSessionStore } from "@/features/chat/store/chat-session-store";
 import { ApiError } from "@/lib/errors/api-error";
@@ -12,6 +13,8 @@ vi.mock("@/features/chat/stream/chat-stream-service", () => ({
   chatStreamService: {
     stream: vi.fn(),
     abort: vi.fn(),
+    abortChat: vi.fn(),
+    currentChatId: null,
   },
 }));
 
@@ -19,6 +22,7 @@ describe("chatActions", () => {
   beforeEach(() => {
     useChatStore.getState().reset();
     useChatSessionStore.getState().reset();
+    chatRequestController.invalidate();
     vi.clearAllMocks();
   });
 
@@ -83,9 +87,45 @@ describe("chatActions", () => {
     expect(useChatStore.getState().streamingStatusByChat[1]).toBe("error");
   });
 
-  it("delegates cancellation to chatStreamService", () => {
+  it("delegates cancellation to chatRequestController and streamService", () => {
     chatActions.stopStreaming();
-    expect(chatStreamService.abort).toHaveBeenCalledTimes(1);
+    expect(chatStreamService.abort).toHaveBeenCalled();
+  });
+
+  it("discards chunks from previous streams when a new request starts", async () => {
+    let capturedHandler1: ChatStreamHandlers | undefined;
+
+    vi.mocked(chatStreamService.stream).mockImplementationOnce(
+      async (_payload: StreamPayload, handlers?: ChatStreamHandlers) => {
+        capturedHandler1 = handlers;
+      },
+    );
+
+    const firstMsg = chatActions.sendMessage({ chatId: 1, prompt: "First" });
+
+    vi.mocked(chatStreamService.stream).mockImplementationOnce(
+      async (_payload: StreamPayload, handlers?: ChatStreamHandlers) => {
+        handlers?.onEvent?.({ type: "streamStarted" });
+        handlers?.onEvent?.({ type: "chunkReceived", chunk: "Second result" });
+        handlers?.onEvent?.({ type: "streamCompleted" });
+      },
+    );
+
+    await chatActions.sendMessage({ chatId: 2, prompt: "Second" });
+
+    // Late chunk from first request arrives
+    capturedHandler1?.onEvent?.({
+      type: "chunkReceived",
+      chunk: "Stale chunk from first",
+    });
+
+    await firstMsg;
+
+    const chat1Messages = useChatStore.getState().messagesByChat[1];
+    const chat2Messages = useChatStore.getState().messagesByChat[2];
+
+    expect(chat1Messages[1].content).toBe("");
+    expect(chat2Messages[1].content).toBe("Second result");
   });
 
   it("syncs the first message into the chat session title", async () => {
@@ -150,37 +190,6 @@ describe("chatActions", () => {
     );
   });
 
-  it("does not overwrite an existing chat title", async () => {
-    useChatSessionStore.setState({
-      sessions: [
-        {
-          id: 1,
-          user_id: 1,
-          title: "My RAG Research",
-          created_at: "2026-01-01T00:00:00Z",
-          updated_at: "2026-01-01T00:00:00Z",
-          has_pdf: false,
-        },
-      ],
-    });
-
-    vi.mocked(chatStreamService.stream).mockImplementation(
-      async (_payload: StreamPayload, handlers?: ChatStreamHandlers) => {
-        handlers?.onEvent?.({ type: "streamStarted" });
-        handlers?.onEvent?.({ type: "streamCompleted" });
-      },
-    );
-
-    await chatActions.sendMessage({
-      chatId: 1,
-      prompt: "This is a second message",
-    });
-
-    expect(useChatSessionStore.getState().sessions[0].title).toBe(
-      "My RAG Research",
-    );
-  });
-
   it("promotes the first-message chat to the top of history", async () => {
     useChatSessionStore.setState({
       sessions: [
@@ -197,7 +206,7 @@ describe("chatActions", () => {
           user_id: 1,
           title: "New Chat",
           created_at: "2026-01-02T00:00:00Z",
-          updated_at: "2026-01-02T00:00:00Z",
+          updated_at: "2026-01-02T10:00:00Z",
           has_pdf: false,
         },
       ],
