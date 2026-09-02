@@ -8,6 +8,8 @@ export type AIModel =
   | "deepseek-r1"
   | "gpt-4o-mini";
 
+export type ChatTask = "general" | string;
+
 export interface User {
   id: number;
   email: string;
@@ -45,9 +47,14 @@ export interface ChatDetailsResponse {
 }
 
 export interface StreamPayload {
+  chat_id: number;
   prompt: string;
+  task?: ChatTask;
   model?: AIModel;
   provider?: AIProvider;
+  file_context?: string;
+  image_base64?: string[];
+  image_mime?: string[];
 }
 
 export interface UploadPdfResponse {

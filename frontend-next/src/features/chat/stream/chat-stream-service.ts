@@ -144,11 +144,18 @@ export class ChatStreamService {
       }
     } catch (error) {
       if (this.isAbortError(error) || controller.signal.aborted) {
+        const abortError = new ApiError(
+          "The AI stream was cancelled.",
+          "STREAM_ABORTED",
+          undefined,
+          error,
+        );
+
         handlers.onEvent?.({
           type: "streamCancelled",
         });
 
-        return;
+        throw abortError;
       }
 
       const apiError =

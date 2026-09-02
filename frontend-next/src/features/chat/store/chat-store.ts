@@ -48,6 +48,8 @@ export interface ChatStore {
   clearMessages: (chatId: number) => void;
 
   removeChat: (chatId: number) => void;
+
+  reset: () => void;
 }
 
 export const useChatStore = create<ChatStore>((set) => ({
@@ -169,5 +171,12 @@ export const useChatStore = create<ChatStore>((set) => ({
         messagesByChat,
         streamingStatusByChat,
       };
+    }),
+
+  reset: () =>
+    set({
+      activeChatId: null,
+      messagesByChat: {},
+      streamingStatusByChat: {},
     }),
 }));
