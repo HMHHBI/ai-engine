@@ -22,7 +22,6 @@ import {
   validateImage,
   validatePdf,
 } from "@/features/chat/utils/attachment-utils";
-import { chatApi } from "@/lib/api/chat";
 import { cn } from "@/lib/utils";
 
 interface ChatComposerProps {
@@ -46,13 +45,14 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
   );
 
   const isStreaming = status === "streaming";
-  const isUploadingPdf = pdf?.status === "uploading";
+  const isUploadingOrProcessing =
+    pdf?.status === "uploading" || pdf?.status === "processing";
 
   const canSend =
     chatId !== null &&
     prompt.trim().length > 0 &&
     !isStreaming &&
-    !isUploadingPdf;
+    !isUploadingOrProcessing;
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -124,6 +124,36 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
     }
   }
 
+  async function performPdfUpload(file: File) {
+    if (chatId === null) return;
+
+    setPdf({
+      file,
+      filename: file.name,
+      status: "uploading",
+    });
+
+    try {
+      setPdf((curr) => (curr ? { ...curr, status: "processing" } : null));
+
+      const result = await chatActions.uploadPdf(chatId, file);
+
+      setPdf({
+        file,
+        filename: result.filename,
+        status: "ready",
+        chunksCount: result.chunksCount,
+      });
+    } catch (error) {
+      setPdf({
+        file,
+        filename: file.name,
+        status: "error",
+        error: error instanceof Error ? error.message : "PDF upload failed.",
+      });
+    }
+  }
+
   async function handlePdfSelection(
     event: React.ChangeEvent<HTMLInputElement>,
   ) {
@@ -143,29 +173,12 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
       return;
     }
 
-    setPdf({
-      file,
-      filename: file.name,
-      status: "uploading",
-    });
+    await performPdfUpload(file);
+  }
 
-    try {
-      const response = await chatApi.uploadPdf(chatId, file);
-
-      setPdf({
-        file,
-        filename: response.filename,
-        status: "uploaded",
-        chunksCount: response.chunks_count,
-      });
-    } catch (error) {
-      setPdf({
-        file,
-        filename: file.name,
-        status: "error",
-        error: error instanceof Error ? error.message : "PDF upload failed.",
-      });
-    }
+  function handleRetryPdf() {
+    if (!pdf?.file) return;
+    void performPdfUpload(pdf.file);
   }
 
   function removeImage(id: string) {
@@ -181,6 +194,9 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
   }
 
   function removePdf() {
+    if (chatId !== null) {
+      useChatStore.getState().clearPdfState(chatId);
+    }
     setPdf(null);
   }
 
@@ -214,7 +230,7 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
 
       clearImages();
     } catch {
-      // Stream state is handled by chatActions.
+      // Handled in chatActions
     }
   }
 
@@ -241,7 +257,13 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
         >
           <ImageAttachmentList attachments={images} onRemove={removeImage} />
 
-          {pdf && <PdfAttachmentView attachment={pdf} onRemove={removePdf} />}
+          {pdf && (
+            <PdfAttachmentView
+              attachment={pdf}
+              onRemove={removePdf}
+              onRetry={handleRetryPdf}
+            />
+          )}
 
           {attachmentError && (
             <div className="px-3 pt-3">
@@ -254,7 +276,7 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
             onKeyDown={handleKeyDown}
-            disabled={chatId === null || isStreaming || isUploadingPdf}
+            disabled={chatId === null || isStreaming || isUploadingOrProcessing}
             placeholder={
               chatId === null ? "Start a new chat" : "Message AI Engine…"
             }
@@ -275,7 +297,7 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
               disabled={
                 chatId === null ||
                 isStreaming ||
-                isUploadingPdf ||
+                isUploadingOrProcessing ||
                 images.length >= 4
               }
               aria-label="Attach image"
@@ -295,7 +317,10 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
               type="button"
               onClick={() => pdfInputRef.current?.click()}
               disabled={
-                chatId === null || isStreaming || isUploadingPdf || pdf !== null
+                chatId === null ||
+                isStreaming ||
+                isUploadingOrProcessing ||
+                pdf !== null
               }
               aria-label="Attach PDF"
               title="Attach PDF"
@@ -307,7 +332,7 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
                 "disabled:pointer-events-none disabled:opacity-40",
               )}
             >
-              {isUploadingPdf ? (
+              {isUploadingOrProcessing ? (
                 <LoaderCircle className="size-4 animate-spin" />
               ) : (
                 <FilePlus2 className="size-4" />

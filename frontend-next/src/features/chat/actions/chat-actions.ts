@@ -1,4 +1,5 @@
 import { ApiError } from "@/lib/errors/api-error";
+import { chatApi } from "@/lib/api/chat";
 import { chatStreamService } from "@/features/chat/stream/chat-stream-service";
 import { chatRequestController } from "@/features/chat/stream/chat-request-controller";
 import { chatSessionActions } from "@/features/chat/actions/chat-session-actions";
@@ -33,7 +34,6 @@ class ChatActions {
 
     const isFirstMessage = session?.title === "New Chat";
 
-    // Optimistic user message
     const userMessage: ChatMessage = {
       id: Date.now(),
       role: "user",
@@ -41,7 +41,6 @@ class ChatActions {
     };
     store.addMessage(chatId, userMessage);
 
-    // Optimistic AI placeholder
     const aiMessage: ChatMessage = {
       id: Date.now() + 1,
       role: "ai",
@@ -104,6 +103,58 @@ class ChatActions {
 
       store.setStreamingStatus(chatId, "error");
       throw error;
+    }
+  }
+
+  async uploadPdf(chatId: number, file: File): Promise<{ filename: string; chunksCount: number }> {
+    const chatStore = useChatStore.getState();
+
+    chatStore.setPdfState(chatId, {
+      status: "uploading",
+      filename: file.name,
+      chunksCount: null,
+      error: null,
+    });
+
+    try {
+      chatStore.setPdfState(chatId, { status: "processing" });
+
+      const response = await chatApi.uploadPdf(chatId, file);
+
+      chatStore.setPdfState(chatId, {
+        status: "ready",
+        filename: response.filename,
+        chunksCount: response.chunks_count,
+        error: null,
+      });
+
+      // Synchronize has_pdf in session store
+      useChatSessionStore.getState().updateSession(chatId, {
+        has_pdf: true,
+      });
+
+      return {
+        filename: response.filename,
+        chunksCount: response.chunks_count,
+      };
+    } catch (error) {
+      let message = "PDF upload failed.";
+
+      if (error instanceof ApiError) {
+        if (error.status === 413) message = "This PDF is too large (max 20MB).";
+        else if (error.status === 429) message = "Upload limit reached. Try again later.";
+        else if (error.status && error.status >= 500) message = "AI processing service is temporarily unavailable.";
+        else message = error.message;
+      } else if (error instanceof Error) {
+        message = error.message;
+      }
+
+      chatStore.setPdfState(chatId, {
+        status: "error",
+        error: message,
+      });
+
+      throw new Error(message);
     }
   }
 

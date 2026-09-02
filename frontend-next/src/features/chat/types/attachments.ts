@@ -6,10 +6,18 @@ export interface ImageAttachment {
   mimeType: string;
 }
 
+export type PdfUploadStatus =
+  | "idle"
+  | "validating"
+  | "uploading"
+  | "processing"
+  | "ready"
+  | "error";
+
 export interface PdfAttachment {
   file: File;
   filename: string;
-  status: "idle" | "uploading" | "uploaded" | "error";
+  status: PdfUploadStatus;
   chunksCount?: number;
   error?: string;
 }
