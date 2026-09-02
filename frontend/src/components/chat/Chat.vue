@@ -13,7 +13,7 @@ const props = defineProps(['messages', 'chatId', 'isMessagesLoading'])
 const emit = defineEmits(['refresh', 'scrollToBottom'])
 
 const { highlightCode, parseImageData, copyToClipboard, downloadChat } = useChatUI()
-const { userStore, currentTask, tasks, loading, prompt, selectedImages, showAttachmentMenu, pdfContext, handleImageUpload, handleFileUpload, handleEditMessage, send, handleRegenerate, stopGeneration } = useChatActions(props, emit)
+const { userStore, currentTask, selectedModel, tasks, models, loading, prompt, selectedImages, showAttachmentMenu, pdfContext, handleImageUpload, handleFileUpload, handleEditMessage, send, handleRegenerate, stopGeneration } = useChatActions(props, emit)
 const { isSpeaking, isListening, toggleListen, speak } = useSpeech(prompt)
 
 onUpdated(() => {
@@ -38,7 +38,14 @@ watch(
 
 <template>
   <div class="chat-container">
-    <TaskBar v-model="currentTask" :tasks="tasks" :pdf-context="pdfContext" :loading="loading" />
+    <TaskBar
+      :tasks="tasks"
+      :models="models"
+      v-model:taskValue="currentTask"
+      v-model:modelValue="selectedModel"
+      :pdf-context="pdfContext"
+      :loading="loading"
+    />
 
     <MessageContainer
       :messages="messages"

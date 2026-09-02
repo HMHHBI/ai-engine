@@ -8,12 +8,20 @@ export function useChatActions(props, emit) {
   const uiStore = useUIStore()
 
   const currentTask = ref('general')
+  const selectedModel = ref('gemini-2.5-flash')
+
   const tasks = [
-    { id: 'general', name: 'Gemini 2.0 Flash', icon: '✨' },
+    { id: 'general', name: 'General Assistant', icon: '✨' },
     { id: 'research', name: 'Research Mode (Web)', icon: '🔍' },
     { id: 'code', name: 'Code Assistant', icon: '💻' },
     { id: 'blog', name: 'Creative Writer', icon: '📝' },
     { id: 'email', name: 'Email Writer', icon: '✉️' },
+  ]
+
+  const models = [
+    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
+    { id: 'ollama-llama3.2', name: 'Ollama Llama 3.2 (Local)' },
+    { id: 'openai-gpt-4o-mini', name: 'OpenAI GPT-4o Mini' },
   ]
 
   const loading = ref(false)
@@ -51,7 +59,7 @@ export function useChatActions(props, emit) {
 
     try {
       const data = await uploadPDFApi(props.chatId, formData)
-      pdfContext.value = data.text
+      pdfContext.value = data.pdf_context
       uiStore.addToast('PDF processed and added to context!', 'success')
     } catch (err) {
       uiStore.addToast('Error reading PDF', 'error')
@@ -60,30 +68,22 @@ export function useChatActions(props, emit) {
     }
   }
 
-  // useChatActions.js mein ye naya function add karein:
-
   const handleEditMessage = async (index) => {
     if (loading.value) return
 
     const msgToEdit = props.messages[index]
     if (msgToEdit.role !== 'user') return
 
-    // 1. Purana text input area mein wapis le ayein
     prompt.value = msgToEdit.text
-
-    // Database ID save karein taake backend ko pata ho kahan se agay delete karna hai
     editingMessageIndex.value = index
 
-    // 2. Images handle karein (agar user ne images bheji thin)
     if (msgToEdit.image_data) {
       try {
-        // Agar JSON string hai toh parse karein, warna as-is array use karein
         const images =
           typeof msgToEdit.image_data === 'string'
             ? JSON.parse(msgToEdit.image_data)
             : msgToEdit.image_data
 
-        // Ensure karein ke selectedImages mein array hi jaye[cite: 2]
         selectedImages.value = Array.isArray(images) ? [...images] : [images]
       } catch (e) {
         console.error('Image parsing failed during edit:', e)
@@ -93,7 +93,6 @@ export function useChatActions(props, emit) {
       selectedImages.value = []
     }
 
-    // 4. Focus wapis input bar par le ayein (optional UI touch)
     uiStore.addToast('Edit mode active. Update your message.', 'success')
   }
 
@@ -105,22 +104,19 @@ export function useChatActions(props, emit) {
     )
       return
 
-      if (editingMessageIndex.value !== null) {
-        try {
-          // API call jo humne pehle discuss ki thi (cleanup endpoint)
-          await cleanupChatApi(props.chatId, parseInt(editingMessageIndex.value))
-
-          // UI se purane messages hatayein
-          props.messages.splice(
-            editingMessageIndex.value,
-            props.messages.length - editingMessageIndex.value,
-          )
-          editingMessageIndex.value = null // Reset edit mode
-        } catch (err) {
-          uiStore.addToast('Sync failed with server', 'error')
-          return
-        }
+    if (editingMessageIndex.value !== null) {
+      try {
+        await cleanupChatApi(props.chatId, parseInt(editingMessageIndex.value))
+        props.messages.splice(
+          editingMessageIndex.value,
+          props.messages.length - editingMessageIndex.value,
+        )
+        editingMessageIndex.value = null
+      } catch (err) {
+        uiStore.addToast('Sync failed with server', 'error')
+        return
       }
+    }
 
     const userMsg = prompt.value
     const currentImages = [...selectedImages.value]
@@ -143,6 +139,7 @@ export function useChatActions(props, emit) {
       const res = await streamAI(
         {
           task: currentTask.value || 'general',
+          model: selectedModel.value || 'gemini-2.5-flash',
           prompt: userMsg || 'Explain these images',
           chat_id: props.chatId,
           signal: signal,
@@ -165,7 +162,6 @@ export function useChatActions(props, emit) {
         const { done, value } = await reader.read()
         if (done) break
         aiMsg.text += decoder.decode(value)
-        scrollToBottom()
       }
     } catch (err) {
       if (err.name === 'AbortError') {
@@ -192,20 +188,15 @@ export function useChatActions(props, emit) {
       return
     }
 
-    // 1. SAFE IMAGE PARSING
     let originalImages = []
     try {
       if (userMessage.image_data) {
-        // Agar pehle se hi Array hai toh direct use karein
         if (Array.isArray(userMessage.image_data)) {
           originalImages = userMessage.image_data
-        }
-        // Agar String hai toh check karein ke JSON hai ya direct Base64
-        else if (typeof userMessage.image_data === 'string') {
+        } else if (typeof userMessage.image_data === 'string') {
           if (userMessage.image_data.startsWith('[') || userMessage.image_data.startsWith('{')) {
             originalImages = JSON.parse(userMessage.image_data)
           } else {
-            // Agar sirf ek Base64 string hai toh array mein daal dein
             originalImages = [userMessage.image_data]
           }
         }
@@ -217,19 +208,16 @@ export function useChatActions(props, emit) {
 
     const originalText = userMessage.text
 
-    // 2. UI Cleanup
     props.messages.splice(index - 1, 2)
-
-    // 3. Reset Inputs & Resend
     prompt.value = originalText
-    selectedImages.value = originalImages // Ab ye error nahi dega
+    selectedImages.value = originalImages
 
     await send()
   }
 
   const stopGeneration = () => {
     if (abortController.value) {
-      abortController.value.abort() // Connection kaat do
+      abortController.value.abort()
       abortController.value = null
       loading.value = false
       uiStore.addToast('Generation stopped', 'info')
@@ -239,7 +227,9 @@ export function useChatActions(props, emit) {
   return {
     userStore,
     currentTask,
+    selectedModel,
     tasks,
+    models,
     loading,
     prompt,
     selectedImages,

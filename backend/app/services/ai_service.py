@@ -1,192 +1,293 @@
+from __future__ import annotations
+
+import asyncio
+import logging
 import random
-from app.core.config import settings
-from app.services.providers.gemini_provider import GeminiProvider
+from typing import AsyncGenerator
+
+from app.core.config import AIModel, AIProvider
 from app.services.cache.memory_cache import MemoryCache
+from app.services.providers.errors import (
+    AIProviderConfigurationError,
+    AIProviderError,
+    AIProviderTimeout,
+    AIProviderUnavailable,
+)
+from app.services.providers.factory import LLMProviderFactory
 from app.services.rate_limit.memory_rate_limiter import MemoryRateLimiter
 
+logger = logging.getLogger(__name__)
+
+
 class AIService:
+    """
+    Application service responsible for LLM execution.
+
+    Provider and model are explicit inputs and are validated together
+    by LLMProviderFactory before a provider is instantiated.
+    """
+
     def __init__(self):
-        self.provider = GeminiProvider(settings.GEMINI_API_KEY)
         self.cache = MemoryCache()
         self.rate_limiter = MemoryRateLimiter()
 
-    # -------------------------
-    # HELPER: SMART CHUNKING (Improved & Robust Version)
-    # -------------------------
-    def get_relevant_context(self, question, full_text, chunk_size=3000):
-        if not full_text:
-            return ""
-    
-        # 1. User ke sawal ko saaf karein aur chote stop words nikaal dein
-        ignore_words = {"what", "is", "the", "according", "to", "document", "framework", "of", "and"}
-        keywords = [word.lower().strip("?,.") for word in question.split() 
-                    if word.lower() not in ignore_words and len(word) > 2]
-    
-        # Agar sifr "Hi" ya basic chat ho, toh document ka start context bhej dein
-        if not keywords:
-            return full_text[:chunk_size]
+    # ============================================================
+    # Helpers
+    # ============================================================
 
-        # 2. ROBUST CHUNKING: Words ki boundary par split karein taake word adha na tootay
-        words = full_text.split(" ")
-        chunks = []
-        current_chunk = []
-        current_length = 0
-        
-        for word in words:
-            current_chunk.append(word)
-            current_length += len(word) + 1
-            if current_length >= chunk_size:
-                chunks.append(" ".join(current_chunk))
-                current_chunk = []
-                current_length = 0
-        if current_chunk:
-            chunks.append(" ".join(current_chunk))
+    @staticmethod
+    def _normalize_provider(
+        provider: AIProvider | str,
+    ) -> AIProvider:
+        if isinstance(provider, AIProvider):
+            return provider
 
-        # 3. SCORING ENGINE
-        scored_chunks = []
-        for chunk in chunks:
-            chunk_lower = chunk.lower()
-            # Kitne makhsoos unique keywords is chunk mein majood hain
-            score = sum(1 for kw in keywords if kw in chunk_lower)
-            scored_chunks.append((score, chunk))
-    
-        # 4. Sort by score and pick top matches
-        scored_chunks.sort(key=lambda x: x[0], reverse=True)
-    
-        # Sifr woh chunks uthayein jin ka score > 0 ho (Top 3 Chunks)
-        relevant = [c[1] for c in scored_chunks[:3] if c[0] > 0]
-    
-        # Fallback Strategy: Agar koi exact word match na miley
-        if not relevant:
-            return "\n---\n".join(chunks[:2])
-        
-        return "\n---\n".join(relevant)
-    
-    def _fallback(self):
-        return random.choice([
-            "AI is busy, please try again.",
-            "Temporary issue, retry in a moment.",
-            "Couldn't process your request right now."
-        ])
-    
-    def _mock_response(self, prompt):
-        return f"""Here's a clear answer:
-        To make a delicious cake, first decide based on your mood:
-
-        • Chocolate cake → rich and popular  
-        • Cream cake → soft and light  
-        • Cheese cake → smooth and premium  
-
-        Basic steps:
-        1. Mix flour, sugar, eggs, and butter  
-        2. Add flavor (chocolate/cheese/cream)  
-        3. Bake at 180°C for 30–40 minutes  
-        4. Let it cool and decorate  
-
-        Tip: Always use fresh ingredients for better taste.
-        """
-
-    # -------------------------
-    # MAIN FUNCTION (UPDATED)
-    # -------------------------
-    def process_request(self, user_id, prompt, history=None, file_context="", image_data=None, task="general"):
-
-        # 1. RATE LIMIT
-        if not self.rate_limiter.allow(user_id):
-            return "⚠️ Too many requests. Try later."
-
-        # 2. SYSTEM INSTRUCTIONS
-        system_instructions = {
-            "email": "You are a professional email writer.",
-            "blog": "You are a blog writer.",
-            "code": "You are a senior software engineer.",
-            "general": "You are a helpful assistant."
-        }
-        instruction = system_instructions.get(task, system_instructions["general"])
-
-        # 3. LIMIT & PROCESS HISTORY
-        processed_history = ""
-        if history:
-            limited_history = history[-4:]
-            for msg in limited_history:
-                if isinstance(msg, str):
-                    processed_history += f"USER: {msg}\n"
-                else:
-                    role = getattr(msg, 'role', 'user').upper()
-                    content = getattr(msg, 'content', str(msg))
-                    if "app.db.models" not in content: # Clean junk
-                        processed_history += f"{role}: {content}\n"
-                
-        # 4. SMART PDF CONTEXT (UPDATED LOGIC)
-        # Ab hum poora text bhejney ke bajaye sirf relevant chunk nikal rahe hain
-        relevant_context = self.get_relevant_context(prompt, file_context)
-            
-        # 5. CACHE
-        cache_key = f"{user_id}:{prompt}:{task}:{len(history or [])}"
-        cached = self.cache.get(cache_key)
-        if cached:
-            return cached
-
-        # 6. BUILD CONTENT (Strict Context)
-        combined_text = f"""
-        {instruction}
-    
-        CRITICAL RULES:
-        1. Use the [DOCUMENT CONTEXT] below to answer the user.
-        2. If the answer isn't there, say you can't find it in the document.
-        3. Keep it professional and concise.
-
-        [DOCUMENT CONTEXT]:
-        {relevant_context}
-
-        [CHAT HISTORY]:
-        {processed_history}
-
-        USER QUESTION: {prompt}
-        """
-
-        contents = [{
-            "role": "user",
-            "parts": [{"text": combined_text}]
-        }]
-
-        # 7. IMAGE SUPPORT
-        if image_data and isinstance(image_data, list):
-            image_parts = []
-            for img in image_data:
-                if img.startswith('http'):
-                    image_parts.append({"text": f"[Referencing image]: {img}"})
-                else:
-                    image_parts.append({
-                        "inline_data": {
-                            "mime_type": "image/png",
-                            "data": img
-                        }
-                    })
-            image_parts.append({"text": f"Question based on doc and images: {prompt}"})
-            contents = [{"role": "user", "parts": image_parts}]
-
-        # 8. CALL AI
         try:
-            # Debugging logs terminal mein dekhne ke liye
-            print(f"DEBUG - Full Context Size: {len(file_context)} chars")
-            print(f"DEBUG - Sent Context Size: {len(relevant_context)} chars")
-            
-            result = self.provider.generate(contents)
-            if not result:
-                result = self._mock_response(prompt)
-        
-            self.cache.set(cache_key, result)
-            return result
-        except Exception as e:
-            print(f"AI Service Error: {e}")
-            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                return "🕒 Quota exhausted. Please wait a few seconds."
-            return "❌ AI is currently unavailable."
-        
-    # -------------------------
-    # TITLE GENERATION
-    # -------------------------
-    def generate_chat_title(self, prompt: str):
-        result = self.provider.generate_title(prompt)
-        return result if result else prompt[:25] + "..."
+            return AIProvider(str(provider).strip().lower())
+        except ValueError as exc:
+            valid = ", ".join(item.value for item in AIProvider)
+            raise ValueError(
+                f"Unsupported AI provider '{provider}'. Supported providers: {valid}."
+            ) from exc
+
+    @staticmethod
+    def _normalize_model(
+        model: AIModel | str,
+    ) -> AIModel:
+        if isinstance(model, AIModel):
+            return model
+
+        try:
+            return AIModel(str(model).strip())
+        except ValueError as exc:
+            valid = ", ".join(item.value for item in AIModel)
+            raise ValueError(
+                f"Unsupported AI model '{model}'. Supported models: {valid}."
+            ) from exc
+
+    @staticmethod
+    def _fallback() -> str:
+        return random.choice(
+            [
+                "AI is currently busy. Please try again shortly.",
+                "Temporary system delay. Please retry your request.",
+                "Unable to complete the request right now. Please retry.",
+            ]
+        )
+
+    # ============================================================
+    # Stream
+    # ============================================================
+
+    async def process_stream(
+        self,
+        user_id: int,
+        prompt: str,
+        chat_history: list[dict[str, str]] | None = None,
+        rag_context: str | None = None,
+        task: str = "general",
+        provider: AIProvider | str = AIProvider.OLLAMA,
+        model: AIModel | str = AIModel.OLLAMA_LLAMA_3_2,
+    ) -> AsyncGenerator[str, None]:
+        clean_prompt = prompt.strip()
+
+        if not clean_prompt:
+            yield "Please provide a message."
+            return
+
+        try:
+            normalized_provider = self._normalize_provider(provider)
+            normalized_model = self._normalize_model(model)
+
+            normalized_provider, normalized_model = (
+                LLMProviderFactory.validate_configuration(
+                    provider=normalized_provider,
+                    model=normalized_model,
+                )
+            )
+        except ValueError:
+            logger.warning(
+                "Invalid AI configuration provider=%s model=%s",
+                provider,
+                model,
+            )
+            yield "[Configuration Error: invalid AI configuration.]"
+            return
+
+        if not self.rate_limiter.allow(user_id):
+            yield "Rate limit exceeded. Please wait a moment before sending more messages."
+            return
+
+        system_instructions = {
+            "email": (
+                "You are a professional email writer. "
+                "Write clear, concise, professional emails."
+            ),
+            "blog": (
+                "You are an expert technical blog writer. "
+                "Produce accurate, well-structured technical content."
+            ),
+            "code": (
+                "You are a senior full-stack software engineer. "
+                "Provide production-quality technical solutions."
+            ),
+            "general": "You are a helpful and intelligent AI assistant.",
+        }
+
+        base_instruction = system_instructions.get(
+            task,
+            system_instructions["general"],
+        )
+
+        system_prompt = base_instruction
+
+        if rag_context:
+            system_prompt += (
+                "\n\n"
+                "DOCUMENT GROUNDING RULES:\n"
+                "1. Answer document-specific questions only from the provided document context.\n"
+                "2. Do not invent facts not supported by the context.\n"
+                "3. Do not use general knowledge to fill missing document information.\n"
+                "4. If the context is insufficient, explicitly say so instead of guessing.\n\n"
+                "[DOCUMENT CONTEXT]\n"
+                f"{rag_context}"
+            )
+
+        try:
+            llm_provider = LLMProviderFactory.get_provider(
+                provider=normalized_provider,
+                model=normalized_model,
+            )
+        except ValueError:
+            logger.warning(
+                "Provider creation failed provider=%s model=%s",
+                normalized_provider.value,
+                normalized_model.value,
+            )
+            yield "[Configuration Error: invalid AI configuration.]"
+            return
+
+        logger.info(
+            "AI stream started user_id=%s provider=%s model=%s task=%s",
+            user_id,
+            normalized_provider.value,
+            normalized_model.value,
+            task,
+        )
+
+        try:
+            async for chunk in llm_provider.generate_stream(
+                prompt=clean_prompt,
+                system_prompt=system_prompt,
+                history=chat_history,
+                temperature=0.2,
+            ):
+                if chunk:
+                    yield chunk
+
+        except asyncio.CancelledError:
+            logger.info(
+                "AI stream cancelled user_id=%s provider=%s model=%s",
+                user_id,
+                normalized_provider.value,
+                normalized_model.value,
+            )
+            raise
+
+        except AIProviderTimeout:
+            logger.warning(
+                "AI provider timeout user_id=%s provider=%s model=%s",
+                user_id,
+                normalized_provider.value,
+                normalized_model.value,
+            )
+            yield "\n[The AI provider timed out. Please try again.]"
+
+        except AIProviderUnavailable:
+            logger.warning(
+                "AI provider unavailable user_id=%s provider=%s model=%s",
+                user_id,
+                normalized_provider.value,
+                normalized_model.value,
+            )
+            yield "\n[The AI provider is temporarily unavailable. Please try again.]"
+
+        except AIProviderConfigurationError:
+            logger.error(
+                "AI provider configuration failure provider=%s model=%s",
+                normalized_provider.value,
+                normalized_model.value,
+            )
+            yield "\n[The AI provider is not configured correctly.]"
+
+        except AIProviderError:
+            logger.exception(
+                "AI provider error user_id=%s provider=%s model=%s",
+                user_id,
+                normalized_provider.value,
+                normalized_model.value,
+            )
+            yield "\n[The AI provider could not complete the request.]"
+
+        except Exception:
+            logger.exception(
+                "AIService stream failed user_id=%s provider=%s model=%s",
+                user_id,
+                normalized_provider.value,
+                normalized_model.value,
+            )
+            yield f"\n[System Error: {self._fallback()}]"
+
+    # ============================================================
+    # Chat Title
+    # ============================================================
+
+    async def generate_chat_title(
+        self,
+        prompt: str,
+        provider: AIProvider | str = AIProvider.OLLAMA,
+        model: AIModel | str = AIModel.OLLAMA_LLAMA_3_2,
+    ) -> str:
+        clean_prompt = prompt.strip()
+
+        if not clean_prompt:
+            return "New Chat"
+
+        try:
+            normalized_provider = self._normalize_provider(provider)
+            normalized_model = self._normalize_model(model)
+
+            normalized_provider, normalized_model = (
+                LLMProviderFactory.validate_configuration(
+                    provider=normalized_provider,
+                    model=normalized_model,
+                )
+            )
+
+            llm_provider = LLMProviderFactory.get_provider(
+                provider=normalized_provider,
+                model=normalized_model,
+            )
+
+            response = await llm_provider.generate_response(
+                prompt=(
+                    "Generate a concise 3-4 word title for this "
+                    "conversation. Return ONLY the title text.\n\n"
+                    f"Conversation:\n{clean_prompt}"
+                ),
+                temperature=0.3,
+            )
+
+            if not response:
+                return clean_prompt[:25]
+
+            title = response.strip().replace('"', "").replace("'", "")
+            return title[:80]
+
+        except Exception:
+            logger.exception(
+                "Failed to generate chat title provider=%s model=%s",
+                provider,
+                model,
+            )
+            return clean_prompt[:25]

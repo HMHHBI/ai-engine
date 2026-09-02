@@ -1,30 +1,68 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
-from app.core.config import settings
+from collections.abc import Generator
+from contextlib import contextmanager
 
-# Engine setup
-# engine = create_engine(
-#     settings.DATABASE_URL, 
-#     connect_args={"check_same_thread": False} # SQLite ke liye zaroori hai
-# )
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, declarative_base, sessionmaker
+
+from app.core.config import settings
 
 engine = create_engine(
     settings.DATABASE_URL,
     connect_args={
-        "options": "-c client_encoding=utf8"
-    }
+        "options": "-c client_encoding=utf8",
+    },
+    pool_size=settings.DB_POOL_SIZE,
+    max_overflow=settings.DB_MAX_OVERFLOW,
+    pool_timeout=settings.DB_POOL_TIMEOUT,
+    pool_recycle=settings.DB_POOL_RECYCLE,
+    pool_pre_ping=settings.DB_POOL_PRE_PING,
 )
 
-# Session factory (Laravel ke DB connection ki tarah)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+SessionLocal = sessionmaker(
+    bind=engine,
+    class_=Session,
+    autocommit=False,
+    autoflush=False,
+    expire_on_commit=False,
+)
 
-# Models is class ko inherit karenge
+
 Base = declarative_base()
 
-# Dependency: Har request par naya DB session khulega aur khatam honay par band
-def get_db():
+
+def get_db() -> Generator[Session, None, None]:
+    """
+    FastAPI request-scoped database dependency.
+
+    This session belongs to the request thread and must not be passed
+    into asyncio/threadpool/background execution.
+    """
+
     db = SessionLocal()
+
     try:
         yield db
+    finally:
+        db.close()
+
+
+@contextmanager
+def session_scope() -> Generator[Session, None, None]:
+    """
+    Repository/background-worker database session.
+
+    The caller owns no session. This context manager guarantees that
+    every repository operation gets an isolated session and that the
+    session is always closed.
+    """
+
+    db = SessionLocal()
+
+    try:
+        yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()

@@ -1,185 +1,852 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from __future__ import annotations
+
+import asyncio
+import logging
+from typing import Any
+
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
-import time, json, base64
+from starlette.concurrency import run_in_threadpool
 
-from app.db.session import get_db
 from app.api.deps import get_current_user
-from app.db.models import User, Chat
-from app.schemas.chat_schema import AIRequest, ChatOut, MessageOut
+from app.core.config import (
+    AIModel,
+    AIProvider,
+    EmbeddingProvider,
+    settings,
+)
+from app.core.rate_limiter import limiter
+from app.db.models import User
 from app.repositories.chat_repo import ChatRepository
-from app.services.ai_service import AIService
-from app.utils.pdf_extractor import extract_text_from_pdf, PDFExtractionError
-from app.utils.limits import check_user_usage_limit, decrement_user_limit
+from app.repositories.vector_repo import VectorRepository
+from app.schemas.chat_schema import AIRequest, ChatOut
+from app.services.chat_service import ChatApplicationService
+from app.services.embedding_service import EmbeddingService
+from app.services.providers.errors import (
+    AIProviderError,
+    AIProviderTimeout,
+    AIProviderUnavailable,
+)
+from app.services.providers.factory import LLMProviderFactory
+from app.utils.file_validation import (
+    read_upload_with_limit,
+    sanitize_filename,
+    validate_content_type,
+    validate_extension,
+    validate_pdf_signature,
+)
+from app.utils.pdf_extractor import PDFExtractionError, PDFPage, extract_text_from_pdf
 
-router = APIRouter(prefix="/chat", tags=["chat"])
-ai_service = AIService()
+logger = logging.getLogger(__name__)
 
-# 1. Naya Chat banana (Frontend needs this!)
-@router.post("/new")
-def create_chat(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    chat = ChatRepository.create_chat(db, current_user.id)
-    return {"chat_id": chat.id}
+router = APIRouter(
+    prefix="/chat",
+    tags=["chat"],
+)
 
-# 2. Saari Chats ki list (Sidebar ke liye)
-@router.get("/all", response_model=list[ChatOut])
-def get_all_chats(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    return ChatRepository.get_all_by_user(db, current_user.id)
 
-# 3. Aik specific chat ki history (Frontend load hote hi ye call karta hai)
-@router.get("/{chat_id}")
-def get_chat_history(chat_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    chat = ChatRepository.get_by_id(db, chat_id, current_user.id)
-    if not chat:
-        raise HTTPException(status_code=404, detail="Chat not found")
-    
-    messages = ChatRepository.get_history(db, chat_id, limit=50) # Repository function use karein
-    return [{"role": m.role, "text": m.content, "image_data": m.image_data} for m in messages]
+# ============================================================
+# Helpers
+# ============================================================
 
-# 4. Delete Chat
-@router.delete("/{chat_id}")
-def delete_chat(chat_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    success = ChatRepository.delete_chat(db, chat_id, current_user.id)
-    if not success: raise HTTPException(status_code=404, detail="Chat not found")
-    return {"message": "Deleted"}
+MODEL_ALIASES: dict[str, AIModel] = {
+    "ollama-llama3.2": AIModel.OLLAMA_LLAMA_3_2,
+    "ollama-deepseek-r1": AIModel.OLLAMA_DEEPSEEK_R1,
+    "openai-gpt-4o-mini": AIModel.OPENAI_GPT_4O_MINI,
+    "gemini-2.5-flash": AIModel.GEMINI_2_5_FLASH,
+}
 
-# 5. Update Chat Title (Frontend jab manual rename kare ya AI title generate kare)
-@router.put("/{chat_id}/title")
-def update_chat_title(
-    chat_id: int, 
-    new_title: str, 
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user) # Security: Check user ownership
-):
-    chat = ChatRepository.get_by_id(db, chat_id, current_user.id)
-    if not chat:
-        raise HTTPException(status_code=404, detail="Chat not found")
-    
-    updated_chat = ChatRepository.update_title(db, chat_id, new_title)
-    return {"id": updated_chat.id, "title": updated_chat.title}
 
-# 6. Get Chat Details (PDF context aur baqi info ke liye)
-@router.get("/details/{chat_id}")
-def get_chat_details(
-    chat_id: int, 
-    db: Session = Depends(get_db), 
-    current_user: User = Depends(get_current_user)
-):
-    chat = ChatRepository.get_by_id(db, chat_id, current_user.id)
-    if not chat:
-        raise HTTPException(status_code=404, detail="Chat not found")
-    
-    return {
-        "id": chat.id,
-        "title": chat.title,
-        "pdf_context": chat.pdf_context,
-    }
-    
-# 7. AI Streaming (The main engine)
-@router.post("/stream")
-async def ai_stream(req: AIRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-     # 1. Poora Chat object uthayein taake PDF context miley
-    chat = db.query(Chat).filter(Chat.id == req.chat_id, Chat.user_id == current_user.id).first()
-    if not chat: 
-        raise HTTPException(status_code=404, detail="Chat not found")
-
-    # 2. Ensure prompt is clean string
-    clean_prompt = str(req.prompt)
-
-    # 3. Add User Message
-    ChatRepository.add_message(db, req.chat_id, "user", clean_prompt, req.image_base64)
-
-    # 4. Fetch History
-    history = ChatRepository.get_history(db, req.chat_id, limit=8)
-
-    # 5. Call AI Service with explicit pdf_context
-    # Yahan check karein ke chat.pdf_context khali toh nahi
-    context_to_send = chat.pdf_context if chat.pdf_context else ""
-    
-    full_response = ai_service.process_request(
-        user_id=current_user.id,
-        prompt=clean_prompt,
-        history=history,
-        file_context=context_to_send,
-        image_data=req.image_base64,
-        task=req.task if hasattr(req, 'task') else "general"
-    )
-
-    # Update Title if it's a new chat
-    if chat.title == "New Chat":
-        new_title = ai_service.generate_chat_title(req.prompt)
-        ChatRepository.update_title(db, chat.id, new_title)
-
-    def generate():
-        res_text = full_response if full_response else "AI Error"
-        if "![" in res_text:
-            decrement_user_limit(db, current_user, "image")
-            yield res_text
-        else:
-            for chunk in res_text.split(" "):
-                yield chunk + " "
-                time.sleep(0.01)
-        
-        ChatRepository.add_message(db, req.chat_id, "ai", res_text)
-
-    return StreamingResponse(generate(), media_type="text/plain")
-
-# 8. PDF Upload
-@router.post("/upload-pdf/{chat_id}")
-async def upload_pdf(
-    chat_id: int, 
-    file: UploadFile = File(...), 
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user) # <-- Security check lazmi add karen
-):
-    # 1. Pehle check karen ke chat user ki apni hai ya nahi (Security Validation)
-    chat = ChatRepository.get_by_id(db, chat_id, current_user.id)
-    if not chat:
-        raise HTTPException(status_code=404, detail="Chat nahi mili ya aap authorized nahi hain.")
-
-    # 2. Check karen ke file khali toh nahi ya extension galat toh nahi
-    if not file.filename.lower().endswith('.pdf'):
-        raise HTTPException(status_code=400, detail="Sirf PDF files upload karne ki ijazat hai.")
+def _parse_ai_provider(value: str | AIProvider) -> AIProvider:
+    if isinstance(value, AIProvider):
+        return value
 
     try:
-        # File ka content read karen
-        content = await file.read()
-        
-        # Robust extractor se text extract karen
-        text = extract_text_from_pdf(content)
-        
-        # Database context ko update karen
-        ChatRepository.update_pdf_context(db, chat_id, text)
-        
+        return AIProvider(str(value).strip().lower())
+    except ValueError as exc:
+        valid = ", ".join(provider.value for provider in AIProvider)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported AI provider '{value}'. Supported providers: {valid}.",
+        ) from exc
+
+
+def _parse_ai_model(value: str | AIModel) -> AIModel:
+    if isinstance(value, AIModel):
+        return value
+
+    cleaned = str(value).strip()
+
+    if cleaned in MODEL_ALIASES:
+        return MODEL_ALIASES[cleaned]
+
+    try:
+        return AIModel(cleaned)
+    except ValueError as exc:
+        valid = ", ".join(model.value for model in AIModel)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported AI model '{value}'. Supported models: {valid}.",
+        ) from exc
+
+
+def _parse_embedding_provider(
+    value: str | EmbeddingProvider,
+) -> EmbeddingProvider:
+    if isinstance(value, EmbeddingProvider):
+        return value
+
+    try:
+        return EmbeddingProvider(str(value).strip().lower())
+    except ValueError as exc:
+        valid = ", ".join(provider.value for provider in EmbeddingProvider)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported embedding provider '{value}'. Supported providers: {valid}.",
+        ) from exc
+
+
+def _resolve_ai_configuration(
+    *,
+    chat_provider: str | None,
+    chat_model: str | None,
+    requested_model: str | None,
+) -> tuple[AIProvider, AIModel]:
+    raw_model = requested_model or chat_model or settings.DEFAULT_AI_MODEL.value
+    model = _parse_ai_model(raw_model)
+
+    if requested_model:
+        provider = None
+        for candidate_provider in AIProvider:
+            supported = LLMProviderFactory.get_supported_models(candidate_provider)
+            if model in supported:
+                provider = candidate_provider
+                break
+
+        if provider is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"No provider is registered for model '{model.value}'.",
+            )
+    elif chat_provider:
+        provider = _parse_ai_provider(chat_provider)
+    else:
+        provider = settings.DEFAULT_AI_PROVIDER
+
+    try:
+        provider, model = LLMProviderFactory.validate_configuration(
+            provider=provider,
+            model=model,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
+
+    return provider, model
+
+
+# ============================================================
+# 1. Create New Chat
+# ============================================================
+
+
+@router.post("/new")
+@limiter.limit("10/minute")
+def create_chat(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        chat = ChatRepository.create_chat(
+            user_id=current_user.id,
+        )
+        return {
+            "chat_id": chat.id,
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to create chat user_id=%s", current_user.id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to create new chat session.",
+        )
+
+
+# ============================================================
+# 2. Get All Chats
+# ============================================================
+
+
+@router.get(
+    "/all",
+    response_model=list[ChatOut],
+)
+@limiter.limit("30/minute")
+def get_all_chats(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        return ChatRepository.get_all_by_user(
+            user_id=current_user.id,
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to fetch chats user_id=%s", current_user.id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to fetch chat history.",
+        )
+
+
+# ============================================================
+# 3. Get Specific Chat History
+# ============================================================
+
+
+@router.get("/{chat_id}")
+@limiter.limit("30/minute")
+def get_chat_history(
+    request: Request,
+    chat_id: int,
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        chat = ChatRepository.get_by_id(
+            chat_id=chat_id,
+            user_id=current_user.id,
+        )
+
+        if not chat:
+            raise HTTPException(
+                status_code=404,
+                detail="Chat not found.",
+            )
+
+        messages = ChatRepository.get_history(
+            chat_id=chat_id,
+            user_id=current_user.id,
+            limit=50,
+        )
+
+        return [
+            {
+                "role": message.role,
+                "text": message.content,
+                "image_data": message.image_data,
+            }
+            for message in messages
+        ]
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception(
+            "Failed to get chat history chat_id=%s user_id=%s", chat_id, current_user.id
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to fetch messages.",
+        )
+
+
+# ============================================================
+# 4. Delete Chat
+# ============================================================
+
+
+@router.delete("/{chat_id}")
+@limiter.limit("10/minute")
+def delete_chat(
+    request: Request,
+    chat_id: int,
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        success = ChatRepository.delete_chat(
+            chat_id=chat_id,
+            user_id=current_user.id,
+        )
+
+        if not success:
+            raise HTTPException(
+                status_code=404,
+                detail="Chat not found.",
+            )
+
+        return {
+            "message": "Deleted",
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception(
+            "Failed to delete chat chat_id=%s user_id=%s", chat_id, current_user.id
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to delete chat.",
+        )
+
+
+# ============================================================
+# 5. Update Chat Title
+# ============================================================
+
+
+@router.put("/{chat_id}/title")
+@limiter.limit("20/minute")
+def update_chat_title(
+    request: Request,
+    chat_id: int,
+    new_title: str,
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        updated_chat = ChatRepository.update_title(
+            chat_id=chat_id,
+            user_id=current_user.id,
+            new_title=new_title,
+        )
+
+        if updated_chat is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Chat not found.",
+            )
+
+        return {
+            "id": updated_chat.id,
+            "title": updated_chat.title,
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception(
+            "Failed to update title chat_id=%s user_id=%s", chat_id, current_user.id
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to update chat title.",
+        )
+
+
+# ============================================================
+# 6. Get Chat Details
+# ============================================================
+
+
+@router.get("/details/{chat_id}")
+@limiter.limit("30/minute")
+def get_chat_details(
+    request: Request,
+    chat_id: int,
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        chat = ChatRepository.get_by_id(
+            chat_id=chat_id,
+            user_id=current_user.id,
+        )
+
+        if not chat:
+            raise HTTPException(
+                status_code=404,
+                detail="Chat not found.",
+            )
+
+        return {
+            "id": chat.id,
+            "title": chat.title,
+            "pdf_context": chat.pdf_context,
+            "ai_provider": chat.ai_provider,
+            "ai_model": chat.ai_model,
+            "embedding_provider": chat.embedding_provider,
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception(
+            "Failed to get chat details chat_id=%s user_id=%s", chat_id, current_user.id
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to fetch chat details.",
+        )
+
+
+# ============================================================
+# 7. AI Streaming + RAG
+# ============================================================
+
+
+@router.post("/stream")
+@limiter.limit("15/minute")
+async def ai_stream(
+    request: Request,
+    req: AIRequest,
+    current_user: User = Depends(get_current_user),
+):
+    clean_prompt = req.prompt.strip()
+
+    if not clean_prompt:
+        raise HTTPException(
+            status_code=400,
+            detail="Prompt cannot be empty.",
+        )
+
+    chat = await asyncio.to_thread(
+        ChatRepository.get_by_id,
+        chat_id=req.chat_id,
+        user_id=current_user.id,
+    )
+
+    if not chat:
+        raise HTTPException(
+            status_code=404,
+            detail="Chat not found.",
+        )
+
+    ai_provider, ai_model = _resolve_ai_configuration(
+        chat_provider=chat.ai_provider,
+        chat_model=chat.ai_model,
+        requested_model=req.model,
+    )
+
+    raw_embedding_provider = (
+        chat.embedding_provider or settings.DEFAULT_EMBEDDING_PROVIDER.value
+    )
+    embedding_provider = _parse_embedding_provider(raw_embedding_provider)
+
+    new_title = None
+    if chat.title == "New Chat":
+        new_title = (
+            clean_prompt[:25] + "..." if len(clean_prompt) > 25 else clean_prompt
+        )
+
+    try:
+        prepared_message = await ChatApplicationService.prepare_chat_turn(
+            chat_id=req.chat_id,
+            user_id=current_user.id,
+            content=clean_prompt,
+            new_title=new_title,
+            image_data_list=req.image_base64,
+        )
+    except ValueError as exc:
+        logger.warning(
+            "Failed to prepare chat turn chat_id=%s user_id=%s",
+            req.chat_id,
+            current_user.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except Exception:
+        logger.exception(
+            "Failed to prepare chat turn chat_id=%s user_id=%s",
+            req.chat_id,
+            current_user.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to prepare chat message.",
+        )
+
+    if prepared_message is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Chat not found.",
+        )
+
+    context_chunks: list[dict[str, Any]] = []
+
+    if chat.pdf_context:
+        query_vector = await EmbeddingService.generate_embedding(
+            clean_prompt,
+            model_provider=embedding_provider.value,
+        )
+
+        if query_vector:
+            context_chunks = await asyncio.to_thread(
+                VectorRepository.search_similar_chunks,
+                user_id=current_user.id,
+                chat_id=req.chat_id,
+                query_vector=query_vector,
+                top_k=6,
+                max_distance=0.70,
+                adaptive_margin=0.15,
+            )
+
+    if context_chunks:
+        context_parts: list[str] = []
+        for chunk in context_chunks:
+            source_block = (
+                "[Source]\n"
+                f"Page: {chunk['page_number']}\n"
+                f"Chunk Index: {chunk['chunk_index']}\n"
+                f"Vector Distance: {chunk['distance']:.6f}\n"
+                "Content:\n"
+                f"{chunk['content']}"
+            )
+            context_parts.append(source_block)
+
+        context_str = "\n\n---\n\n".join(context_parts)
+        system_prompt = (
+            "You are Hassan AI Engine, an intelligent "
+            "document-grounded assistant.\n\n"
+            "The user is asking a question about an uploaded "
+            "document. The retrieved context below is the "
+            "authoritative source for document-specific claims.\n\n"
+            "RULES:\n"
+            "1. Answer document questions strictly from the retrieved context.\n"
+            "2. Do not invent facts that are not supported by the retrieved context.\n"
+            "3. Do not use general knowledge to fill gaps in the document.\n"
+            "4. Preserve the exact distinction between headings, goals, practices, examples, activities, explanations, and tests.\n"
+            "5. Do not combine separate statements merely because they occur in the same process area.\n"
+            "6. Treat temporal words such as before, after, during, then, and next as strict constraints.\n"
+            "7. Do not infer a temporal relationship unless the retrieved context explicitly supports it.\n"
+            "8. If the user asks for an explicit list, use the list supported by the document rather than constructing a new list from nearby statements.\n"
+            "9. If the retrieved context is insufficient, state that the relevant information was not retrieved instead of guessing.\n"
+            "10. When useful, mention the document page supporting the answer.\n\n"
+            "RETRIEVED DOCUMENT CONTEXT:\n\n"
+            f"{context_str}"
+        )
+    else:
+        system_prompt = (
+            "You are Hassan AI Engine, a document-grounded assistant.\n\n"
+            "The user is asking about an uploaded document, "
+            "but no sufficiently relevant document context "
+            "was retrieved for this question.\n\n"
+            "Do not answer using general knowledge.\n"
+            "Do not guess.\n"
+            "Do not invent information from the document.\n"
+            "Tell the user that the relevant information was "
+            "not retrieved from the uploaded document."
+        )
+
+    try:
+        provider = LLMProviderFactory.get_provider(
+            provider=ai_provider,
+            model=ai_model,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
+
+    async def event_generator():
+        full_text = ""
+        stream_succeeded = False
+
+        try:
+            async for token in provider.generate_stream(
+                prompt=clean_prompt,
+                system_prompt=system_prompt,
+            ):
+                if await request.is_disconnected():
+                    logger.info(
+                        "Client disconnected during AI stream chat_id=%s user_id=%s",
+                        req.chat_id,
+                        current_user.id,
+                    )
+                    raise asyncio.CancelledError
+
+                if not token:
+                    continue
+
+                full_text += token
+                yield token
+
+            stream_succeeded = True
+
+        except asyncio.CancelledError:
+            logger.info(
+                "AI stream cancelled chat_id=%s user_id=%s",
+                req.chat_id,
+                current_user.id,
+            )
+            raise
+
+        except AIProviderTimeout:
+            logger.warning(
+                "AI stream timeout chat_id=%s user_id=%s",
+                req.chat_id,
+                current_user.id,
+            )
+            yield "\n[The AI provider timed out. Please try again.]"
+
+        except AIProviderUnavailable:
+            logger.warning(
+                "AI provider unavailable chat_id=%s user_id=%s",
+                req.chat_id,
+                current_user.id,
+            )
+            yield "\n[The AI provider is temporarily unavailable. Please try again.]"
+
+        except AIProviderError:
+            logger.exception(
+                "AI provider stream failure chat_id=%s user_id=%s",
+                req.chat_id,
+                current_user.id,
+            )
+            yield "\n[Unable to complete the AI request.]"
+
+        except Exception:
+            logger.exception(
+                "Unexpected AI stream failure chat_id=%s user_id=%s",
+                req.chat_id,
+                current_user.id,
+            )
+            yield "\n[Unable to complete the request right now.]"
+
+        finally:
+            if stream_succeeded and full_text.strip():
+                try:
+                    persisted_message = await asyncio.to_thread(
+                        ChatRepository.add_message,
+                        chat_id=req.chat_id,
+                        user_id=current_user.id,
+                        role="ai",
+                        content=full_text,
+                    )
+                    if persisted_message is None:
+                        logger.error(
+                            "AI response persistence rejected chat_id=%s user_id=%s",
+                            req.chat_id,
+                            current_user.id,
+                        )
+                        yield "\n[Response generated but could not be saved. Please retry.]"
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception(
+                        "Failed to persist completed AI response chat_id=%s user_id=%s",
+                        req.chat_id,
+                        current_user.id,
+                    )
+                    yield "\n[Response generated but could not be saved. Please retry.]"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/plain",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+            "X-AI-Provider": ai_provider.value,
+            "X-AI-Model": ai_model.value,
+        },
+    )
+
+
+# ============================================================
+# 8. Hardened Document Upload & Ingestion
+# ============================================================
+
+
+@router.post("/upload-pdf/{chat_id}")
+@limiter.limit("5/minute")
+async def upload_pdf(
+    request: Request,
+    chat_id: int,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        chat = await asyncio.to_thread(
+            ChatRepository.get_by_id,
+            chat_id=chat_id,
+            user_id=current_user.id,
+        )
+
+        if not chat:
+            raise HTTPException(
+                status_code=404,
+                detail="Chat session missing or unauthorized.",
+            )
+
+        safe_filename = sanitize_filename(file.filename)
+        extension = validate_extension(safe_filename)
+        validate_content_type(extension, file.content_type)
+
+        content = await read_upload_with_limit(file)
+
+        if extension == ".pdf":
+            validate_pdf_signature(content)
+            try:
+                pages = await run_in_threadpool(
+                    extract_text_from_pdf,
+                    content,
+                )
+            except PDFExtractionError:
+                logger.warning(
+                    "PDF rejected during extraction chat_id=%s user_id=%s",
+                    chat_id,
+                    current_user.id,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="The uploaded document could not be processed.",
+                )
+        else:
+            try:
+                text = content.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                    detail="Text file must be valid UTF-8.",
+                ) from exc
+
+            if not text.strip():
+                raise HTTPException(
+                    status_code=400,
+                    detail="File is empty or contains no readable text.",
+                )
+            pages = [PDFPage(page_number=1, text=text)]
+
+        chunks = await run_in_threadpool(
+            EmbeddingService.chunk_text,
+            pages,
+            500,
+            50,
+        )
+
+        if not chunks:
+            raise HTTPException(
+                status_code=400,
+                detail="No usable document chunks were produced.",
+            )
+
+        if len(chunks) > settings.MAX_DOCUMENT_CHUNKS:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="Document produces too many chunks for processing.",
+            )
+
+        if len(chunks) > settings.MAX_CHUNK_EMBEDDINGS:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="Document exceeds the maximum embedding workload.",
+            )
+
+        embedding_provider = _parse_embedding_provider(
+            chat.embedding_provider or settings.DEFAULT_EMBEDDING_PROVIDER.value
+        )
+
+        semaphore = asyncio.Semaphore(4)
+
+        async def generate_chunk_embedding(chunk):
+            async with semaphore:
+                return await EmbeddingService.generate_embedding(
+                    chunk.text,
+                    model_provider=embedding_provider.value,
+                )
+
+        vectors = await asyncio.gather(
+            *[generate_chunk_embedding(chunk) for chunk in chunks]
+        )
+
+        chunks_with_embeddings = [
+            (chunk, vector)
+            for chunk, vector in zip(chunks, vectors)
+            if vector is not None
+        ]
+
+        failed_embeddings = len(chunks) - len(chunks_with_embeddings)
+
+        if failed_embeddings > 0 or len(chunks_with_embeddings) != len(chunks):
+            logger.error(
+                "Document ingestion aborted: %s/%s chunk embeddings failed. "
+                "Preserving previous chat state. chat_id=%s user_id=%s",
+                failed_embeddings,
+                len(chunks),
+                chat_id,
+                current_user.id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Document embedding failed. Existing document was not changed.",
+            )
+
+        db_objs = await asyncio.to_thread(
+            VectorRepository.replace_document_chunks,
+            user_id=current_user.id,
+            chat_id=chat_id,
+            chunks_with_embeddings=chunks_with_embeddings,
+            pdf_context=f"Indexed File: {safe_filename}",
+        )
+
         return {
             "status": "success",
-            "filename": file.filename,
-            "message": "PDF successfully parse aur save ho gayi hai."
+            "filename": safe_filename,
+            "pdf_context": f"Indexed File: {safe_filename}",
+            "chunks_total": len(chunks),
+            "chunks_indexed": len(db_objs),
+            "chunks_failed": 0,
+            "embedding_provider": embedding_provider.value,
+            "message": (
+                f"Indexed {len(chunks_with_embeddings)} "
+                f"of {len(chunks)} chunks into pgvector."
+            ),
         }
 
-    except PDFExtractionError as e:
-        # Agar hamara naya custom error aaye (Encrypted, Corrupted, Scanned)
-        # Toh frontend ko saaf 400 Bad Request ka error dain taake user samajh sake
-        raise HTTPException(status_code=400, detail=str(e))
-        
-    except Exception as e:
-        # Agar koi aur un-expected error aa jaye background mein
-        raise HTTPException(status_code=500, detail="Server par file process karte hue koi masla aya hai.")
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception(
+            "Unexpected error in upload_pdf chat_id=%s user_id=%s",
+            chat_id,
+            current_user.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Server error during document ingestion.",
+        )
 
-# app/api/chat.py
+
+# ============================================================
+# 9. Cleanup Chat Messages
+# ============================================================
+
 
 @router.delete("/{chat_id}/cleanup/{after_index}")
+@limiter.limit("10/minute")
 def cleanup_chat_messages(
-    chat_id: int, 
-    after_index: int, 
-    db: Session = Depends(get_db), 
-    current_user: User = Depends(get_current_user)
+    request: Request,
+    chat_id: int,
+    after_index: int,
+    current_user: User = Depends(get_current_user),
 ):
-    # Pehle check karo ke chat is user ki hai ya nahi (Security)
-    chat = ChatRepository.get_by_id(db, chat_id, current_user.id)
-    if not chat:
-        raise HTTPException(status_code=404, detail="Chat not found")
+    try:
+        success = ChatRepository.delete_messages_after(
+            chat_id=chat_id,
+            user_id=current_user.id,
+            after_index=after_index,
+        )
 
-    # Messages delete karo jo is index ke baad hain
-    ChatRepository.delete_messages_after(db, chat_id, current_user.id, after_index)
-    return {"message": "Database cleaned up successfully"}
+        if not success:
+            raise HTTPException(
+                status_code=404,
+                detail="Chat not found.",
+            )
+
+        return {
+            "message": "Messages cleaned up successfully.",
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception(
+            "Failed to cleanup messages chat_id=%s user_id=%s",
+            chat_id,
+            current_user.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to cleanup messages.",
+        )

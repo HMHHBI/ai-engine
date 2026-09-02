@@ -1,95 +1,403 @@
+from __future__ import annotations
+
 import json
-from sqlalchemy.orm import Session
-from app.db.models import Chat, Message
-from app.utils.cloudinary_tool import upload_image_to_cloud
+from typing import Optional
+
+from sqlalchemy import delete, select
+
+from app.core.config import settings
+from app.db.models import AILog, Chat, Message
+from app.db.session import session_scope
+
 
 class ChatRepository:
-    @staticmethod
-    def get_by_id(db: Session, chat_id: int, user_id: int):
-        return db.query(Chat).filter(Chat.id == chat_id, Chat.user_id == user_id).first()
+    """
+    Database repository for chats and messages.
+
+    Repository methods own their database sessions. This prevents
+    request-scoped SQLAlchemy sessions from being passed into async
+    threadpool execution.
+
+    External side effects such as Cloudinary uploads are intentionally
+    handled by the application/service layer.
+    """
 
     @staticmethod
-    def get_all_by_user(db: Session, user_id: int):
-        return db.query(Chat).filter(Chat.user_id == user_id).order_by(Chat.id.desc()).all()
+    def get_by_id(
+        chat_id: int,
+        user_id: int,
+    ) -> Optional[Chat]:
+        with session_scope() as db:
+            return db.execute(
+                select(Chat).where(
+                    Chat.id == chat_id,
+                    Chat.user_id == user_id,
+                )
+            ).scalar_one_or_none()
 
     @staticmethod
-    def create_chat(db: Session, user_id: int, title: str = "New Chat"):
-        new_chat = Chat(user_id=user_id, title=title)
-        db.add(new_chat)
-        db.commit()
-        db.refresh(new_chat)
-        return new_chat
+    def get_all_by_user(
+        user_id: int,
+    ) -> list[Chat]:
+        with session_scope() as db:
+            return list(
+                db.execute(
+                    select(Chat).where(Chat.user_id == user_id).order_by(Chat.id.desc())
+                ).scalars()
+            )
 
     @staticmethod
-    def update_title(db: Session, chat_id: int, new_title: str):
-        chat = db.query(Chat).filter(Chat.id == chat_id).first()
-        if chat:
-            chat.title = new_title
-            db.commit()
-        return chat
+    def create_chat(
+        user_id: int,
+        title: str = "New Chat",
+    ) -> Chat:
+        with session_scope() as db:
+            new_chat = Chat(
+                user_id=user_id,
+                title=title,
+                ai_provider=settings.DEFAULT_AI_PROVIDER.value,
+                ai_model=settings.DEFAULT_AI_MODEL.value,
+                embedding_provider=(settings.DEFAULT_EMBEDDING_PROVIDER.value),
+            )
+
+            db.add(new_chat)
+            db.flush()
+
+            return new_chat
 
     @staticmethod
-    def delete_chat(db: Session, chat_id: int, user_id: int):
-        chat = db.query(Chat).filter(Chat.id == chat_id, Chat.user_id == user_id).first()
-        if chat:
-            # Cascade delete agar model mein nahi hai toh manually messages delete karein
-            db.query(Message).filter(Message.chat_id == chat_id).delete()
-            db.delete(chat)
-            db.commit()
-            return True
-        return False
+    def update_title(
+        chat_id: int,
+        user_id: int,
+        new_title: str,
+    ) -> Optional[Chat]:
+        title = new_title.strip()
 
-    @staticmethod
-    def add_message(db: Session, chat_id: int, role: str, content: str, image_data_list: list = None):
-        cloud_urls = []
-        if image_data_list:
-            images = json.loads(image_data_list) if isinstance(image_data_list, str) else image_data_list
-            for img_base64 in image_data_list:
-                if img_base64.startswith('http'):
-                    cloud_urls.append(img_base64)
-                else:
-                    url = upload_image_to_cloud(img_base64, folder="chat_messages")
-                    if url:
-                        cloud_urls.append(url)
-    
-        # DB mein ab URLs ki list (JSON string) save hogi, heavy Base64 nahi
-        db_image_data = json.dumps(cloud_urls) if cloud_urls else None
-        new_msg = Message(chat_id=chat_id, role=role, content=content, image_data=db_image_data)
-        db.add(new_msg)
-        db.commit()
-        return new_msg
-    
-    @staticmethod
-    def update_pdf_context(db: Session, chat_id: int, text: str):
-        chat = db.query(Chat).filter(Chat.id == chat_id).first()
-        if chat:
-            chat.pdf_context = text
-            db.commit()
+        if not title:
+            raise ValueError("Chat title cannot be empty.")
+
+        with session_scope() as db:
+            chat = db.execute(
+                select(Chat).where(
+                    Chat.id == chat_id,
+                    Chat.user_id == user_id,
+                )
+            ).scalar_one_or_none()
+
+            if chat is None:
+                return None
+
+            chat.title = title
+            db.flush()
+
             return chat
-        return None
-    
+
     @staticmethod
-    def save_ai_log(db: Session, task: str, prompt: str, response: str, user_id: int = None):
-        log = AILog(user_id=user_id, task=task, prompt=prompt, response=response)
-        db.add(log)
-        db.commit()
-        
+    def delete_chat(
+        chat_id: int,
+        user_id: int,
+    ) -> bool:
+        with session_scope() as db:
+            chat = db.execute(
+                select(Chat).where(
+                    Chat.id == chat_id,
+                    Chat.user_id == user_id,
+                )
+            ).scalar_one_or_none()
+
+            if chat is None:
+                return False
+
+            db.delete(chat)
+
+            return True
+
     @staticmethod
-    def get_history(db: Session, chat_id: int, limit: int = 10):
-        history = db.query(Message).filter(Message.chat_id == chat_id)\
-                .order_by(Message.id.desc()).limit(limit).all()
-        history.reverse()
-        return history
-    
+    def prepare_chat_turn(
+        chat_id: int,
+        user_id: int,
+        content: str,
+        new_title: Optional[str] = None,
+        image_urls: Optional[list[str] | str] = None,
+    ) -> Optional[Message]:
+        """
+        Atomically prepare a new chat turn.
+
+        The transaction verifies chat ownership, locks the chat row,
+        conditionally initializes the title, and inserts the user
+        message.
+
+        External image uploads must already have been completed by
+        the application layer. This repository only persists the
+        resulting URLs.
+        """
+        normalized_content = content.strip()
+
+        if not normalized_content:
+            raise ValueError("Message content cannot be empty.")
+
+        title: Optional[str] = None
+
+        if new_title is not None:
+            title = new_title.strip()
+
+            if not title:
+                raise ValueError("Chat title cannot be empty.")
+
+        normalized_image_urls: list[str] = []
+
+        if image_urls:
+            if isinstance(image_urls, str):
+                try:
+                    images = json.loads(image_urls)
+                except json.JSONDecodeError as exc:
+                    raise ValueError("image_urls contains invalid JSON.") from exc
+            else:
+                images = image_urls
+
+            if not isinstance(images, list):
+                raise ValueError("image_urls must be a list.")
+
+            for image in images:
+                image_value = str(image).strip()
+
+                if not image_value.startswith(("http://", "https://")):
+                    raise ValueError("image_urls must contain absolute URLs only.")
+
+                normalized_image_urls.append(
+                    image_value,
+                )
+
+        db_image_data = (
+            json.dumps(normalized_image_urls) if normalized_image_urls else None
+        )
+
+        with session_scope() as db:
+            chat = db.execute(
+                select(Chat)
+                .where(
+                    Chat.id == chat_id,
+                    Chat.user_id == user_id,
+                )
+                .with_for_update()
+            ).scalar_one_or_none()
+
+            if chat is None:
+                return None
+
+            # Only the first successful concurrent turn initializes
+            # the default title. A later concurrent request cannot
+            # overwrite an already initialized title.
+            if title is not None and chat.title == "New Chat":
+                chat.title = title
+
+            new_message = Message(
+                chat_id=chat.id,
+                role="user",
+                content=normalized_content,
+                image_data=db_image_data,
+            )
+
+            db.add(new_message)
+            db.flush()
+
+            return new_message
+
     @staticmethod
-    def delete_messages_after(db: Session, chat_id: int, user_id: int, after_index: int):
-        messages = db.query(Message).filter(Message.chat_id == chat_id).order_by(Message.id.asc()).all()
-        if after_index < len(messages):
-            target_msg_id = messages[after_index].id
-            
-            # Security Check: user_id verify karna lazmi hai
-            db.query(Message).filter(
-                Message.chat_id == chat_id,
-                Message.id >= target_msg_id
-            ).delete(synchronize_session=False)
-            db.commit()
+    def add_message(
+        chat_id: int,
+        user_id: int,
+        role: str,
+        content: str,
+        image_data_list: Optional[list[str] | str] = None,
+    ) -> Optional[Message]:
+        """
+        Insert a message only when the authenticated user owns the chat.
+        """
+        normalized_role = role.strip().lower()
+
+        if normalized_role not in {
+            "user",
+            "ai",
+            "assistant",
+        }:
+            raise ValueError(
+                "Invalid message role. " "Expected 'user', 'ai', or 'assistant'."
+            )
+
+        if not content.strip():
+            raise ValueError("Message content cannot be empty.")
+
+        db_image_data = None
+
+        if image_data_list:
+            if isinstance(image_data_list, str):
+                try:
+                    images = json.loads(image_data_list)
+                except json.JSONDecodeError as exc:
+                    raise ValueError("image_data_list contains invalid JSON.") from exc
+            else:
+                images = image_data_list
+
+            if not isinstance(images, list):
+                raise ValueError("image_data_list must be a list.")
+
+            normalized_images = [str(image).strip() for image in images]
+
+            if any(
+                not image.startswith(("http://", "https://"))
+                for image in normalized_images
+            ):
+                raise ValueError("image_data_list must contain URLs only.")
+
+            db_image_data = json.dumps(
+                normalized_images,
+            )
+
+        with session_scope() as db:
+            chat_exists = db.execute(
+                select(Chat.id).where(
+                    Chat.id == chat_id,
+                    Chat.user_id == user_id,
+                )
+            ).scalar_one_or_none()
+
+            if chat_exists is None:
+                return None
+
+            new_message = Message(
+                chat_id=chat_id,
+                role=normalized_role,
+                content=content,
+                image_data=db_image_data,
+            )
+
+            db.add(new_message)
+            db.flush()
+
+            return new_message
+
+    @staticmethod
+    def update_pdf_context(
+        chat_id: int,
+        user_id: int,
+        text: str,
+    ) -> Optional[Chat]:
+        with session_scope() as db:
+            chat = db.execute(
+                select(Chat).where(
+                    Chat.id == chat_id,
+                    Chat.user_id == user_id,
+                )
+            ).scalar_one_or_none()
+
+            if chat is None:
+                return None
+
+            chat.pdf_context = text
+            db.flush()
+
+            return chat
+
+    @staticmethod
+    def save_ai_log(
+        task: str,
+        prompt: str,
+        response: str,
+        user_id: Optional[int] = None,
+    ) -> AILog:
+        with session_scope() as db:
+            log = AILog(
+                user_id=user_id,
+                task=task,
+                prompt=prompt,
+                response=response,
+            )
+
+            db.add(log)
+            db.flush()
+
+            return log
+
+    @staticmethod
+    def get_history(
+        chat_id: int,
+        user_id: int,
+        limit: int = 10,
+    ) -> list[Message]:
+        """
+        Retrieve message history only for a chat owned by user_id.
+        """
+        if limit <= 0:
+            raise ValueError("limit must be greater than zero.")
+
+        with session_scope() as db:
+            chat_exists = db.execute(
+                select(Chat.id).where(
+                    Chat.id == chat_id,
+                    Chat.user_id == user_id,
+                )
+            ).scalar_one_or_none()
+
+            if chat_exists is None:
+                return []
+
+            messages = list(
+                db.execute(
+                    select(Message)
+                    .where(Message.chat_id == chat_id)
+                    .order_by(Message.id.desc())
+                    .limit(limit)
+                ).scalars()
+            )
+
+            messages.reverse()
+
+            return messages
+
+    @staticmethod
+    def delete_messages_after(
+        chat_id: int,
+        user_id: int,
+        after_index: int,
+    ) -> bool:
+        """
+        Delete messages from a given zero-based message index onward.
+
+        user_id is verified through the chat ownership check.
+        """
+        if after_index < 0:
+            raise ValueError("after_index cannot be negative.")
+
+        with session_scope() as db:
+            chat_exists = db.execute(
+                select(Chat.id).where(
+                    Chat.id == chat_id,
+                    Chat.user_id == user_id,
+                )
+            ).scalar_one_or_none()
+
+            if chat_exists is None:
+                return False
+
+            messages = list(
+                db.execute(
+                    select(Message.id)
+                    .where(Message.chat_id == chat_id)
+                    .order_by(Message.id.asc())
+                ).scalars()
+            )
+
+            if after_index >= len(messages):
+                return True
+
+            target_message_id = messages[after_index]
+
+            db.execute(
+                delete(Message).where(
+                    Message.chat_id == chat_id,
+                    Message.id >= target_message_id,
+                )
+            )
+
+            return True

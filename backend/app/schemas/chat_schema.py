@@ -1,25 +1,30 @@
+from typing import List, Optional
 from pydantic import BaseModel
-from typing import Optional, List
 
-# AI Response Request (Jo aapka purana AIRequest tha)
+
+# AI Stream Request Schema
 class AIRequest(BaseModel):
     chat_id: int
     prompt: str
     task: str = "general"
+    model: Optional[str] = None
     file_context: Optional[str] = None
-    image_base64: Optional[List[str]] = None
-    image_mime: Optional[str] = "image/png"
+    image_base64: Optional[List[str]] = None  # List of Base64 strings or URLs
+    image_mime: Optional[List[str]] = None  # Mapped mime types per image
 
-# Message Format
+# Message Out Schema (For Chat History / Streaming Output)
 class MessageOut(BaseModel):
+    id: int
+    chat_id: int
     role: str
-    text: str
-    image_data: Optional[str] = None
+    content: str  # FIX: Changed 'text' to 'content' to match Database Model
+    image_data: Optional[str] = None  # JSON string of Cloudinary URLs
 
     class Config:
         from_attributes = True
 
-# Chat Info (Sidebar ke liye)
+
+# Chat Summary Schema (For Sidebar / Chat List)
 class ChatOut(BaseModel):
     id: int
     title: str
