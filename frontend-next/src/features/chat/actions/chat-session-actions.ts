@@ -78,6 +78,50 @@ class ChatSessionActions {
     });
   }
 
+  async renameChat(chatId: number, title: string): Promise<void> {
+    const normalizedTitle = title.trim();
+
+    if (!normalizedTitle) {
+      throw new Error("Chat title cannot be empty.");
+    }
+
+    const sessionStore = useChatSessionStore.getState();
+    sessionStore.setChatMutating(chatId, true);
+
+    try {
+      await chatApi.updateTitle(chatId, normalizedTitle);
+
+      useChatSessionStore.getState().updateSession(chatId, {
+        title: normalizedTitle,
+        updated_at: new Date().toISOString(),
+      });
+    } finally {
+      useChatSessionStore.getState().setChatMutating(chatId, false);
+    }
+  }
+
+  async deleteChat(chatId: number): Promise<boolean> {
+    const wasActive = useChatStore.getState().activeChatId === chatId;
+    const sessionStore = useChatSessionStore.getState();
+
+    sessionStore.setChatMutating(chatId, true);
+
+    try {
+      await chatApi.delete(chatId);
+
+      useChatSessionStore.getState().removeSession(chatId);
+      useChatStore.getState().removeChat(chatId);
+
+      if (wasActive) {
+        this.clearActiveChat();
+      }
+
+      return wasActive;
+    } finally {
+      useChatSessionStore.getState().setChatMutating(chatId, false);
+    }
+  }
+
   async loadChat(chatId: number): Promise<boolean> {
     const requestGeneration = ++this.hydrationGeneration;
 

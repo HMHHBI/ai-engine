@@ -11,6 +11,8 @@ vi.mock("@/lib/api/chat", () => ({
     getAll: vi.fn(),
     create: vi.fn(),
     get: vi.fn(),
+    updateTitle: vi.fn(),
+    delete: vi.fn(),
   },
 }));
 
@@ -73,17 +75,6 @@ describe("chatSessionActions", () => {
     expect(useChatStore.getState().loadingChatIds[42]).toBeUndefined();
   });
 
-  it("creates a new chat and initializes store", async () => {
-    vi.mocked(chatApi.create).mockResolvedValue({ chat_id: 88 });
-
-    const newId = await chatSessionActions.createChat();
-
-    expect(newId).toBe(88);
-    expect(useChatStore.getState().messagesByChat[88]).toEqual([]);
-    expect(useChatSessionStore.getState().sessions[0].id).toBe(88);
-    expect(useChatSessionStore.getState().sessions[0].title).toBe("New Chat");
-  });
-
   it("prevents stale hydration responses from overwriting the latest chat navigation", async () => {
     let resolveChat42!: (msgs: ChatMessage[]) => void;
     const chat42Promise = new Promise<ChatMessage[]>((resolve) => {
@@ -129,5 +120,97 @@ describe("chatSessionActions", () => {
     useChatStore.getState().setActiveChat(10);
     chatSessionActions.clearActiveChat();
     expect(useChatStore.getState().activeChatId).toBeNull();
+  });
+
+  it("creates a new chat and initializes store", async () => {
+    vi.mocked(chatApi.create).mockResolvedValue({ chat_id: 88 });
+
+    const newId = await chatSessionActions.createChat();
+
+    expect(newId).toBe(88);
+    expect(useChatStore.getState().messagesByChat[88]).toEqual([]);
+    expect(useChatSessionStore.getState().sessions[0].id).toBe(88);
+    expect(useChatSessionStore.getState().sessions[0].title).toBe("New Chat");
+  });
+
+  it("renames a chat successfully and updates local session", async () => {
+    useChatSessionStore.setState({
+      sessions: [
+        {
+          id: 5,
+          user_id: 1,
+          title: "Initial Title",
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z",
+          has_pdf: false,
+        },
+      ],
+    });
+
+    vi.mocked(chatApi.updateTitle).mockResolvedValue();
+
+    await chatSessionActions.renameChat(5, "Renamed Title");
+
+    expect(chatApi.updateTitle).toHaveBeenCalledWith(5, "Renamed Title");
+    expect(useChatSessionStore.getState().sessions[0].title).toBe("Renamed Title");
+    expect(useChatSessionStore.getState().mutatingChatIds[5]).toBeUndefined();
+  });
+
+  it("rejects empty title during rename", async () => {
+    await expect(chatSessionActions.renameChat(5, "   ")).rejects.toThrow(
+      "Chat title cannot be empty.",
+    );
+    expect(chatApi.updateTitle).not.toHaveBeenCalled();
+  });
+
+  it("deletes active chat, clears active state, and reports active status", async () => {
+    useChatSessionStore.setState({
+      sessions: [
+        {
+          id: 42,
+          user_id: 1,
+          title: "Active Chat",
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z",
+          has_pdf: false,
+        },
+      ],
+    });
+    useChatStore.getState().setActiveChat(42);
+    useChatStore.getState().setMessages(42, [{ id: 1, role: "user", content: "Hi" }]);
+
+    vi.mocked(chatApi.delete).mockResolvedValue();
+
+    const wasActive = await chatSessionActions.deleteChat(42);
+
+    expect(wasActive).toBe(true);
+    expect(chatApi.delete).toHaveBeenCalledWith(42);
+    expect(useChatSessionStore.getState().sessions).toHaveLength(0);
+    expect(useChatStore.getState().activeChatId).toBeNull();
+    expect(useChatStore.getState().messagesByChat[42]).toBeUndefined();
+  });
+
+  it("deletes non-active chat without altering activeChatId", async () => {
+    useChatSessionStore.setState({
+      sessions: [
+        {
+          id: 10,
+          user_id: 1,
+          title: "Non Active Chat",
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z",
+          has_pdf: false,
+        },
+      ],
+    });
+    useChatStore.getState().setActiveChat(99);
+
+    vi.mocked(chatApi.delete).mockResolvedValue();
+
+    const wasActive = await chatSessionActions.deleteChat(10);
+
+    expect(wasActive).toBe(false);
+    expect(useChatStore.getState().activeChatId).toBe(99);
+    expect(useChatSessionStore.getState().sessions).toHaveLength(0);
   });
 });

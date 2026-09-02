@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect } from "react";
-import { MessageSquare } from "lucide-react";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 import { chatSessionActions } from "@/features/chat/actions/chat-session-actions";
 import { useChatSessionStore } from "@/features/chat/store/chat-session-store";
-import { cn } from "@/lib/utils";
+import { ChatHistoryItem } from "@/features/chat/components/chat-history-item";
+import { ChatDeleteDialog } from "@/features/chat/components/chat-delete-dialog";
 
 interface ChatHistoryListProps {
   onSelectChat?: () => void;
@@ -17,16 +17,32 @@ export function ChatHistoryList({ onSelectChat }: ChatHistoryListProps) {
   const pathname = usePathname();
 
   const sessions = useChatSessionStore((state) => state.sessions);
-
   const isLoading = useChatSessionStore((state) => state.isLoading);
-
   const error = useChatSessionStore((state) => state.error);
+  const mutatingChatIds = useChatSessionStore((state) => state.mutatingChatIds);
+
+  const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
 
   useEffect(() => {
-    void chatSessionActions.loadChats().catch(() => {
-      // Error is tracked in the session store
-    });
+    void chatSessionActions.loadChats().catch(() => {});
   }, []);
+
+  const targetSession = sessions.find((s) => s.id === deleteTargetId);
+
+  async function handleDeleteConfirm() {
+    if (deleteTargetId === null) return;
+
+    try {
+      const wasActive = await chatSessionActions.deleteChat(deleteTargetId);
+      setDeleteTargetId(null);
+      if (wasActive) {
+        router.replace("/dashboard");
+      }
+    } catch {
+      // Keep state intact on failure
+      setDeleteTargetId(null);
+    }
+  }
 
   if (isLoading) {
     return (
@@ -45,7 +61,6 @@ export function ChatHistoryList({ onSelectChat }: ChatHistoryListProps) {
     return (
       <div className="px-2 py-3 text-xs text-muted-foreground">
         <p>Unable to load chats.</p>
-
         <button
           type="button"
           onClick={() => {
@@ -68,35 +83,39 @@ export function ChatHistoryList({ onSelectChat }: ChatHistoryListProps) {
   }
 
   return (
-    <div className="space-y-1">
-      {sessions.map((session) => {
-        const isActive = pathname === `/dashboard/chat/${session.id}`;
+    <>
+      <div className="space-y-1">
+        {sessions.map((session) => {
+          const isActive = pathname === `/dashboard/chat/${session.id}`;
+          const isMutating = Boolean(mutatingChatIds[session.id]);
 
-        return (
-          <button
-            key={session.id}
-            type="button"
-            onClick={() => {
-              onSelectChat?.();
-              router.push(`/dashboard/chat/${session.id}`);
-            }}
-            className={cn(
-              "flex h-10 w-full items-center gap-3 rounded-lg px-3",
-              "text-left text-sm transition-colors",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              isActive
-                ? "bg-secondary text-foreground"
-                : "text-muted-foreground hover:bg-secondary hover:text-foreground",
-            )}
-          >
-            <MessageSquare className="size-4 shrink-0" />
+          return (
+            <ChatHistoryItem
+              key={session.id}
+              session={session}
+              isActive={isActive}
+              isMutating={isMutating}
+              onSelect={() => {
+                onSelectChat?.();
+                router.push(`/dashboard/chat/${session.id}`);
+              }}
+              onRename={async (newTitle) => {
+                await chatSessionActions.renameChat(session.id, newTitle);
+              }}
+              onDeleteRequest={() => setDeleteTargetId(session.id)}
+            />
+          );
+        })}
+      </div>
 
-            <span className="min-w-0 flex-1 truncate">
-              {session.title || "Untitled chat"}
-            </span>
-          </button>
-        );
-      })}
-    </div>
+      {deleteTargetId !== null && (
+        <ChatDeleteDialog
+          chatTitle={targetSession?.title ?? "this chat"}
+          isDeleting={Boolean(mutatingChatIds[deleteTargetId])}
+          onConfirm={() => void handleDeleteConfirm()}
+          onCancel={() => setDeleteTargetId(null)}
+        />
+      )}
+    </>
   );
 }

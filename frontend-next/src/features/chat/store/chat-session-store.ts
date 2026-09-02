@@ -6,6 +6,7 @@ interface ChatSessionStore {
   sessions: ChatSession[];
   isLoading: boolean;
   error: string | null;
+  mutatingChatIds: Record<number, boolean>;
 
   setSessions: (sessions: ChatSession[]) => void;
   addSession: (session: ChatSession) => void;
@@ -15,6 +16,7 @@ interface ChatSessionStore {
 
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
+  setChatMutating: (chatId: number, mutating: boolean) => void;
   reset: () => void;
 }
 
@@ -22,6 +24,7 @@ export const useChatSessionStore = create<ChatSessionStore>((set) => ({
   sessions: [],
   isLoading: false,
   error: null,
+  mutatingChatIds: {},
 
   setSessions: (sessions) =>
     set({
@@ -68,10 +71,22 @@ export const useChatSessionStore = create<ChatSessionStore>((set) => ({
 
   setError: (error) => set({ error }),
 
+  setChatMutating: (chatId, mutating) =>
+    set((state) => {
+      const mutatingChatIds = { ...state.mutatingChatIds };
+      if (mutating) {
+        mutatingChatIds[chatId] = true;
+      } else {
+        delete mutatingChatIds[chatId];
+      }
+      return { mutatingChatIds };
+    }),
+
   reset: () =>
     set({
       sessions: [],
       isLoading: false,
       error: null,
+      mutatingChatIds: {},
     }),
 }));

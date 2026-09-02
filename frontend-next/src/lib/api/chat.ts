@@ -23,8 +23,9 @@ export const chatApi = {
     return apiClient.get<ChatMessage[]>(`/chat/${chatId}`);
   },
 
-  updateTitle(chatId: number, title: string): Promise<ChatSession> {
-    return apiClient.put<ChatSession>(`/chat/${chatId}/title`, { title });
+  updateTitle(chatId: number, title: string): Promise<void> {
+    const params = new URLSearchParams({ new_title: title });
+    return apiClient.put<void>(`/chat/${chatId}/title?${params.toString()}`);
   },
 
   delete(chatId: number): Promise<void> {
