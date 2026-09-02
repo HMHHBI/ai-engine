@@ -23,7 +23,7 @@ interface GoogleAccountsId {
     options: {
       theme: "outline";
       size: "large";
-      width: string;
+      width?: number | string;
       text: "signin_with";
     },
   ) => void;
@@ -45,6 +45,12 @@ export function GoogleSignIn({
 }: GoogleSignInProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [loaded, setLoaded] = useState(false);
+  const isInitializedRef = useRef(false);
+  const successCallbackRef = useRef(onSuccess);
+
+  useEffect(() => {
+    successCallbackRef.current = onSuccess;
+  }, [onSuccess]);
 
   const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 
@@ -54,29 +60,31 @@ export function GoogleSignIn({
     }
 
     const google = window.google;
-
     if (!google) {
       return;
     }
 
-    containerRef.current.innerHTML = "";
+    if (!isInitializedRef.current) {
+      google.accounts.id.initialize({
+        client_id: clientId,
+        callback: (response) => {
+          if (response.credential) {
+            successCallbackRef.current(response.credential);
+          }
+        },
+      });
+      isInitializedRef.current = true;
+    }
 
-    google.accounts.id.initialize({
-      client_id: clientId,
-      callback: (response) => {
-        if (response.credential) {
-          onSuccess(response.credential);
-        }
-      },
-    });
+    containerRef.current.innerHTML = "";
 
     google.accounts.id.renderButton(containerRef.current, {
       theme: "outline",
       size: "large",
-      width: "100%",
+      width: 360,
       text: "signin_with",
     });
-  }, [loaded, clientId, onSuccess]);
+  }, [loaded, clientId]);
 
   if (!clientId) {
     return null;
