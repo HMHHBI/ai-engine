@@ -1,6 +1,7 @@
 import { chatApi } from "@/lib/api/chat";
 import { useChatStore } from "@/features/chat/store/chat-store";
 import { useChatSessionStore } from "@/features/chat/store/chat-session-store";
+import type { ChatSession } from "@/types/api";
 
 class ChatSessionActions {
   private hydrationGeneration = 0;
@@ -20,43 +21,61 @@ class ChatSessionActions {
           new Date(a.updated_at).getTime(),
       );
 
-      useChatSessionStore
-        .getState()
-        .setSessions(sortedSessions);
+      useChatSessionStore.getState().setSessions(sortedSessions);
     } catch (error) {
       const message =
         error instanceof Error
           ? error.message
           : "Failed to load chat history.";
 
-      useChatSessionStore
-        .getState()
-        .setError(message);
-
+      useChatSessionStore.getState().setError(message);
       throw error;
     } finally {
-      useChatSessionStore
-        .getState()
-        .setLoading(false);
+      useChatSessionStore.getState().setLoading(false);
     }
   }
 
   async createChat(): Promise<number> {
-    const chat = await chatApi.create();
+    const response = await chatApi.create();
+    const chatId = response.chat_id;
+    const now = new Date().toISOString();
 
-    useChatStore
-      .getState()
-      .setActiveChat(chat.id);
+    const session: ChatSession = {
+      id: chatId,
+      user_id: 0,
+      title: "New Chat",
+      created_at: now,
+      updated_at: now,
+    };
 
-    useChatStore
-      .getState()
-      .setMessages(chat.id, []);
+    useChatStore.getState().setMessages(chatId, []);
+    useChatSessionStore.getState().addSession(session);
 
-    useChatSessionStore
-      .getState()
-      .addSession(chat);
+    return chatId;
+  }
 
-    return chat.id;
+  syncFirstMessageTitle(chatId: number, prompt: string): void {
+    const sessionStore = useChatSessionStore.getState();
+    const session = sessionStore.sessions.find((item) => item.id === chatId);
+
+    if (!session || session.title !== "New Chat") {
+      return;
+    }
+
+    const normalizedPrompt = prompt.trim();
+    if (!normalizedPrompt) {
+      return;
+    }
+
+    const title =
+      normalizedPrompt.length > 25
+        ? `${normalizedPrompt.slice(0, 25)}...`
+        : normalizedPrompt;
+
+    sessionStore.promoteSession(chatId, {
+      title,
+      updated_at: new Date().toISOString(),
+    });
   }
 
   async loadChat(chatId: number): Promise<boolean> {

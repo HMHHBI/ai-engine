@@ -10,6 +10,7 @@ interface ChatSessionStore {
   setSessions: (sessions: ChatSession[]) => void;
   addSession: (session: ChatSession) => void;
   updateSession: (chatId: number, updates: Partial<ChatSession>) => void;
+  promoteSession: (chatId: number, updates?: Partial<ChatSession>) => void;
   removeSession: (chatId: number) => void;
 
   setLoading: (loading: boolean) => void;
@@ -32,26 +33,35 @@ export const useChatSessionStore = create<ChatSessionStore>((set) => ({
     set((state) => ({
       sessions: [
         session,
-        ...state.sessions.filter(
-          (existing) => existing.id !== session.id,
-        ),
+        ...state.sessions.filter((existing) => existing.id !== session.id),
       ],
     })),
 
   updateSession: (chatId, updates) =>
     set((state) => ({
       sessions: state.sessions.map((session) =>
-        session.id === chatId
-          ? { ...session, ...updates }
-          : session,
+        session.id === chatId ? { ...session, ...updates } : session,
       ),
     })),
 
+  promoteSession: (chatId, updates = {}) =>
+    set((state) => {
+      const session = state.sessions.find((item) => item.id === chatId);
+      if (!session) return state;
+
+      const updatedSession = { ...session, ...updates };
+
+      return {
+        sessions: [
+          updatedSession,
+          ...state.sessions.filter((item) => item.id !== chatId),
+        ],
+      };
+    }),
+
   removeSession: (chatId) =>
     set((state) => ({
-      sessions: state.sessions.filter(
-        (session) => session.id !== chatId,
-      ),
+      sessions: state.sessions.filter((session) => session.id !== chatId),
     })),
 
   setLoading: (isLoading) => set({ isLoading }),

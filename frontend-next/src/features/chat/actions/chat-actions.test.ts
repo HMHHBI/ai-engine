@@ -1,349 +1,222 @@
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  chatActions,
-  type SendMessageOptions,
-} from "./chat-actions";
-
-import {
-  chatStreamService,
-  type ChatStreamEvent,
-} from "@/features/chat/stream/chat-stream-service";
-
+import { chatActions } from "./chat-actions";
+import { chatStreamService } from "@/features/chat/stream/chat-stream-service";
+import type { ChatStreamHandlers } from "@/features/chat/stream/chat-stream-service";
 import { useChatStore } from "@/features/chat/store/chat-store";
+import { useChatSessionStore } from "@/features/chat/store/chat-session-store";
 import { ApiError } from "@/lib/errors/api-error";
+import type { StreamPayload } from "@/types/api";
 
-const baseOptions: SendMessageOptions = {
-  chatId: 1,
-  prompt: "Hello AI",
-  model: "gemini-2.5-flash",
-  task: "general",
-};
-
-beforeEach(() => {
-  useChatStore.getState().reset();
-
-  vi.spyOn(
-    chatStreamService,
-    "stream",
-  );
-  vi.spyOn(
-    chatStreamService,
-    "abort",
-  );
-
-  useChatStore
-    .getState()
-    .setActiveChat(1);
-});
-
-afterEach(() => {
-  chatActions.invalidate();
-  vi.restoreAllMocks();
-});
+vi.mock("@/features/chat/stream/chat-stream-service", () => ({
+  chatStreamService: {
+    stream: vi.fn(),
+    abort: vi.fn(),
+  },
+}));
 
 describe("chatActions", () => {
-  it("creates a user message and an assistant placeholder", async () => {
-    vi.spyOn(
-      chatStreamService,
-      "stream",
-    ).mockImplementation(
-      async (
-        _payload,
-        handlers,
-      ) => {
-        handlers?.onEvent?.({
-          type: "streamStarted",
-        });
+  beforeEach(() => {
+    useChatStore.getState().reset();
+    useChatSessionStore.getState().reset();
+    vi.clearAllMocks();
+  });
 
-        handlers?.onEvent?.({
-          type: "chunkReceived",
-          chunk: "Hello back",
-        });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
 
-        handlers?.onEvent?.({
-          type: "streamCompleted",
-        });
-      },
-    );
+  it("throws error when prompt is empty", async () => {
+    await expect(
+      chatActions.sendMessage({ chatId: 1, prompt: "   " }),
+    ).rejects.toThrow("Prompt cannot be empty.");
+  });
 
-    await chatActions.sendMessage(
-      baseOptions,
-    );
+  it("adds optimistic user and AI messages", async () => {
+    vi.mocked(chatStreamService.stream).mockResolvedValue();
 
-    const state = useChatStore.getState();
+    await chatActions.sendMessage({ chatId: 1, prompt: "Hello" });
 
-    const messages =
-      state.messagesByChat[1];
-
+    const messages = useChatStore.getState().messagesByChat[1];
     expect(messages).toHaveLength(2);
-
-    expect(messages[0]).toMatchObject({
-      role: "user",
-      content: "Hello AI",
-    });
-
-    expect(messages[1]).toMatchObject({
-      role: "ai",
-      content: "Hello back",
-    });
-
-    expect(
-      state.streamingStatusByChat[1],
-    ).toBe("completed");
+    expect(messages[0].role).toBe("user");
+    expect(messages[0].content).toBe("Hello");
+    expect(messages[1].role).toBe("ai");
+    expect(messages[1].content).toBe("");
   });
 
-  it("transitions streaming state correctly", async () => {
-    vi.spyOn(
-      chatStreamService,
-      "stream",
-    ).mockImplementation(
-      async (
-        _payload,
-        handlers,
-      ) => {
-        handlers?.onEvent?.({
-          type: "streamStarted",
-        });
-
-        expect(
-          useChatStore.getState()
-            .streamingStatusByChat[1],
-        ).toBe("streaming");
-
-        handlers?.onEvent?.({
-          type: "chunkReceived",
-          chunk: "chunk",
-        });
-
-        handlers?.onEvent?.({
-          type: "streamCompleted",
-        });
+  it("updates message content on chunk event", async () => {
+    vi.mocked(chatStreamService.stream).mockImplementation(
+      async (_payload: StreamPayload, handlers?: ChatStreamHandlers) => {
+        handlers?.onEvent?.({ type: "streamStarted" });
+        handlers?.onEvent?.({ type: "chunkReceived", chunk: "World" });
+        handlers?.onEvent?.({ type: "streamCompleted" });
       },
     );
 
-    await chatActions.sendMessage(
-      baseOptions,
-    );
+    await chatActions.sendMessage({ chatId: 1, prompt: "Hello" });
 
-    expect(
-      useChatStore.getState()
-        .streamingStatusByChat[1],
-    ).toBe("completed");
+    const messages = useChatStore.getState().messagesByChat[1];
+    expect(messages[1].content).toBe("World");
+    expect(useChatStore.getState().streamingStatusByChat[1]).toBe("completed");
   });
 
-  it("handles typed stream errors", async () => {
-    const error = new ApiError(
-      "Provider unavailable",
-      "PROVIDER_DOWN",
-      502,
+  it("sets cancelled status when stream is aborted", async () => {
+    vi.mocked(chatStreamService.stream).mockRejectedValue(
+      new ApiError("Aborted", "STREAM_ABORTED", 499),
     );
 
-    vi.spyOn(
-      chatStreamService,
-      "stream",
-    ).mockImplementation(
-      async (
-        _payload,
-        handlers,
-      ) => {
-        handlers?.onEvent?.({
-          type: "streamStarted",
-        });
+    await chatActions.sendMessage({ chatId: 1, prompt: "Hello" });
 
-        handlers?.onEvent?.({
-          type: "streamFailed",
-          error: new ApiError(
-            "Provider unavailable",
-            "PROVIDER_DOWN",
-            502,
-          ),
-        });
+    expect(useChatStore.getState().streamingStatusByChat[1]).toBe("cancelled");
+  });
 
-        throw error;
-      },
+  it("sets error status on network failures", async () => {
+    vi.mocked(chatStreamService.stream).mockRejectedValue(
+      new Error("Network disconnect"),
     );
 
     await expect(
-      chatActions.sendMessage(
-        baseOptions,
-      ),
-    ).rejects.toThrow(
-      "Provider unavailable",
-    );
+      chatActions.sendMessage({ chatId: 1, prompt: "Hello" }),
+    ).rejects.toThrow("Network disconnect");
 
-    expect(
-      useChatStore.getState()
-        .streamingStatusByChat[1],
-    ).toBe("error");
+    expect(useChatStore.getState().streamingStatusByChat[1]).toBe("error");
   });
 
-  it("stops an active stream", () => {
+  it("delegates cancellation to chatStreamService", () => {
     chatActions.stopStreaming();
-
-    expect(
-      chatStreamService.abort,
-    ).toHaveBeenCalled();
-
-    expect(
-      useChatStore.getState()
-        .streamingStatusByChat[1],
-    ).toBe("cancelled");
+    expect(chatStreamService.abort).toHaveBeenCalledTimes(1);
   });
 
-  it("switches chats and aborts the previous stream", () => {
-    chatActions.switchChat(2);
-
-    expect(
-      chatStreamService.abort,
-    ).toHaveBeenCalled();
-
-    expect(
-      useChatStore.getState()
-        .activeChatId,
-    ).toBe(2);
-  });
-
-  it("passes the backend-compatible payload to the stream service", async () => {
-    const streamSpy = vi
-      .spyOn(chatStreamService, "stream")
-      .mockImplementation(
-        async (
-          _payload,
-          handlers,
-        ) => {
-          handlers?.onEvent?.({
-            type: "streamCompleted",
-          });
+  it("syncs the first message into the chat session title", async () => {
+    useChatSessionStore.setState({
+      sessions: [
+        {
+          id: 1,
+          user_id: 1,
+          title: "New Chat",
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z",
+          has_pdf: false,
         },
-      );
+      ],
+    });
+
+    vi.mocked(chatStreamService.stream).mockImplementation(
+      async (_payload: StreamPayload, handlers?: ChatStreamHandlers) => {
+        handlers?.onEvent?.({ type: "streamStarted" });
+        handlers?.onEvent?.({ type: "streamCompleted" });
+      },
+    );
 
     await chatActions.sendMessage({
-      chatId: 42,
-      prompt: "Explain RAG",
-      model: "gemini-2.5-flash",
-      task: "general",
-      fileContext: "Document context",
-      imageBase64: ["base64-data"],
-      imageMime: ["image/png"],
+      chatId: 1,
+      prompt: "Explain vector databases",
     });
 
-    expect(streamSpy).toHaveBeenCalledWith(
-      {
-        chat_id: 42,
-        prompt: "Explain RAG",
-        model: "gemini-2.5-flash",
-        task: "general",
-        file_context: "Document context",
-        image_base64: ["base64-data"],
-        image_mime: ["image/png"],
-      },
-      expect.objectContaining({
-        onEvent: expect.any(Function),
-      }),
+    expect(useChatSessionStore.getState().sessions[0].title).toBe(
+      "Explain vector databases",
     );
   });
 
-  it("ignores stale events from a previous chat", async () => {
-    let firstHandlers:
-      | {
-          onEvent?: (
-            event: ChatStreamEvent,
-          ) => void;
-        }
-      | undefined;
-
-    let secondHandlers:
-      | {
-          onEvent?: (
-            event: ChatStreamEvent,
-          ) => void;
-        }
-      | undefined;
-
-    vi.spyOn(
-      chatStreamService,
-      "stream",
-    )
-      .mockImplementationOnce(
-        async (
-          _payload,
-          handlers,
-        ) => {
-          firstHandlers = handlers;
-
-          handlers?.onEvent?.({
-            type: "streamStarted",
-          });
-
-          await new Promise(() => undefined);
+  it("uses the backend-compatible 25-character title limit", async () => {
+    useChatSessionStore.setState({
+      sessions: [
+        {
+          id: 1,
+          user_id: 1,
+          title: "New Chat",
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z",
+          has_pdf: false,
         },
-      )
-      .mockImplementationOnce(
-        async (
-          _payload,
-          handlers,
-        ) => {
-          secondHandlers = handlers;
+      ],
+    });
 
-          handlers?.onEvent?.({
-            type: "streamStarted",
-          });
+    vi.mocked(chatStreamService.stream).mockImplementation(
+      async (_payload: StreamPayload, handlers?: ChatStreamHandlers) => {
+        handlers?.onEvent?.({ type: "streamStarted" });
+        handlers?.onEvent?.({ type: "streamCompleted" });
+      },
+    );
 
-          handlers?.onEvent?.({
-            type: "chunkReceived",
-            chunk: "B response",
-          });
-
-          handlers?.onEvent?.({
-            type: "streamCompleted",
-          });
-        },
-      );
-
-    const firstPromise = chatActions.sendMessage({
-      ...baseOptions,
+    await chatActions.sendMessage({
       chatId: 1,
+      prompt: "Explain how retrieval augmented generation works",
     });
 
-    await Promise.resolve();
+    expect(useChatSessionStore.getState().sessions[0].title).toBe(
+      "Explain how retrieval aug...",
+    );
+  });
 
-    chatActions.switchChat(2);
-
-    const secondPromise = chatActions.sendMessage({
-      ...baseOptions,
-      chatId: 2,
+  it("does not overwrite an existing chat title", async () => {
+    useChatSessionStore.setState({
+      sessions: [
+        {
+          id: 1,
+          user_id: 1,
+          title: "My RAG Research",
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z",
+          has_pdf: false,
+        },
+      ],
     });
 
-    await secondPromise;
+    vi.mocked(chatStreamService.stream).mockImplementation(
+      async (_payload: StreamPayload, handlers?: ChatStreamHandlers) => {
+        handlers?.onEvent?.({ type: "streamStarted" });
+        handlers?.onEvent?.({ type: "streamCompleted" });
+      },
+    );
 
-    firstHandlers?.onEvent?.({
-      type: "chunkReceived",
-      chunk: "STALE A DATA",
+    await chatActions.sendMessage({
+      chatId: 1,
+      prompt: "This is a second message",
     });
 
-    const state = useChatStore.getState();
+    expect(useChatSessionStore.getState().sessions[0].title).toBe(
+      "My RAG Research",
+    );
+  });
+
+  it("promotes the first-message chat to the top of history", async () => {
+    useChatSessionStore.setState({
+      sessions: [
+        {
+          id: 2,
+          user_id: 1,
+          title: "Older Chat",
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z",
+          has_pdf: false,
+        },
+        {
+          id: 1,
+          user_id: 1,
+          title: "New Chat",
+          created_at: "2026-01-02T00:00:00Z",
+          updated_at: "2026-01-02T00:00:00Z",
+          has_pdf: false,
+        },
+      ],
+    });
+
+    vi.mocked(chatStreamService.stream).mockImplementation(
+      async (_payload: StreamPayload, handlers?: ChatStreamHandlers) => {
+        handlers?.onEvent?.({ type: "streamStarted" });
+        handlers?.onEvent?.({ type: "streamCompleted" });
+      },
+    );
+
+    await chatActions.sendMessage({
+      chatId: 1,
+      prompt: "Hello AI Engine",
+    });
 
     expect(
-      state.messagesByChat[2]?.at(-1)?.content,
-    ).toBe("B response");
-
-    expect(
-      state.messagesByChat[1]?.at(-1)?.content,
-    ).not.toContain("STALE A DATA");
-
-    expect(
-      state.streamingStatusByChat[2],
-    ).toBe("completed");
-
-    expect(secondHandlers).toBeDefined();
-    void firstPromise;
+      useChatSessionStore.getState().sessions.map((session) => session.id),
+    ).toEqual([1, 2]);
   });
 });

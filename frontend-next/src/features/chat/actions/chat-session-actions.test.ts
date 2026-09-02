@@ -73,6 +73,17 @@ describe("chatSessionActions", () => {
     expect(useChatStore.getState().loadingChatIds[42]).toBeUndefined();
   });
 
+  it("creates a new chat and initializes store", async () => {
+    vi.mocked(chatApi.create).mockResolvedValue({ chat_id: 88 });
+
+    const newId = await chatSessionActions.createChat();
+
+    expect(newId).toBe(88);
+    expect(useChatStore.getState().messagesByChat[88]).toEqual([]);
+    expect(useChatSessionStore.getState().sessions[0].id).toBe(88);
+    expect(useChatSessionStore.getState().sessions[0].title).toBe("New Chat");
+  });
+
   it("prevents stale hydration responses from overwriting the latest chat navigation", async () => {
     let resolveChat42!: (msgs: ChatMessage[]) => void;
     const chat42Promise = new Promise<ChatMessage[]>((resolve) => {
