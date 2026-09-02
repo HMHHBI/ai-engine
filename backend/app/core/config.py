@@ -89,6 +89,7 @@ class Settings(BaseSettings):
     AI_STREAM_MAX_SECONDS: float = 120.0
 
     # Gemini worker lifecycle
+    GEMINI_MAX_WORKERS: int = 4
     GEMINI_WORKER_JOIN_TIMEOUT: float = 0.5
     GEMINI_QUEUE_SIZE: int = 32
     GEMINI_QUEUE_POLL_SECONDS: float = 0.25
@@ -188,6 +189,7 @@ class Settings(BaseSettings):
         "AI_POOL_TIMEOUT",
         "AI_REQUEST_TIMEOUT",
         "AI_STREAM_MAX_SECONDS",
+        "GEMINI_MAX_WORKERS",
         "GEMINI_WORKER_JOIN_TIMEOUT",
         "GEMINI_QUEUE_SIZE",
         "GEMINI_QUEUE_POLL_SECONDS",
@@ -196,9 +198,7 @@ class Settings(BaseSettings):
     @classmethod
     def validate_positive_infrastructure_values(cls, value: float) -> float:
         if float(value) <= 0:
-            raise ValueError(
-                "Infrastructure and timeout settings must be positive."
-            )
+            raise ValueError("Infrastructure and timeout settings must be positive.")
         return value
 
 

@@ -25,10 +25,7 @@ logger = logging.getLogger(__name__)
 # The Gemini SDK is synchronous, so streaming requests require worker
 # threads. Bound the number of active workers to prevent an unbounded
 # accumulation of blocked SDK calls under cancellation or provider stalls.
-_GEMINI_MAX_WORKERS = max(
-    1,
-    int(getattr(settings, "GEMINI_MAX_WORKERS", 4)),
-)
+_GEMINI_MAX_WORKERS = settings.GEMINI_MAX_WORKERS
 _GEMINI_WORKER_SEMAPHORE = threading.BoundedSemaphore(
     _GEMINI_MAX_WORKERS,
 )

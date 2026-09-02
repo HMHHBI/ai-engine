@@ -1,45 +1,55 @@
 from contextlib import asynccontextmanager
-import os
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import text
 
 from app.api.v1_router import api_router
 from app.core.config import settings
-from app.core.exceptions import global_exception_handler, rate_limit_exceeded_handler
+from app.core.exceptions import (
+    global_exception_handler,
+    rate_limit_exceeded_handler,
+)
 from app.core.rate_limiter import limiter
 
 # Database imports
 import app.db.models  # Ensures all models are registered
-from app.db.session import Base, engine
+from app.db.session import engine
+
+logger = logging.getLogger(__name__)
 
 
 # -------------------------------------------------------------
-# LIFESPAN CONTEXT MANAGER (Modern Replacement for @app.on_event)
+# LIFESPAN CONTEXT MANAGER
 # -------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: Initialize DB & Extensions
+    logger.info("Initializing database connection and pgvector extension.")
+
     try:
         with engine.connect() as conn:
-            # Enable pgvector extension automatically
+            # Verify database connectivity and enable pgvector.
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
             conn.commit()
-            print("✅ Successfully enabled pgvector extension.")
 
-        # Create all tables (users, chats, document_chunks, etc.)
-        # Base.metadata.create_all(bind=engine)
-        # print("✅ All database tables synchronized successfully.")
-    except Exception as e:
-        print(f"❌ Error initializing database on startup: {e}")
+        logger.info("Database connection verified and pgvector extension initialized.")
 
-    yield  # Application runs here
+    except Exception as exc:
+        logger.exception(
+            "Fatal database initialization failure during application startup."
+        )
+        raise RuntimeError(
+            "Application startup failed: database initialization is unavailable."
+        ) from exc
 
-    # Shutdown logic (if any cleanup is required in future)
-    print("🛑 Application shutting down...")
+    yield
+
+    # Shutdown
+    logger.info("Application shutting down.")
 
 
 app = FastAPI(
@@ -52,15 +62,28 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_middleware(SlowAPIMiddleware)
 
-app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
-app.add_exception_handler(Exception, global_exception_handler)
+app.add_exception_handler(
+    RateLimitExceeded,
+    rate_limit_exceeded_handler,
+)
+app.add_exception_handler(
+    Exception,
+    global_exception_handler,
+)
 
 # 2. CORS Middleware Configuration
-origins = (
-    [origin.strip() for origin in settings.ALLOWED_ORIGINS.split(",") if origin.strip()]
-    if settings.ALLOWED_ORIGINS
-    else ["*"]
-)
+if not settings.ALLOWED_ORIGINS.strip():
+    raise RuntimeError(
+        "ALLOWED_ORIGINS must be explicitly configured. "
+        "Wildcard CORS is not permitted."
+    )
+
+origins = [
+    origin.strip() for origin in settings.ALLOWED_ORIGINS.split(",") if origin.strip()
+]
+
+if not origins:
+    raise RuntimeError("ALLOWED_ORIGINS must contain at least one valid origin.")
 
 app.add_middleware(
     CORSMiddleware,
