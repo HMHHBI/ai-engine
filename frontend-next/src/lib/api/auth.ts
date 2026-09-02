@@ -25,8 +25,12 @@ export interface ResetPasswordPayload {
   new_password: string;
 }
 
-export interface AuthResponse extends AuthTokens {
-  user?: User;
+export interface LoginResponse extends AuthTokens {
+  user?: Partial<User>;
+}
+
+export interface GoogleAuthResponse extends AuthTokens {
+  user?: Partial<User>;
 }
 
 export interface MessageResponse {
@@ -34,20 +38,20 @@ export interface MessageResponse {
 }
 
 export const authApi = {
-  register(payload: RegisterPayload): Promise<AuthResponse> {
-    return apiClient.post<AuthResponse>("/auth/signup", payload, {
+  register(payload: RegisterPayload): Promise<User> {
+    return apiClient.post<User>("/auth/signup", payload, {
       skipAuth: true,
     });
   },
 
-  login(payload: LoginPayload): Promise<AuthResponse> {
-    return apiClient.post<AuthResponse>("/auth/login", payload, {
+  login(payload: LoginPayload): Promise<LoginResponse> {
+    return apiClient.post<LoginResponse>("/auth/login", payload, {
       skipAuth: true,
     });
   },
 
-  google(payload: GoogleAuthPayload): Promise<AuthResponse> {
-    return apiClient.post<AuthResponse>("/auth/google", payload, {
+  google(payload: GoogleAuthPayload): Promise<GoogleAuthResponse> {
+    return apiClient.post<GoogleAuthResponse>("/auth/google", payload, {
       skipAuth: true,
     });
   },

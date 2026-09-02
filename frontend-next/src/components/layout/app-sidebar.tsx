@@ -3,6 +3,7 @@
 import {
   ChevronLeft,
   ChevronRight,
+  LogOut,
   MessageSquare,
   Moon,
   Plus,
@@ -14,6 +15,7 @@ import { useTheme } from "next-themes";
 
 import { IconButton } from "@/components/ui/icon-button";
 import { chatSessionActions } from "@/features/chat/actions/chat-session-actions";
+import { authActions } from "@/features/auth/actions/auth-actions";
 import { useAuthStore } from "@/features/auth";
 import { cn } from "@/lib/utils";
 
@@ -160,6 +162,20 @@ export function AppSidebar({
           >
             <Settings className="size-4 shrink-0" />
             {!collapsed && <span>Settings</span>}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => authActions.logout()}
+            className={cn(
+              "flex h-10 w-full items-center rounded-lg",
+              "text-sm text-destructive",
+              "transition-colors hover:bg-destructive/10 hover:text-destructive",
+              collapsed ? "justify-center" : "gap-3 px-3",
+            )}
+          >
+            <LogOut className="size-4 shrink-0" />
+            {!collapsed && <span>Log out</span>}
           </button>
 
           {/* User */}
