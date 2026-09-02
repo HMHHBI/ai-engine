@@ -12,7 +12,7 @@ import {
   Sun,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTheme } from "next-themes";
 import { useRouter } from "next/navigation";
 
@@ -41,7 +41,52 @@ export function AppSidebar({
   const user = useAuthStore((state) => state.user);
   const [isCreatingChat, setIsCreatingChat] = useState(false);
 
+  const sidebarRef = useRef<HTMLElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+
   const isDark = resolvedTheme === "dark";
+
+  // Escape key listener and focus management for mobile drawer
+  useEffect(() => {
+    if (!mobileOpen) return;
+
+    // Move initial focus to the close button inside drawer
+    closeButtonRef.current?.focus();
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCloseMobile();
+        return;
+      }
+
+      // Trap Tab focus inside mobile drawer
+      if (event.key === "Tab" && sidebarRef.current) {
+        const focusableElements =
+          sidebarRef.current.querySelectorAll<HTMLElement>(
+            'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+          );
+
+        if (focusableElements.length === 0) return;
+
+        const firstElement = focusableElements[0];
+        const lastElement = focusableElements[focusableElements.length - 1];
+
+        if (event.shiftKey && document.activeElement === firstElement) {
+          event.preventDefault();
+          lastElement.focus();
+        } else if (!event.shiftKey && document.activeElement === lastElement) {
+          event.preventDefault();
+          firstElement.focus();
+        }
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [mobileOpen, onCloseMobile]);
 
   async function handleNewChat() {
     if (isCreatingChat) return;
@@ -63,13 +108,18 @@ export function AppSidebar({
       {mobileOpen && (
         <button
           type="button"
-          aria-label="Close sidebar"
+          tabIndex={-1}
+          aria-hidden="true"
           className="fixed inset-0 z-40 bg-black/20 backdrop-blur-[1px] md:hidden"
           onClick={onCloseMobile}
         />
       )}
 
       <aside
+        ref={sidebarRef}
+        role={mobileOpen ? "dialog" : undefined}
+        aria-modal={mobileOpen ? "true" : undefined}
+        aria-label={mobileOpen ? "Navigation sidebar" : undefined}
         className={cn(
           "fixed inset-y-0 left-0 z-50 flex flex-col",
           "border-r border-border bg-background",
@@ -106,6 +156,7 @@ export function AppSidebar({
 
           <div className="md:hidden">
             <IconButton
+              ref={closeButtonRef}
               label="Close sidebar"
               onClick={onCloseMobile}
               className="size-9"
@@ -145,7 +196,10 @@ export function AppSidebar({
         </div>
 
         {/* Chat history */}
-        <nav className="min-h-0 flex-1 overflow-y-auto px-3">
+        <nav
+          aria-label="Chat history"
+          className="min-h-0 flex-1 overflow-y-auto px-3"
+        >
           <div className="space-y-2">
             <div
               className={cn(

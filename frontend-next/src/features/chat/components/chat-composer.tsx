@@ -290,7 +290,7 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
           )}
 
           {attachmentError && (
-            <div className="px-3 pt-3">
+            <div className="px-3 pt-3" role="alert">
               <p className="text-xs text-destructive">{attachmentError}</p>
             </div>
           )}
@@ -304,6 +304,7 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
             placeholder={
               chatId === null ? "Start a new chat" : "Message AI Engine…"
             }
+            aria-label="Chat prompt"
             rows={1}
             className={cn(
               "block max-h-55 min-h-14 w-full resize-none",

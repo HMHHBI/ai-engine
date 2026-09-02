@@ -1,5 +1,6 @@
 "use client";
 
+import { forwardRef } from "react";
 import { Menu, PanelLeft } from "lucide-react";
 
 import { IconButton } from "@/components/ui/icon-button";
@@ -12,51 +13,51 @@ interface AppHeaderProps {
   onToggleSidebar: () => void;
 }
 
-export function AppHeader({
-  onOpenMobileSidebar,
-  onToggleSidebar,
-}: AppHeaderProps) {
-  const activeChatId = useChatStore((state) => state.activeChatId);
+export const AppHeader = forwardRef<HTMLButtonElement, AppHeaderProps>(
+  function AppHeader({ onOpenMobileSidebar, onToggleSidebar }, ref) {
+    const activeChatId = useChatStore((state) => state.activeChatId);
 
-  const activeSession = useChatSessionStore((state) =>
-    activeChatId === null
-      ? null
-      : state.sessions.find((item) => item.id === activeChatId),
-  );
+    const activeSession = useChatSessionStore((state) =>
+      activeChatId === null
+        ? null
+        : state.sessions.find((item) => item.id === activeChatId),
+    );
 
-  const title = activeSession?.title ?? "AI Engine";
+    const title = activeSession?.title ?? "AI Engine";
 
-  return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-border px-2 sm:px-3">
-      <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
-        <div className="md:hidden">
-          <IconButton
-            label="Open sidebar"
-            onClick={onOpenMobileSidebar}
-            className="size-9"
-          >
-            <Menu className="size-5" />
-          </IconButton>
+    return (
+      <header className="flex h-14 shrink-0 items-center justify-between border-b border-border px-2 sm:px-3">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
+          <div className="md:hidden">
+            <IconButton
+              ref={ref}
+              label="Open sidebar"
+              onClick={onOpenMobileSidebar}
+              className="size-9"
+            >
+              <Menu className="size-5" />
+            </IconButton>
+          </div>
+
+          <div className="hidden md:block">
+            <IconButton
+              label="Toggle sidebar"
+              onClick={onToggleSidebar}
+              className="size-9"
+            >
+              <PanelLeft className="size-4" />
+            </IconButton>
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-xs font-medium sm:text-sm">{title}</h1>
+          </div>
         </div>
 
-        <div className="hidden md:block">
-          <IconButton
-            label="Toggle sidebar"
-            onClick={onToggleSidebar}
-            className="size-9"
-          >
-            <PanelLeft className="size-4" />
-          </IconButton>
+        <div className="ml-1.5 flex shrink-0 items-center sm:ml-2">
+          <RagStatusBadge chatId={activeChatId} />
         </div>
-
-        <div className="min-w-0 flex-1">
-          <h1 className="truncate text-xs font-medium sm:text-sm">{title}</h1>
-        </div>
-      </div>
-
-      <div className="ml-1.5 flex shrink-0 items-center sm:ml-2">
-        <RagStatusBadge chatId={activeChatId} />
-      </div>
-    </header>
-  );
-}
+      </header>
+    );
+  },
+);

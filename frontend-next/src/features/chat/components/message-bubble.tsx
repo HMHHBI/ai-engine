@@ -74,7 +74,7 @@ export function MessageBubble({
             {!isUser && isStreaming && (
               <span
                 className="ml-1 inline-block h-3.5 w-1 animate-pulse rounded-sm bg-current align-[-2px] sm:h-4"
-                aria-label="Generating"
+                aria-hidden="true"
               />
             )}
           </div>
