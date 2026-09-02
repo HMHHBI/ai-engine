@@ -16,6 +16,11 @@ export function ChatArea() {
       (state.messagesByChat[activeChatId]?.length ?? 0) > 0,
   );
 
+  const isChatLoading = useChatStore(
+    (state) =>
+      activeChatId !== null && Boolean(state.loadingChatIds[activeChatId]),
+  );
+
   const streamingStatus = useChatStore((state) =>
     activeChatId === null
       ? "idle"
@@ -24,7 +29,14 @@ export function ChatArea() {
 
   return (
     <section className="flex min-h-0 flex-1 flex-col">
-      {activeChatId === null || !hasMessages ? (
+      {isChatLoading ? (
+        <div className="flex flex-1 items-center justify-center">
+          <div className="flex items-center gap-3 text-sm text-muted-foreground">
+            <div className="size-4 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-foreground" />
+            <span>Loading conversation...</span>
+          </div>
+        </div>
+      ) : activeChatId === null || !hasMessages ? (
         <ChatEmptyState />
       ) : (
         <MessageList chatId={activeChatId} />

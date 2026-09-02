@@ -1,4 +1,5 @@
 import { create } from "zustand";
+
 import type { ChatMessage } from "@/types/api";
 
 export type ChatStreamingStatus =
@@ -10,54 +11,30 @@ export type ChatStreamingStatus =
 
 export interface ChatStore {
   activeChatId: number | null;
-
   messagesByChat: Record<number, ChatMessage[]>;
-
-  streamingStatusByChat: Record<
-    number,
-    ChatStreamingStatus
-  >;
+  streamingStatusByChat: Record<number, ChatStreamingStatus>;
+  loadingChatIds: Record<number, boolean>;
 
   setActiveChat: (chatId: number | null) => void;
-
-  setMessages: (
-    chatId: number,
-    messages: ChatMessage[],
-  ) => void;
-
-  addMessage: (
-    chatId: number,
-    message: ChatMessage,
-  ) => void;
-
+  setMessages: (chatId: number, messages: ChatMessage[]) => void;
+  addMessage: (chatId: number, message: ChatMessage) => void;
   updateLastMessage: (
     chatId: number,
     updater: (message: ChatMessage) => ChatMessage,
   ) => void;
-
-  appendToLastMessage: (
-    chatId: number,
-    chunk: string,
-  ) => void;
-
-  setStreamingStatus: (
-    chatId: number,
-    status: ChatStreamingStatus,
-  ) => void;
-
+  appendToLastMessage: (chatId: number, chunk: string) => void;
+  setStreamingStatus: (chatId: number, status: ChatStreamingStatus) => void;
+  setChatLoading: (chatId: number, loading: boolean) => void;
   clearMessages: (chatId: number) => void;
-
   removeChat: (chatId: number) => void;
-
   reset: () => void;
 }
 
 export const useChatStore = create<ChatStore>((set) => ({
   activeChatId: null,
-
   messagesByChat: {},
-
   streamingStatusByChat: {},
+  loadingChatIds: {},
 
   setActiveChat: (chatId) =>
     set({
@@ -86,18 +63,11 @@ export const useChatStore = create<ChatStore>((set) => ({
   updateLastMessage: (chatId, updater) =>
     set((state) => {
       const messages = state.messagesByChat[chatId] ?? [];
-
-      if (messages.length === 0) {
-        return state;
-      }
+      if (messages.length === 0) return state;
 
       const lastIndex = messages.length - 1;
-
       const updatedMessages = [...messages];
-
-      updatedMessages[lastIndex] = updater(
-        messages[lastIndex],
-      );
+      updatedMessages[lastIndex] = updater(messages[lastIndex]);
 
       return {
         messagesByChat: {
@@ -110,14 +80,10 @@ export const useChatStore = create<ChatStore>((set) => ({
   appendToLastMessage: (chatId, chunk) =>
     set((state) => {
       const messages = state.messagesByChat[chatId] ?? [];
-
-      if (messages.length === 0) {
-        return state;
-      }
+      if (messages.length === 0) return state;
 
       const lastIndex = messages.length - 1;
       const lastMessage = messages[lastIndex];
-
       const updatedMessages = [...messages];
 
       updatedMessages[lastIndex] = {
@@ -141,6 +107,17 @@ export const useChatStore = create<ChatStore>((set) => ({
       },
     })),
 
+  setChatLoading: (chatId, loading) =>
+    set((state) => {
+      const loadingChatIds = { ...state.loadingChatIds };
+      if (loading) {
+        loadingChatIds[chatId] = true;
+      } else {
+        delete loadingChatIds[chatId];
+      }
+      return { loadingChatIds };
+    }),
+
   clearMessages: (chatId) =>
     set((state) => ({
       messagesByChat: {
@@ -151,25 +128,20 @@ export const useChatStore = create<ChatStore>((set) => ({
 
   removeChat: (chatId) =>
     set((state) => {
-      const messagesByChat = {
-        ...state.messagesByChat,
-      };
-
-      const streamingStatusByChat = {
-        ...state.streamingStatusByChat,
-      };
+      const messagesByChat = { ...state.messagesByChat };
+      const streamingStatusByChat = { ...state.streamingStatusByChat };
+      const loadingChatIds = { ...state.loadingChatIds };
 
       delete messagesByChat[chatId];
       delete streamingStatusByChat[chatId];
+      delete loadingChatIds[chatId];
 
       return {
         activeChatId:
-          state.activeChatId === chatId
-            ? null
-            : state.activeChatId,
-
+          state.activeChatId === chatId ? null : state.activeChatId,
         messagesByChat,
         streamingStatusByChat,
+        loadingChatIds,
       };
     }),
 
@@ -178,5 +150,6 @@ export const useChatStore = create<ChatStore>((set) => ({
       activeChatId: null,
       messagesByChat: {},
       streamingStatusByChat: {},
+      loadingChatIds: {},
     }),
 }));

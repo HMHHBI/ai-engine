@@ -17,26 +17,31 @@ interface ChatPageProps {
 function ChatPageContent({ params }: ChatPageProps) {
   const { chatId: rawChatId } = use(params);
   const router = useRouter();
-  const parsedId = Number.parseInt(rawChatId, 10);
+  const parsedId = Number(rawChatId);
 
   const activeChatId = useChatStore((state) => state.activeChatId);
 
   useEffect(() => {
-    if (Number.isNaN(parsedId)) {
+    if (!Number.isInteger(parsedId) || parsedId <= 0) {
+      chatSessionActions.invalidateHydration();
       router.replace("/dashboard");
       return;
     }
 
-    if (activeChatId !== parsedId) {
-      useChatStore.getState().setActiveChat(parsedId);
-      // Agar messages pehle se loaded na hon to load karein
-      const existing = useChatStore.getState().messagesByChat[parsedId];
-      if (!existing) {
-        void chatSessionActions.loadChat(parsedId).catch(() => {
-          router.replace("/dashboard");
-        });
-      }
+    if (activeChatId === parsedId) {
+      return;
     }
+
+    const existingMessages = useChatStore.getState().messagesByChat[parsedId];
+
+    if (existingMessages) {
+      useChatStore.getState().setActiveChat(parsedId);
+      return;
+    }
+
+    void chatSessionActions.loadChat(parsedId).catch(() => {
+      router.replace("/dashboard");
+    });
   }, [parsedId, activeChatId, router]);
 
   return <AppShell />;
