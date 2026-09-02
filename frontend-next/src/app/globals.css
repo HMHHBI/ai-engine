@@ -134,6 +134,7 @@
 
 html {
   color-scheme: light;
+  overflow-x: hidden;
 }
 
 html.dark {
@@ -141,8 +142,10 @@ html.dark {
 }
 
 body {
-  min-height: 100vh;
+  min-height: 100dvh;
+  overflow-x: hidden;
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  -webkit-tap-highlight-color: transparent;
 }

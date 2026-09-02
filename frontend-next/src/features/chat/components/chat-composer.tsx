@@ -266,8 +266,8 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
   }
 
   return (
-    <div className="border-t border-border bg-background">
-      <div className="mx-auto w-full max-w-3xl px-3 py-3 sm:px-4 sm:py-4">
+    <div className="border-t border-border bg-background pb-[max(0px,env(safe-area-inset-bottom))]">
+      <div className="mx-auto w-full max-w-3xl px-2.5 py-2.5 sm:px-4 sm:py-4">
         <div
           className={cn(
             "relative overflow-hidden rounded-2xl border border-border bg-card",
@@ -327,7 +327,7 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
               aria-label="Attach image"
               title="Attach image"
               className={cn(
-                "flex size-9 items-center justify-center rounded-xl",
+                "flex size-10 items-center justify-center rounded-xl sm:size-9",
                 "text-muted-foreground",
                 "transition-colors hover:bg-secondary hover:text-foreground",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -349,7 +349,7 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
               aria-label="Attach PDF"
               title="Attach PDF"
               className={cn(
-                "flex size-9 items-center justify-center rounded-xl",
+                "flex size-10 items-center justify-center rounded-xl sm:size-9",
                 "text-muted-foreground",
                 "transition-colors hover:bg-secondary hover:text-foreground",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -372,7 +372,7 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
                 aria-label="Stop generating"
                 title="Stop generating"
                 className={cn(
-                  "flex size-9 items-center justify-center",
+                  "flex size-10 items-center justify-center sm:size-9",
                   "rounded-xl bg-secondary text-foreground",
                   "transition-colors hover:bg-muted",
                   "focus-visible:outline-none",
@@ -389,7 +389,7 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
                 aria-label="Send message"
                 title="Send message"
                 className={cn(
-                  "flex size-9 items-center justify-center",
+                  "flex size-10 items-center justify-center sm:size-9",
                   "rounded-xl bg-primary text-primary-foreground",
                   "transition-opacity hover:opacity-90",
                   "focus-visible:outline-none",

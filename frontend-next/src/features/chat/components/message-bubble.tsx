@@ -20,15 +20,15 @@ export function MessageBubble({
 
   if (isSystem) {
     return (
-      <div className="mx-auto w-full max-w-3xl px-4 py-2">
+      <div className="mx-auto w-full max-w-3xl px-3 py-2 sm:px-4">
         <div
           className={cn(
             "rounded-lg border border-border",
-            "bg-secondary/50 px-4 py-3",
-            "text-sm text-muted-foreground",
+            "bg-secondary/50 px-3 py-2.5 sm:px-4 sm:py-3",
+            "text-xs text-muted-foreground sm:text-sm",
           )}
         >
-          <div className="whitespace-pre-wrap break-word">
+          <div className="min-w-0 wrap-anywhere whitespace-pre-wrap">
             {message.content}
           </div>
         </div>
@@ -39,41 +39,41 @@ export function MessageBubble({
   return (
     <div
       className={cn(
-        "group mx-auto flex w-full max-w-3xl gap-3 px-3 py-4 sm:px-4",
+        "group mx-auto flex w-full max-w-3xl gap-2 px-2.5 py-3 sm:gap-3 sm:px-4 sm:py-4",
         isUser ? "justify-end" : "justify-start",
       )}
     >
       {!isUser && (
         <div
           className={cn(
-            "mt-0.5 flex size-7 shrink-0 items-center justify-center",
+            "mt-0.5 flex size-6 shrink-0 items-center justify-center sm:size-7",
             "rounded-full border border-border bg-card",
           )}
           aria-hidden="true"
         >
-          <Bot className="size-4 text-muted-foreground" />
+          <Bot className="size-3.5 text-muted-foreground sm:size-4" />
         </div>
       )}
 
       <div
         className={cn(
-          "flex max-w-[calc(100%-2.5rem)] flex-col gap-1 sm:max-w-[85%]",
+          "flex min-w-0 max-w-[calc(100%-2rem)] flex-col gap-1 sm:max-w-[85%]",
           isUser ? "items-end" : "items-start",
         )}
       >
         <div
           className={cn(
-            "rounded-2xl px-4 py-3 text-sm leading-6",
+            "rounded-2xl px-3.5 py-2.5 text-xs leading-5 sm:px-4 sm:py-3 sm:text-sm sm:leading-6",
             isUser
               ? "bg-primary text-primary-foreground"
               : "border border-border bg-card text-foreground",
           )}
         >
-          <div className="whitespace-pre-wrap break-word">
+          <div className="min-w-0 wrap-anywhere whitespace-pre-wrap">
             {message.content}
             {!isUser && isStreaming && (
               <span
-                className="ml-1 inline-block h-4 w-1 animate-pulse rounded-sm bg-current align-[-2px]"
+                className="ml-1 inline-block h-3.5 w-1 animate-pulse rounded-sm bg-current align-[-2px] sm:h-4"
                 aria-label="Generating"
               />
             )}
@@ -91,10 +91,10 @@ export function MessageBubble({
 
       {isUser && (
         <div
-          className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-secondary"
+          className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-secondary sm:size-7"
           aria-hidden="true"
         >
-          <User className="size-4 text-muted-foreground" />
+          <User className="size-3.5 text-muted-foreground sm:size-4" />
         </div>
       )}
     </div>

@@ -76,7 +76,9 @@ export function AppSidebar({
           "transition-[width,transform] duration-200 ease-out",
           "md:relative md:z-auto md:translate-x-0",
           collapsed ? "md:w-16" : "md:w-64",
-          mobileOpen ? "translate-x-0 w-72" : "-translate-x-full",
+          mobileOpen
+            ? "w-[min(18rem,calc(100vw-2.5rem))] translate-x-0"
+            : "-translate-x-full",
         )}
       >
         {/* Brand */}
@@ -103,7 +105,11 @@ export function AppSidebar({
           )}
 
           <div className="md:hidden">
-            <IconButton label="Close sidebar" onClick={onCloseMobile}>
+            <IconButton
+              label="Close sidebar"
+              onClick={onCloseMobile}
+              className="size-9"
+            >
               <X className="size-4" />
             </IconButton>
           </div>
