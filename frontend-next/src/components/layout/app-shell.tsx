@@ -4,8 +4,7 @@ import { useState } from "react";
 
 import { AppHeader } from "@/components/layout/app-header";
 import { AppSidebar } from "@/components/layout/app-sidebar";
-import { ChatEmptyState } from "@/features/chat/components/chat-empty-state";
-import { cn } from "@/lib/utils";
+import { ChatArea } from "@/features/chat/components/chat-area";
 
 export function AppShell() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -26,11 +25,7 @@ export function AppShell() {
           onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
         />
 
-        <section
-          className={cn("flex min-h-0 flex-1 flex-col", "bg-background")}
-        >
-          <ChatEmptyState />
-        </section>
+        <ChatArea />
       </main>
     </div>
   );

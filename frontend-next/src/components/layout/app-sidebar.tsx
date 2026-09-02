@@ -13,6 +13,7 @@ import {
 import { useTheme } from "next-themes";
 
 import { IconButton } from "@/components/ui/icon-button";
+import { chatSessionActions } from "@/features/chat/actions/chat-session-actions";
 import { useAuthStore } from "@/features/auth";
 import { cn } from "@/lib/utils";
 
@@ -29,10 +30,10 @@ export function AppSidebar({
   onToggleCollapse,
   onCloseMobile,
 }: AppSidebarProps) {
-  const { theme, setTheme } = useTheme();
+  const { resolvedTheme, setTheme } = useTheme();
   const user = useAuthStore((state) => state.user);
 
-  const isDark = theme === "dark";
+  const isDark = resolvedTheme === "dark";
 
   return (
     <>
@@ -89,6 +90,10 @@ export function AppSidebar({
         <div className="p-3">
           <button
             type="button"
+            onClick={() => {
+              void chatSessionActions.createChat();
+              onCloseMobile();
+            }}
             className={cn(
               "flex w-full items-center rounded-lg",
               "bg-primary text-primary-foreground",
