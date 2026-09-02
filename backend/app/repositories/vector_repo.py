@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Sequence
+
 from sqlalchemy import delete, select, update
 
 from app.db.models import Chat, DocumentChunk
@@ -27,35 +28,41 @@ class VectorRepository:
         chunks_with_embeddings: Sequence[tuple[Any, list[float]]],
         pdf_context: str,
     ) -> list[dict[str, Any]]:
-        VectorRepository._validate_ids(user_id=user_id, chat_id=chat_id)
+        """
+        Atomically replace all document chunks owned by a chat.
+
+        The owning chat row is locked for the duration of the transaction
+        so concurrent document replacements are serialized.
+        """
+        VectorRepository._validate_ids(
+            user_id=user_id,
+            chat_id=chat_id,
+        )
 
         if not chunks_with_embeddings:
             raise ValueError("chunks_with_embeddings cannot be empty.")
 
         with session_scope() as db:
-            chat_exists = db.execute(
-                select(Chat.id).where(
+            chat = db.execute(
+                select(Chat)
+                .where(
                     Chat.id == chat_id,
                     Chat.user_id == user_id,
                 )
+                .with_for_update()
             ).scalar_one_or_none()
 
-            if chat_exists is None:
+            if chat is None:
                 raise LookupError("Chat not found.")
 
             db.execute(
                 delete(DocumentChunk).where(
                     DocumentChunk.chat_id == chat_id,
-                    DocumentChunk.chat_id.in_(
-                        select(Chat.id).where(
-                            Chat.id == chat_id,
-                            Chat.user_id == user_id,
-                        )
-                    ),
                 )
             )
 
             db_objs: list[DocumentChunk] = []
+
             for chunk, embedding in chunks_with_embeddings:
                 if not embedding:
                     continue
@@ -75,17 +82,7 @@ class VectorRepository:
                     "No valid document chunks with embeddings were provided."
                 )
 
-            result = db.execute(
-                update(Chat)
-                .where(
-                    Chat.id == chat_id,
-                    Chat.user_id == user_id,
-                )
-                .values(pdf_context=pdf_context)
-            )
-
-            if result.rowcount != 1:
-                raise LookupError("Chat not found.")
+            chat.pdf_context = pdf_context
 
             db.flush()
 
@@ -105,7 +102,10 @@ class VectorRepository:
         chat_id: int,
         chunks_with_embeddings: Sequence[tuple[Any, list[float]]],
     ) -> list[dict[str, Any]]:
-        VectorRepository._validate_ids(user_id=user_id, chat_id=chat_id)
+        VectorRepository._validate_ids(
+            user_id=user_id,
+            chat_id=chat_id,
+        )
 
         if not chunks_with_embeddings:
             return []
@@ -122,6 +122,7 @@ class VectorRepository:
                 raise LookupError("Chat not found.")
 
             db_objs: list[DocumentChunk] = []
+
             for chunk, embedding in chunks_with_embeddings:
                 if not embedding:
                     continue
@@ -160,13 +161,17 @@ class VectorRepository:
         max_distance: float = 0.70,
         adaptive_margin: float = 0.15,
     ) -> list[dict[str, Any]]:
-        VectorRepository._validate_ids(user_id=user_id, chat_id=chat_id)
+        VectorRepository._validate_ids(
+            user_id=user_id,
+            chat_id=chat_id,
+        )
 
         if not query_vector:
             return []
 
         if top_k <= 0 or top_k > 50:
             raise ValueError("top_k must be between 1 and 50.")
+
         if max_distance < 0 or adaptive_margin < 0:
             raise ValueError("Distance parameters cannot be negative.")
 
@@ -177,7 +182,10 @@ class VectorRepository:
         with session_scope() as db:
             results = db.execute(
                 select(DocumentChunk, distance)
-                .join(Chat, Chat.id == DocumentChunk.chat_id)
+                .join(
+                    Chat,
+                    Chat.id == DocumentChunk.chat_id,
+                )
                 .where(
                     Chat.id == chat_id,
                     Chat.user_id == user_id,
@@ -191,10 +199,14 @@ class VectorRepository:
                 return []
 
             best_distance = float(results[0].distance)
+
             if best_distance > max_distance:
                 return []
 
-            adaptive_limit = min(best_distance + adaptive_margin, max_distance)
+            adaptive_limit = min(
+                best_distance + adaptive_margin,
+                max_distance,
+            )
 
             filtered_results = [
                 row for row in results if float(row.distance) <= adaptive_limit
@@ -212,8 +224,14 @@ class VectorRepository:
             ]
 
     @staticmethod
-    def delete_document_chunks(user_id: int, chat_id: int) -> bool:
-        VectorRepository._validate_ids(user_id=user_id, chat_id=chat_id)
+    def delete_document_chunks(
+        user_id: int,
+        chat_id: int,
+    ) -> bool:
+        VectorRepository._validate_ids(
+            user_id=user_id,
+            chat_id=chat_id,
+        )
 
         with session_scope() as db:
             authorized_chat = db.execute(
@@ -231,4 +249,5 @@ class VectorRepository:
                     DocumentChunk.chat_id == chat_id,
                 )
             )
+
             return True

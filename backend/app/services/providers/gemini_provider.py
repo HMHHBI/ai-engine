@@ -8,6 +8,7 @@ import time
 from typing import AsyncGenerator, Dict, List, Optional
 
 from google import genai
+from google.genai import types
 from google.genai.errors import APIError
 
 from app.core.config import settings
@@ -21,6 +22,19 @@ from app.services.providers.errors import (
 
 logger = logging.getLogger(__name__)
 
+# The Gemini SDK is synchronous, so streaming requests require worker
+# threads. Bound the number of active workers to prevent an unbounded
+# accumulation of blocked SDK calls under cancellation or provider stalls.
+_GEMINI_MAX_WORKERS = max(
+    1,
+    int(getattr(settings, "GEMINI_MAX_WORKERS", 4)),
+)
+_GEMINI_WORKER_SEMAPHORE = threading.BoundedSemaphore(
+    _GEMINI_MAX_WORKERS,
+)
+_GEMINI_WORKER_TRACKER: set[threading.Thread] = set()
+_GEMINI_WORKER_TRACKER_LOCK = threading.Lock()
+
 
 class GeminiProvider(BaseLLMProvider):
     """Google Gemini provider."""
@@ -31,6 +45,7 @@ class GeminiProvider(BaseLLMProvider):
         *,
         timeout: float | None = None,
         stream_max_seconds: float | None = None,
+        idle_timeout: float | None = None,
     ) -> None:
         api_key = getattr(
             settings,
@@ -43,6 +58,10 @@ class GeminiProvider(BaseLLMProvider):
         self.model_name = model_name
 
         self.timeout = timeout if timeout is not None else settings.AI_REQUEST_TIMEOUT
+
+        self.idle_timeout = (
+            idle_timeout if idle_timeout is not None else settings.AI_READ_TIMEOUT
+        )
 
         self.stream_max_seconds = (
             stream_max_seconds
@@ -84,6 +103,43 @@ class GeminiProvider(BaseLLMProvider):
 
         return self.client
 
+    @staticmethod
+    def _register_worker(
+        worker_thread: threading.Thread,
+    ) -> None:
+        with _GEMINI_WORKER_TRACKER_LOCK:
+            _GEMINI_WORKER_TRACKER.add(worker_thread)
+
+    @staticmethod
+    def _unregister_worker(
+        worker_thread: threading.Thread,
+    ) -> None:
+        with _GEMINI_WORKER_TRACKER_LOCK:
+            _GEMINI_WORKER_TRACKER.discard(worker_thread)
+
+    @staticmethod
+    def active_worker_count() -> int:
+        """Return the number of currently tracked Gemini workers."""
+        with _GEMINI_WORKER_TRACKER_LOCK:
+            return len(_GEMINI_WORKER_TRACKER)
+
+    async def _acquire_worker_slot(self) -> None:
+        """
+        Acquire a bounded worker slot without blocking the event loop.
+
+        Non-blocking semaphore attempts allow asyncio cancellation to
+        interrupt acquisition immediately.
+        """
+        while True:
+            acquired = _GEMINI_WORKER_SEMAPHORE.acquire(
+                blocking=False,
+            )
+
+            if acquired:
+                return
+
+            await asyncio.sleep(0.01)
+
     async def generate_response(
         self,
         prompt: str,
@@ -105,12 +161,17 @@ class GeminiProvider(BaseLLMProvider):
             self.timeout,
         )
 
+        config = types.GenerateContentConfig(
+            temperature=temperature,
+        )
+
         try:
             result = await asyncio.wait_for(
                 asyncio.to_thread(
                     client.models.generate_content,
                     model=self.model_name,
                     contents=contents,
+                    config=config,
                 ),
                 timeout=timeout,
             )
@@ -163,9 +224,9 @@ class GeminiProvider(BaseLLMProvider):
             history,
         )
 
-        timeout = kwargs.get(
-            "timeout",
-            self.timeout,
+        idle_timeout = kwargs.get(
+            "idle_timeout",
+            self.idle_timeout,
         )
 
         max_stream_seconds = kwargs.get(
@@ -173,9 +234,24 @@ class GeminiProvider(BaseLLMProvider):
             self.stream_max_seconds,
         )
 
-        queue_size = settings.GEMINI_QUEUE_SIZE
-        queue_poll_seconds = settings.GEMINI_QUEUE_POLL_SECONDS
-        worker_join_timeout = settings.GEMINI_WORKER_JOIN_TIMEOUT
+        queue_size = max(
+            1,
+            int(settings.GEMINI_QUEUE_SIZE),
+        )
+        queue_poll_seconds = max(
+            0.01,
+            float(settings.GEMINI_QUEUE_POLL_SECONDS),
+        )
+        worker_join_timeout = max(
+            0.01,
+            float(settings.GEMINI_WORKER_JOIN_TIMEOUT),
+        )
+
+        if idle_timeout <= 0:
+            raise ValueError("idle_timeout must be positive.")
+
+        if max_stream_seconds <= 0:
+            raise ValueError("stream_max_seconds must be positive.")
 
         item_queue: queue.Queue[object] = queue.Queue(
             maxsize=queue_size,
@@ -184,29 +260,30 @@ class GeminiProvider(BaseLLMProvider):
         sentinel = object()
         stop_event = threading.Event()
         worker_done = threading.Event()
+        worker_slot_acquired = False
 
-        loop = asyncio.get_running_loop()
-        queue_signal = asyncio.Event()
+        config = types.GenerateContentConfig(
+            temperature=temperature,
+        )
 
-        def signal_consumer() -> None:
-            if not loop.is_closed():
-                queue_signal.set()
+        worker_thread: threading.Thread | None = None
 
-        def enqueue(item: object) -> bool:
+        def enqueue(
+            item: object,
+            *,
+            allow_after_stop: bool = False,
+        ) -> bool:
             """
             Put an item into the bounded queue with cancellation-aware
             backpressure.
 
             The worker never waits indefinitely for the async consumer.
             """
-            while not stop_event.is_set():
+            while allow_after_stop or not stop_event.is_set():
                 try:
                     item_queue.put(
                         item,
                         timeout=0.25,
-                    )
-                    loop.call_soon_threadsafe(
-                        signal_consumer,
                     )
                     return True
                 except queue.Full:
@@ -215,10 +292,15 @@ class GeminiProvider(BaseLLMProvider):
             return False
 
         def worker() -> None:
+            nonlocal worker_thread
+
+            current_thread = threading.current_thread()
+
             try:
                 stream = client.models.generate_content_stream(
                     model=self.model_name,
                     contents=contents,
+                    config=config,
                 )
 
                 for chunk in stream:
@@ -237,20 +319,45 @@ class GeminiProvider(BaseLLMProvider):
                     if not enqueue(text):
                         break
 
-            except BaseException as exc:
+            except APIError as exc:
                 if not stop_event.is_set():
                     enqueue(exc)
 
+            except TimeoutError as exc:
+                if not stop_event.is_set():
+                    enqueue(exc)
+
+            except Exception as exc:
+                if not stop_event.is_set():
+                    enqueue(
+                        AIProviderResponseError(
+                            "Gemini returned an invalid or unusable response."
+                        )
+                    )
+                    logger.exception(
+                        "Unexpected Gemini streaming failure model=%s",
+                        self.model_name,
+                        exc_info=exc,
+                    )
+
             finally:
-                enqueue(sentinel)
+                # A normal completion must notify the consumer. During
+                # cancellation, the consumer is already terminating and
+                # should not be kept alive merely to enqueue a sentinel.
+                if not stop_event.is_set():
+                    enqueue(sentinel)
+
                 worker_done.set()
 
-                try:
-                    loop.call_soon_threadsafe(
-                        signal_consumer,
-                    )
-                except RuntimeError:
-                    pass
+                self._unregister_worker(
+                    current_thread,
+                )
+
+                if worker_slot_acquired:
+                    _GEMINI_WORKER_SEMAPHORE.release()
+
+        await self._acquire_worker_slot()
+        worker_slot_acquired = True
 
         worker_thread = threading.Thread(
             target=worker,
@@ -258,66 +365,86 @@ class GeminiProvider(BaseLLMProvider):
             daemon=True,
         )
 
+        self._register_worker(
+            worker_thread,
+        )
+
         worker_thread.start()
 
         deadline = time.monotonic() + max_stream_seconds
+        last_activity = time.monotonic()
 
         try:
             while True:
-                remaining = deadline - time.monotonic()
+                now = time.monotonic()
+                remaining_total = deadline - now
+                remaining_idle = idle_timeout - (now - last_activity)
 
-                if remaining <= 0:
+                if remaining_total <= 0:
                     stop_event.set()
-                    raise AIProviderTimeout()
+                    raise AIProviderTimeout(
+                        "Gemini stream exceeded the maximum lifetime."
+                    )
 
-                if item_queue.empty():
-                    queue_signal.clear()
+                if remaining_idle <= 0:
+                    stop_event.set()
+                    raise AIProviderTimeout(
+                        "Gemini stream exceeded the provider idle timeout."
+                    )
 
-                    try:
-                        await asyncio.wait_for(
-                            queue_signal.wait(),
-                            timeout=min(
-                                remaining,
-                                timeout,
-                                queue_poll_seconds,
-                            ),
-                        )
-                    except asyncio.TimeoutError as exc:
-                        stop_event.set()
+                wait_timeout = min(
+                    queue_poll_seconds,
+                    remaining_total,
+                    remaining_idle,
+                )
 
-                        if time.monotonic() >= deadline:
-                            raise AIProviderTimeout() from exc
+                try:
+                    item = await asyncio.to_thread(
+                        item_queue.get,
+                        True,
+                        wait_timeout,
+                    )
+                except queue.Empty:
+                    # This is only the internal polling heartbeat.
+                    # It is deliberately NOT a provider timeout.
+                    continue
 
-                        raise AIProviderTimeout() from exc
+                if item is sentinel:
+                    return
 
-                while True:
-                    try:
-                        item = item_queue.get_nowait()
-                    except queue.Empty:
-                        break
+                last_activity = time.monotonic()
 
-                    if item is sentinel:
-                        return
+                if isinstance(
+                    item,
+                    AIProviderTimeout,
+                ):
+                    raise item
 
-                    if isinstance(
-                        item,
-                        BaseException,
-                    ):
-                        if isinstance(
-                            item,
-                            asyncio.CancelledError,
-                        ):
-                            raise item
+                if isinstance(
+                    item,
+                    APIError,
+                ):
+                    raise AIProviderUnavailable() from item
 
-                        if isinstance(
-                            item,
-                            APIError,
-                        ):
-                            raise AIProviderUnavailable() from item
+                if isinstance(
+                    item,
+                    TimeoutError,
+                ):
+                    raise AIProviderTimeout() from item
 
-                        raise AIProviderUnavailable() from item
+                if isinstance(
+                    item,
+                    AIProviderResponseError,
+                ):
+                    raise item
 
-                    yield str(item)
+                if isinstance(
+                    item,
+                    BaseException,
+                ):
+                    raise AIProviderUnavailable() from item
+
+                yield str(item)
 
         except asyncio.CancelledError:
             stop_event.set()
@@ -332,13 +459,18 @@ class GeminiProvider(BaseLLMProvider):
         finally:
             stop_event.set()
 
-            if not worker_done.is_set():
-                await asyncio.to_thread(
-                    worker_done.wait,
-                    worker_join_timeout,
-                )
+            if worker_thread is not None and not worker_done.is_set():
+                try:
+                    await asyncio.to_thread(
+                        worker_done.wait,
+                        worker_join_timeout,
+                    )
+                except asyncio.CancelledError:
+                    # Preserve cancellation while still signalling the
+                    # worker to terminate cooperatively.
+                    raise
 
-            if worker_thread.is_alive():
+            if worker_thread is not None and worker_thread.is_alive():
                 logger.warning(
                     "Gemini worker did not terminate within "
                     "cleanup timeout model=%s",
