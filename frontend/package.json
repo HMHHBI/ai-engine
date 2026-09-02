@@ -10,7 +10,7 @@
     "format": "prettier --write --experimental-cli src/"
   },
   "dependencies": {
-    "axios": "^1.15.2",
+    "axios": "^1.18.0",
     "pinia": "^3.0.4",
     "prismjs": "^1.30.0",
     "vue": "^3.5.32",
@@ -21,7 +21,7 @@
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.6",
     "prettier": "3.8.3",
-    "vite": "^8.0.8",
+    "vite": "^8.1.0",
     "vite-plugin-vue-devtools": "^8.1.1"
   },
   "engines": {
