@@ -39,6 +39,20 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const pdfInputRef = useRef<HTMLInputElement | null>(null);
+  const imagesRef = useRef<ImageAttachment[]>([]);
+
+  useEffect(() => {
+    imagesRef.current = images;
+  }, [images]);
+
+  // Clean up object URLs on chat change or component unmount
+  useEffect(() => {
+    return () => {
+      for (const image of imagesRef.current) {
+        URL.revokeObjectURL(image.previewUrl);
+      }
+    };
+  }, [chatId]);
 
   const status = useChatStore((state) =>
     chatId === null ? "idle" : (state.streamingStatusByChat[chatId] ?? "idle"),
@@ -94,6 +108,12 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
     }
 
     const selectedFiles = files.slice(0, remainingSlots);
+    if (files.length > remainingSlots) {
+      setAttachmentError(
+        "Maximum of 4 images allowed. Additional images were ignored.",
+      );
+    }
+
     const nextAttachments: ImageAttachment[] = [];
 
     for (const file of selectedFiles) {
@@ -255,7 +275,11 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
             "focus-within:border-ring",
           )}
         >
-          <ImageAttachmentList attachments={images} onRemove={removeImage} />
+          <ImageAttachmentList
+            attachments={images}
+            onRemove={removeImage}
+            disabled={isStreaming}
+          />
 
           {pdf && (
             <PdfAttachmentView

@@ -228,4 +228,28 @@ describe("chatActions", () => {
       useChatSessionStore.getState().sessions.map((session) => session.id),
     ).toEqual([1, 2]);
   });
+
+  it("submits multimodal image payloads with strict index pairing", async () => {
+    vi.mocked(chatStreamService.stream).mockResolvedValue();
+
+    const testImages = ["base64-data-1", "base64-data-2"];
+    const testMimes = ["image/png", "image/jpeg"];
+
+    await chatActions.sendMessage({
+      chatId: 1,
+      prompt: "Describe these images",
+      imageBase64: testImages,
+      imageMime: testMimes,
+    });
+
+    expect(chatStreamService.stream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chat_id: 1,
+        prompt: "Describe these images",
+        image_base64: testImages,
+        image_mime: testMimes,
+      }),
+      expect.anything(),
+    );
+  });
 });
