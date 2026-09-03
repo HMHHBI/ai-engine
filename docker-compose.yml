@@ -35,7 +35,7 @@ services:
     environment:
       - DATABASE_URL=postgresql://postgres:mysecretpassword@db:5432/hassan_ai_db
       - REDIS_URL=redis://redis:6379
-      - FRONTEND_URL=http://localhost   # 👈 Explicit backup override
+      - FRONTEND_URL=http://localhost:3000   # 👈 Explicit backup override
       - OLLAMA_BASE_URL=http://host.docker.internal:11434 # 👈 YEH ADD KAREIN
     depends_on:
       - db
@@ -47,7 +47,9 @@ services:
     container_name: chat_frontend
     restart: always
     ports:
-      - "80:80"
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
     depends_on:
       - backend
 

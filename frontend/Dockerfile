@@ -1,13 +1,16 @@
-FROM node:20-alpine AS build-stage
+FROM node:20-slim
 WORKDIR /app
+
 COPY package*.json ./
+# Build ke liye devDependencies zaroori hain
 RUN npm install
+
 COPY . .
 RUN npm run build
 
-FROM nginx:alpine AS production-stage
-COPY --from=build-stage /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Runtime par sirf production packages rakhein
+ENV NODE_ENV=production
+RUN npm prune --production
 
-EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
+EXPOSE 3000
+CMD ["npm", "start"]
