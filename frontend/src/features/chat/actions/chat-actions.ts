@@ -22,9 +22,7 @@ export interface SendMessageOptions {
 }
 
 class ChatActions {
-  async sendMessage(
-    options: SendMessageOptions,
-  ): Promise<void> {
+  async sendMessage(options: SendMessageOptions): Promise<void> {
     const {
       chatId,
       prompt,
@@ -40,22 +38,34 @@ class ChatActions {
       throw new Error("Prompt cannot be empty.");
     }
 
-    const requestId =
-      chatRequestController.next();
+    const requestId = chatRequestController.next();
 
     const isCurrentRequest = (): boolean =>
       chatRequestController.isCurrent(requestId);
+
+    const hasChatState = (): boolean => {
+      const chatStore = useChatStore.getState();
+      const sessionStore = useChatSessionStore.getState();
+
+      return (
+        chatStore.messagesByChat[chatId] !== undefined ||
+        chatStore.loadingChatIds[chatId] !== undefined ||
+        chatStore.streamingStatusByChat[chatId] !== undefined ||
+        chatStore.pdfStateByChat[chatId] !== undefined ||
+        sessionStore.sessions.some((session) => session.id === chatId)
+      );
+    };
+
+    const canMutateChat = (): boolean =>
+      isCurrentRequest() && hasChatState();
 
     const store = useChatStore.getState();
 
     const session = useChatSessionStore
       .getState()
-      .sessions.find(
-        (item) => item.id === chatId,
-      );
+      .sessions.find((item) => item.id === chatId);
 
-    const isFirstMessage =
-      session?.title === "New Chat";
+    const isFirstMessage = session?.title === "New Chat";
 
     const userMessage: ChatMessage = {
       id: Date.now(),
@@ -63,10 +73,7 @@ class ChatActions {
       content: trimmedPrompt,
     };
 
-    store.addMessage(
-      chatId,
-      userMessage,
-    );
+    store.addMessage(chatId, userMessage);
 
     const aiMessage: ChatMessage = {
       id: Date.now() + 1,
@@ -74,15 +81,9 @@ class ChatActions {
       content: "",
     };
 
-    store.addMessage(
-      chatId,
-      aiMessage,
-    );
+    store.addMessage(chatId, aiMessage);
 
-    store.setStreamingStatus(
-      chatId,
-      "streaming",
-    );
+    store.setStreamingStatus(chatId, "streaming");
 
     const payload: StreamPayload = {
       chat_id: chatId,
@@ -94,87 +95,50 @@ class ChatActions {
     };
 
     try {
-      await chatStreamService.stream(
-        payload,
-        {
-          onEvent: (event) => {
-            if (!isCurrentRequest()) {
-              return;
-            }
+      await chatStreamService.stream(payload, {
+        onEvent: (event) => {
+          if (!canMutateChat()) {
+            return;
+          }
 
-            switch (event.type) {
-              case "streamStarted":
+          switch (event.type) {
+            case "streamStarted":
+              useChatStore.getState().setStreamingStatus(chatId, "streaming");
+
+              if (isFirstMessage) {
+                chatSessionActions.syncFirstMessageTitle(
+                  chatId,
+                  trimmedPrompt,
+                );
+              }
+              break;
+
+            case "sourcesReceived":
+              useChatStore.getState().setMessageSources(chatId, event.sources);
+              break;
+
+            case "chunkReceived":
+              if (event.chunk) {
                 useChatStore
                   .getState()
-                  .setStreamingStatus(
-                    chatId,
-                    "streaming",
-                  );
+                  .appendToLastMessage(chatId, event.chunk);
+              }
+              break;
 
-                if (isFirstMessage) {
-                  chatSessionActions.syncFirstMessageTitle(
-                    chatId,
-                    trimmedPrompt,
-                  );
-                }
+            case "streamCompleted":
+              useChatStore.getState().setStreamingStatus(chatId, "completed");
+              break;
 
-                break;
+            case "streamCancelled":
+              useChatStore.getState().setStreamingStatus(chatId, "cancelled");
+              break;
 
-              case "sourcesReceived":
-                useChatStore
-                  .getState()
-                  .setMessageSources(
-                    chatId,
-                    event.sources,
-                  );
-
-                break;
-
-              case "chunkReceived":
-                if (event.chunk) {
-                  useChatStore
-                    .getState()
-                    .appendToLastMessage(
-                      chatId,
-                      event.chunk,
-                    );
-                }
-
-                break;
-
-              case "streamCompleted":
-                useChatStore
-                  .getState()
-                  .setStreamingStatus(
-                    chatId,
-                    "completed",
-                  );
-
-                break;
-
-              case "streamCancelled":
-                useChatStore
-                  .getState()
-                  .setStreamingStatus(
-                    chatId,
-                    "cancelled",
-                  );
-
-                break;
-
-              case "streamFailed":
-                useChatStore
-                  .getState()
-                  .setStreamingStatus(
-                    chatId,
-                    "error",
-                  );
-
-                break;
-            }
-          },
+            case "streamFailed":
+              useChatStore.getState().setStreamingStatus(chatId, "error");
+              throw event.error;
+          }
         },
-      );
+      });
     } catch (error) {
       if (!isCurrentRequest()) {
         return;
@@ -184,18 +148,15 @@ class ChatActions {
         error instanceof ApiError &&
         error.code === "STREAM_ABORTED"
       ) {
-        store.setStreamingStatus(
-          chatId,
-          "cancelled",
-        );
-
+        if (hasChatState()) {
+          store.setStreamingStatus(chatId, "cancelled");
+        }
         return;
       }
 
-      store.setStreamingStatus(
-        chatId,
-        "error",
-      );
+      if (hasChatState()) {
+        store.setStreamingStatus(chatId, "error");
+      }
 
       throw error;
     }
@@ -208,90 +169,58 @@ class ChatActions {
     filename: string;
     chunksCount: number;
   }> {
-    const chatStore =
-      useChatStore.getState();
+    const chatStore = useChatStore.getState();
 
-    chatStore.setPdfState(
-      chatId,
-      {
-        status: "uploading",
-        filename: file.name,
-        chunksCount: null,
-        error: null,
-      },
-    );
+    chatStore.setPdfState(chatId, {
+      status: "uploading",
+      filename: file.name,
+      chunksCount: null,
+      error: null,
+    });
 
     try {
-      chatStore.setPdfState(
-        chatId,
-        {
-          status: "processing",
-        },
-      );
+      chatStore.setPdfState(chatId, {
+        status: "processing",
+      });
 
-      const response =
-        await chatApi.uploadPdf(
-          chatId,
-          file,
-        );
+      const response = await chatApi.uploadPdf(chatId, file);
 
-      chatStore.setPdfState(
-        chatId,
-        {
-          status: "ready",
-          filename: response.filename,
-          chunksCount:
-            response.chunks_count,
-          error: null,
-        },
-      );
+      chatStore.setPdfState(chatId, {
+        status: "ready",
+        filename: response.filename,
+        chunksCount: response.chunks_count,
+        error: null,
+      });
 
-      useChatSessionStore
-        .getState()
-        .updateSession(chatId, {
-          has_pdf: true,
-        });
+      useChatSessionStore.getState().updateSession(chatId, {
+        has_pdf: true,
+      });
 
       return {
         filename: response.filename,
-        chunksCount:
-          response.chunks_count,
+        chunksCount: response.chunks_count,
       };
     } catch (error) {
-      let message =
-        "PDF upload failed.";
+      let message = "PDF upload failed.";
 
       if (error instanceof ApiError) {
         if (error.status === 413) {
-          message =
-            "This PDF is too large (max 20MB).";
-        } else if (
-          error.status === 429
-        ) {
-          message =
-            "Upload limit reached. Try again later.";
-        } else if (
-          error.status &&
-          error.status >= 500
-        ) {
-          message =
-            "AI processing service is temporarily unavailable.";
+          message = "This PDF is too large (max 20MB).";
+        } else if (error.status === 429) {
+          message = "Upload limit reached. Try again later.";
+        } else if (error.status && error.status >= 500) {
+          message = "AI processing service is temporarily unavailable.";
         } else {
           message = error.message;
         }
-      } else if (
-        error instanceof Error
-      ) {
+      } else if (error instanceof Error) {
         message = error.message;
       }
 
-      chatStore.setPdfState(
-        chatId,
-        {
-          status: "error",
-          error: message,
-        },
-      );
+      chatStore.setPdfState(chatId, {
+        status: "error",
+        error: message,
+      });
 
       throw new Error(message);
     }
@@ -301,19 +230,12 @@ class ChatActions {
     chatRequestController.invalidate();
   }
 
-  cancelForChat(
-    chatId: number,
-  ): void {
-    chatRequestController.cancelChat(
-      chatId,
-    );
+  cancelForChat(chatId: number): void {
+    chatRequestController.cancelChat(chatId);
 
-    useChatStore
-      .getState()
-      .setStreamingStatus(
-        chatId,
-        "cancelled",
-      );
+    if (chatStreamService.currentChatId === chatId) {
+      useChatStore.getState().setStreamingStatus(chatId, "cancelled");
+    }
   }
 
   invalidate(): void {
@@ -321,5 +243,4 @@ class ChatActions {
   }
 }
 
-export const chatActions =
-  new ChatActions();
+export const chatActions = new ChatActions();

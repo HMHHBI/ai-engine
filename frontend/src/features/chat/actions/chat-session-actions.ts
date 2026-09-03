@@ -47,6 +47,7 @@ class ChatSessionActions {
       title: "New Chat",
       created_at: now,
       updated_at: now,
+      has_pdf: false,
     };
 
     useChatStore.getState().setMessages(chatId, []);
@@ -159,6 +160,11 @@ class ChatSessionActions {
   }
 
   clearActiveChat(): void {
+    const activeChatId = useChatStore.getState().activeChatId;
+    if (activeChatId !== null) {
+      useChatStore.getState().setChatLoading(activeChatId, false);
+    }
+
     chatRequestController.invalidate();
     this.invalidateHydration();
     useChatStore.getState().setActiveChat(null);

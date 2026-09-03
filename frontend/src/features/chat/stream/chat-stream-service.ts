@@ -157,6 +157,11 @@ export class ChatStreamService {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
 
+      const onAbort = (): void => {
+        reader.cancel().catch(() => {});
+      };
+      controller.signal.addEventListener("abort", onAbort, { once: true });
+
       let buffer = "";
       let receivedCompletionEvent = false;
       let receivedCancellationEvent = false;
@@ -233,6 +238,7 @@ export class ChatStreamService {
           });
         }
       } finally {
+        controller.signal.removeEventListener("abort", onAbort);
         reader.releaseLock();
       }
     } catch (error) {
@@ -698,6 +704,24 @@ export class ChatStreamService {
   private async readErrorBody(
     response: Response,
   ): Promise<unknown> {
+    try {
+      if (response.body) {
+        const reader = response.body.getReader();
+        const { value } = await reader.read();
+        reader.releaseLock();
+        if (value) {
+          const text = new TextDecoder().decode(value).trim();
+          try {
+            return JSON.parse(text);
+          } catch {
+            return text;
+          }
+        }
+      }
+    } catch {
+      // fallback
+    }
+
     const contentType =
       response.headers.get(
         "content-type",
