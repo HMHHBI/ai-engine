@@ -9,6 +9,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import NullPool
 
+from app.core.rate_limiter import limiter
 from app.db.models import Base
 from app.db.session import get_db
 
@@ -50,6 +51,20 @@ def db_session() -> Generator[Session, None, None]:
         yield session
     finally:
         session.close()
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limits():
+    """Reset slowapi rate limits before and after every test."""
+    try:
+        limiter.reset()
+    except Exception:
+        pass
+    yield
+    try:
+        limiter.reset()
+    except Exception:
+        pass
 
 
 @pytest.fixture()

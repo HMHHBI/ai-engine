@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api import auth, chat, user  # Apne controllers import karein
+from app.api import auth, chat, user, health  # Apne controllers import karein
 
 api_router = APIRouter()
 
@@ -8,4 +8,5 @@ api_router = APIRouter()
 api_router.include_router(auth.router)
 api_router.include_router(chat.router)
 api_router.include_router(user.router)
+api_router.include_router(health.router)
 # Agay ja kar agar aap 'user.py' banate hain toh wo bhi yahan add hoga
