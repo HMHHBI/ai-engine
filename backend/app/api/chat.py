@@ -17,6 +17,7 @@ from app.core.config import (
     EmbeddingProvider,
     settings,
 )
+from app.core.error_codes import ErrorCode, SAFE_CLIENT_MESSAGES
 from app.core.rate_limiter import limiter
 from app.db.models import User
 from app.repositories.chat_repo import ChatRepository
@@ -769,13 +770,13 @@ async def ai_stream(
                         (time.monotonic() - stream_started_at) * 1000,
                         2,
                     ),
-                    "cancellation_reason": "cancelled",
+                    "cancellation_reason": ErrorCode.CANCELLED.value,
                 },
             )
             yield _sse_event(
                 "stream_cancelled",
                 {
-                    "message": "AI stream cancelled.",
+                    "message": SAFE_CLIENT_MESSAGES[ErrorCode.CANCELLED],
                 },
             )
             raise
@@ -793,14 +794,14 @@ async def ai_stream(
                         (time.monotonic() - stream_started_at) * 1000,
                         2,
                     ),
-                    "error_code": "provider_timeout",
+                    "error_code": ErrorCode.PROVIDER_TIMEOUT.value,
                 },
             )
             yield _sse_event(
                 "stream_error",
                 {
-                    "code": "provider_timeout",
-                    "message": "The AI provider timed out. Please try again.",
+                    "code": ErrorCode.PROVIDER_TIMEOUT.value,
+                    "message": SAFE_CLIENT_MESSAGES[ErrorCode.PROVIDER_TIMEOUT],
                 },
             )
             return
@@ -818,14 +819,14 @@ async def ai_stream(
                         (time.monotonic() - stream_started_at) * 1000,
                         2,
                     ),
-                    "error_code": "provider_unavailable",
+                    "error_code": ErrorCode.PROVIDER_UNAVAILABLE.value,
                 },
             )
             yield _sse_event(
                 "stream_error",
                 {
-                    "code": "provider_unavailable",
-                    "message": "The AI provider is temporarily unavailable. Please try again.",
+                    "code": ErrorCode.PROVIDER_UNAVAILABLE.value,
+                    "message": SAFE_CLIENT_MESSAGES[ErrorCode.PROVIDER_UNAVAILABLE],
                 },
             )
             return
@@ -843,14 +844,14 @@ async def ai_stream(
                         (time.monotonic() - stream_started_at) * 1000,
                         2,
                     ),
-                    "error_code": "provider_error",
+                    "error_code": ErrorCode.PROVIDER_ERROR.value,
                 },
             )
             yield _sse_event(
                 "stream_error",
                 {
-                    "code": "provider_error",
-                    "message": "Unable to complete the AI request.",
+                    "code": ErrorCode.PROVIDER_ERROR.value,
+                    "message": SAFE_CLIENT_MESSAGES[ErrorCode.PROVIDER_ERROR],
                 },
             )
             return
@@ -868,19 +869,20 @@ async def ai_stream(
                         (time.monotonic() - stream_started_at) * 1000,
                         2,
                     ),
-                    "error_code": "stream_error",
+                    "error_code": ErrorCode.STREAM_ERROR.value,
                 },
             )
             yield _sse_event(
                 "stream_error",
                 {
-                    "code": "stream_error",
-                    "message": "Unable to complete the request right now.",
+                    "code": ErrorCode.STREAM_ERROR.value,
+                    "message": SAFE_CLIENT_MESSAGES[ErrorCode.STREAM_ERROR],
                 },
             )
             return
 
         # 4. Persistence
+        persisted_message = None
         if full_text.strip():
             try:
                 persisted_message = await asyncio.to_thread(
@@ -903,14 +905,16 @@ async def ai_stream(
                                 (time.monotonic() - request_started_at) * 1000,
                                 2,
                             ),
-                            "error_code": "persistence_error",
+                            "error_code": ErrorCode.PERSISTENCE_ERROR.value,
                         },
                     )
                     yield _sse_event(
                         "stream_error",
                         {
-                            "code": "persistence_error",
-                            "message": "Response generated but could not be saved. Please retry.",
+                            "code": ErrorCode.PERSISTENCE_ERROR.value,
+                            "message": SAFE_CLIENT_MESSAGES[
+                                ErrorCode.PERSISTENCE_ERROR
+                            ],
                         },
                     )
                     return
@@ -919,7 +923,7 @@ async def ai_stream(
                 raise
 
             except Exception:
-                logger.error(
+                logger.exception(
                     "chat_request_failed",
                     extra={
                         "event": "chat_request_failed",
@@ -930,14 +934,14 @@ async def ai_stream(
                             (time.monotonic() - request_started_at) * 1000,
                             2,
                         ),
-                        "error_code": "persistence_error",
+                        "error_code": ErrorCode.PERSISTENCE_ERROR.value,
                     },
                 )
                 yield _sse_event(
                     "stream_error",
                     {
-                        "code": "persistence_error",
-                        "message": "Response generated but could not be saved. Please retry.",
+                        "code": ErrorCode.PERSISTENCE_ERROR.value,
+                        "message": SAFE_CLIENT_MESSAGES[ErrorCode.PERSISTENCE_ERROR],
                     },
                 )
                 return

@@ -10,6 +10,8 @@ from sqlalchemy import text
 from app.api.v1_router import api_router
 from app.core.config import settings
 from app.core.exceptions import (
+    AppError,
+    app_error_handler,
     global_exception_handler,
     rate_limit_exceeded_handler,
 )
@@ -74,6 +76,10 @@ app.add_middleware(SlowAPIMiddleware)
 app.add_exception_handler(
     RateLimitExceeded,
     rate_limit_exceeded_handler,
+)
+app.add_exception_handler(
+    AppError,
+    app_error_handler,
 )
 app.add_exception_handler(
     Exception,
