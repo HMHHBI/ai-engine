@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
@@ -120,17 +121,6 @@ def _resolve_ai_configuration(
     requested_provider: str | None,
     requested_model: str | None,
 ) -> tuple[AIProvider, AIModel]:
-    """
-    Resolve the effective AI provider/model.
-
-    Precedence:
-      1. Explicit request model + optional provider
-      2. Chat provider + model
-      3. Application defaults
-
-    If the request supplies only a model, its provider is inferred
-    from the canonical MODEL_REGISTRY.
-    """
     if requested_model is not None:
         model = _parse_ai_model(requested_model)
 
@@ -448,6 +438,16 @@ async def ai_stream(
     req: AIRequest,
     current_user: User = Depends(get_current_user),
 ):
+    request_started_at = time.monotonic()
+
+    logger.info(
+        "chat_request_started",
+        extra={
+            "event": "chat_request_started",
+            "chat_id": req.chat_id,
+        },
+    )
+
     clean_prompt = req.prompt.strip()
 
     if not clean_prompt:
@@ -530,14 +530,51 @@ async def ai_stream(
         )
 
         if query_vector:
-            context_chunks = await asyncio.to_thread(
-                VectorRepository.search_similar_chunks,
-                user_id=current_user.id,
-                chat_id=req.chat_id,
-                query_vector=query_vector,
-                top_k=6,
-                max_distance=0.70,
-                adaptive_margin=0.15,
+            rag_started_at = time.monotonic()
+
+            logger.info(
+                "rag_retrieval_started",
+                extra={
+                    "event": "rag_retrieval_started",
+                    "chat_id": req.chat_id,
+                },
+            )
+
+            try:
+                context_chunks = await asyncio.to_thread(
+                    VectorRepository.search_similar_chunks,
+                    user_id=current_user.id,
+                    chat_id=req.chat_id,
+                    query_vector=query_vector,
+                    top_k=6,
+                    max_distance=0.70,
+                    adaptive_margin=0.15,
+                )
+            except Exception:
+                logger.exception(
+                    "rag_retrieval_failed",
+                    extra={
+                        "event": "rag_retrieval_failed",
+                        "chat_id": req.chat_id,
+                        "duration_ms": round(
+                            (time.monotonic() - rag_started_at) * 1000,
+                            2,
+                        ),
+                    },
+                )
+                raise
+
+            logger.info(
+                "rag_retrieval_completed",
+                extra={
+                    "event": "rag_retrieval_completed",
+                    "chat_id": req.chat_id,
+                    "retrieved_chunk_count": len(context_chunks),
+                    "duration_ms": round(
+                        (time.monotonic() - rag_started_at) * 1000,
+                        2,
+                    ),
+                },
             )
 
     if context_chunks:
@@ -600,12 +637,35 @@ async def ai_stream(
             detail=str(exc),
         ) from exc
 
+    logger.info(
+        "ai_provider_selected",
+        extra={
+            "event": "ai_provider_selected",
+            "chat_id": req.chat_id,
+            "provider": ai_provider.value,
+            "model": ai_model.value,
+        },
+    )
+
     # --------------------------------------------------------
     # Structured SSE stream
     # --------------------------------------------------------
 
     async def event_generator():
         full_text = ""
+        chunk_count = 0
+        first_token_at: float | None = None
+        stream_started_at = time.monotonic()
+
+        logger.info(
+            "ai_stream_started",
+            extra={
+                "event": "ai_stream_started",
+                "chat_id": req.chat_id,
+                "provider": ai_provider.value,
+                "model": ai_model.value,
+            },
+        )
 
         # 1. Config event
         yield _sse_event(
@@ -650,15 +710,43 @@ async def ai_stream(
             ):
                 if await request.is_disconnected():
                     logger.info(
-                        "Client disconnected during AI stream chat_id=%s user_id=%s",
-                        req.chat_id,
-                        current_user.id,
+                        "ai_stream_cancelled",
+                        extra={
+                            "event": "ai_stream_cancelled",
+                            "chat_id": req.chat_id,
+                            "provider": ai_provider.value,
+                            "model": ai_model.value,
+                            "chunk_count": chunk_count,
+                            "duration_ms": round(
+                                (time.monotonic() - stream_started_at) * 1000,
+                                2,
+                            ),
+                            "cancellation_reason": "client_disconnect",
+                        },
                     )
                     raise asyncio.CancelledError
 
                 if not token:
                     continue
 
+                if first_token_at is None:
+                    first_token_at = time.monotonic()
+
+                    logger.info(
+                        "ai_first_token",
+                        extra={
+                            "event": "ai_first_token",
+                            "chat_id": req.chat_id,
+                            "provider": ai_provider.value,
+                            "model": ai_model.value,
+                            "time_to_first_token_ms": round(
+                                (first_token_at - stream_started_at) * 1000,
+                                2,
+                            ),
+                        },
+                    )
+
+                chunk_count += 1
                 full_text += token
 
                 yield _sse_event(
@@ -670,9 +758,19 @@ async def ai_stream(
 
         except asyncio.CancelledError:
             logger.info(
-                "AI stream cancelled chat_id=%s user_id=%s",
-                req.chat_id,
-                current_user.id,
+                "ai_stream_cancelled",
+                extra={
+                    "event": "ai_stream_cancelled",
+                    "chat_id": req.chat_id,
+                    "provider": ai_provider.value,
+                    "model": ai_model.value,
+                    "chunk_count": chunk_count,
+                    "duration_ms": round(
+                        (time.monotonic() - stream_started_at) * 1000,
+                        2,
+                    ),
+                    "cancellation_reason": "cancelled",
+                },
             )
             yield _sse_event(
                 "stream_cancelled",
@@ -684,9 +782,19 @@ async def ai_stream(
 
         except AIProviderTimeout:
             logger.warning(
-                "AI stream timeout chat_id=%s user_id=%s",
-                req.chat_id,
-                current_user.id,
+                "ai_stream_failed",
+                extra={
+                    "event": "ai_stream_failed",
+                    "chat_id": req.chat_id,
+                    "provider": ai_provider.value,
+                    "model": ai_model.value,
+                    "chunk_count": chunk_count,
+                    "duration_ms": round(
+                        (time.monotonic() - stream_started_at) * 1000,
+                        2,
+                    ),
+                    "error_code": "provider_timeout",
+                },
             )
             yield _sse_event(
                 "stream_error",
@@ -699,9 +807,19 @@ async def ai_stream(
 
         except AIProviderUnavailable:
             logger.warning(
-                "AI provider unavailable chat_id=%s user_id=%s",
-                req.chat_id,
-                current_user.id,
+                "ai_stream_failed",
+                extra={
+                    "event": "ai_stream_failed",
+                    "chat_id": req.chat_id,
+                    "provider": ai_provider.value,
+                    "model": ai_model.value,
+                    "chunk_count": chunk_count,
+                    "duration_ms": round(
+                        (time.monotonic() - stream_started_at) * 1000,
+                        2,
+                    ),
+                    "error_code": "provider_unavailable",
+                },
             )
             yield _sse_event(
                 "stream_error",
@@ -714,9 +832,19 @@ async def ai_stream(
 
         except AIProviderError:
             logger.exception(
-                "AI provider stream failure chat_id=%s user_id=%s",
-                req.chat_id,
-                current_user.id,
+                "ai_stream_failed",
+                extra={
+                    "event": "ai_stream_failed",
+                    "chat_id": req.chat_id,
+                    "provider": ai_provider.value,
+                    "model": ai_model.value,
+                    "chunk_count": chunk_count,
+                    "duration_ms": round(
+                        (time.monotonic() - stream_started_at) * 1000,
+                        2,
+                    ),
+                    "error_code": "provider_error",
+                },
             )
             yield _sse_event(
                 "stream_error",
@@ -729,9 +857,19 @@ async def ai_stream(
 
         except Exception:
             logger.exception(
-                "Unexpected AI stream failure chat_id=%s user_id=%s",
-                req.chat_id,
-                current_user.id,
+                "ai_stream_failed",
+                extra={
+                    "event": "ai_stream_failed",
+                    "chat_id": req.chat_id,
+                    "provider": ai_provider.value,
+                    "model": ai_model.value,
+                    "chunk_count": chunk_count,
+                    "duration_ms": round(
+                        (time.monotonic() - stream_started_at) * 1000,
+                        2,
+                    ),
+                    "error_code": "stream_error",
+                },
             )
             yield _sse_event(
                 "stream_error",
@@ -755,9 +893,18 @@ async def ai_stream(
 
                 if persisted_message is None:
                     logger.error(
-                        "AI response persistence rejected chat_id=%s user_id=%s",
-                        req.chat_id,
-                        current_user.id,
+                        "chat_request_failed",
+                        extra={
+                            "event": "chat_request_failed",
+                            "chat_id": req.chat_id,
+                            "provider": ai_provider.value,
+                            "model": ai_model.value,
+                            "duration_ms": round(
+                                (time.monotonic() - request_started_at) * 1000,
+                                2,
+                            ),
+                            "error_code": "persistence_error",
+                        },
                     )
                     yield _sse_event(
                         "stream_error",
@@ -772,10 +919,19 @@ async def ai_stream(
                 raise
 
             except Exception:
-                logger.exception(
-                    "Failed to persist completed AI response chat_id=%s user_id=%s",
-                    req.chat_id,
-                    current_user.id,
+                logger.error(
+                    "chat_request_failed",
+                    extra={
+                        "event": "chat_request_failed",
+                        "chat_id": req.chat_id,
+                        "provider": ai_provider.value,
+                        "model": ai_model.value,
+                        "duration_ms": round(
+                            (time.monotonic() - request_started_at) * 1000,
+                            2,
+                        ),
+                        "error_code": "persistence_error",
+                    },
                 )
                 yield _sse_event(
                     "stream_error",
@@ -787,6 +943,37 @@ async def ai_stream(
                 return
 
         # 5. Terminal event
+        stream_duration_ms = round(
+            (time.monotonic() - stream_started_at) * 1000,
+            2,
+        )
+
+        logger.info(
+            "ai_stream_completed",
+            extra={
+                "event": "ai_stream_completed",
+                "chat_id": req.chat_id,
+                "provider": ai_provider.value,
+                "model": ai_model.value,
+                "chunk_count": chunk_count,
+                "duration_ms": stream_duration_ms,
+            },
+        )
+
+        logger.info(
+            "chat_request_completed",
+            extra={
+                "event": "chat_request_completed",
+                "chat_id": req.chat_id,
+                "provider": ai_provider.value,
+                "model": ai_model.value,
+                "duration_ms": round(
+                    (time.monotonic() - request_started_at) * 1000,
+                    2,
+                ),
+            },
+        )
+
         yield _sse_event(
             "stream_completed",
             {
