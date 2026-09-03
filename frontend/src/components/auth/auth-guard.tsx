@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 import { useAuthStore } from "@/features/auth";
@@ -9,27 +9,30 @@ interface AuthGuardProps {
   children: React.ReactNode;
 }
 
+const emptySubscribe = () => () => {};
+
 export function AuthGuard({ children }: AuthGuardProps) {
   const router = useRouter();
   const pathname = usePathname();
 
   const token = useAuthStore((state) => state.token);
+
   const isHydrated = useAuthStore((state) => state.isHydrated);
-  const [mounted, setMounted] = useState(false);
+
+  const mounted = useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false,
+  );
 
   useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    if (!mounted || !isHydrated) {
+    if (!mounted || !isHydrated || token) {
       return;
     }
 
-    if (!token) {
-      const next = encodeURIComponent(pathname);
-      router.replace(`/login?next=${next}`);
-    }
+    const next = encodeURIComponent(pathname);
+
+    router.replace(`/login?next=${next}`);
   }, [mounted, isHydrated, token, pathname, router]);
 
   if (!mounted || !isHydrated || !token) {

@@ -1,6 +1,9 @@
 import { create } from "zustand";
 
-import type { ChatMessage } from "@/types/api";
+import type {
+  ChatMessage,
+  RetrievedSource,
+} from "@/types/api";
 import type { PdfUploadStatus } from "@/features/chat/types/attachments";
 
 export type StreamingStatus =
@@ -29,8 +32,18 @@ interface ChatStoreState {
   setMessages: (chatId: number, messages: ChatMessage[]) => void;
   addMessage: (chatId: number, message: ChatMessage) => void;
   appendToLastMessage: (chatId: number, chunk: string) => void;
-  setStreamingStatus: (chatId: number, status: StreamingStatus) => void;
-  setPdfState: (chatId: number, state: Partial<ChatPdfState>) => void;
+  setMessageSources: (
+    chatId: number,
+    sources: RetrievedSource[],
+  ) => void;
+  setStreamingStatus: (
+    chatId: number,
+    status: StreamingStatus,
+  ) => void;
+  setPdfState: (
+    chatId: number,
+    state: Partial<ChatPdfState>,
+  ) => void;
   clearPdfState: (chatId: number) => void;
   removeChat: (chatId: number) => void;
   reset: () => void;
@@ -55,34 +68,48 @@ export const useChatStore = create<ChatStoreState>((set) => ({
   setChatLoading: (chatId, loading) =>
     set((state) => {
       const nextLoading = { ...state.loadingChatIds };
+
       if (loading) {
         nextLoading[chatId] = true;
       } else {
         delete nextLoading[chatId];
       }
-      return { loadingChatIds: nextLoading };
+
+      return {
+        loadingChatIds: nextLoading,
+      };
     }),
 
   setMessages: (chatId, messages) =>
     set((state) => ({
-      messagesByChat: { ...state.messagesByChat, [chatId]: messages },
+      messagesByChat: {
+        ...state.messagesByChat,
+        [chatId]: messages,
+      },
     })),
 
   addMessage: (chatId, message) =>
     set((state) => ({
       messagesByChat: {
         ...state.messagesByChat,
-        [chatId]: [...(state.messagesByChat[chatId] ?? []), message],
+        [chatId]: [
+          ...(state.messagesByChat[chatId] ?? []),
+          message,
+        ],
       },
     })),
 
   appendToLastMessage: (chatId, chunk) =>
     set((state) => {
       const messages = state.messagesByChat[chatId] ?? [];
-      if (messages.length === 0) return state;
+
+      if (messages.length === 0) {
+        return state;
+      }
 
       const last = messages[messages.length - 1];
-      const updatedLast = {
+
+      const updatedLast: ChatMessage = {
         ...last,
         content: `${last.content}${chunk}`,
       };
@@ -90,7 +117,41 @@ export const useChatStore = create<ChatStoreState>((set) => ({
       return {
         messagesByChat: {
           ...state.messagesByChat,
-          [chatId]: [...messages.slice(0, -1), updatedLast],
+          [chatId]: [
+            ...messages.slice(0, -1),
+            updatedLast,
+          ],
+        },
+      };
+    }),
+
+  setMessageSources: (chatId, sources) =>
+    set((state) => {
+      const messages = state.messagesByChat[chatId] ?? [];
+
+      if (messages.length === 0) {
+        return state;
+      }
+
+      const lastIndex = messages.length - 1;
+      const lastMessage = messages[lastIndex];
+
+      if (lastMessage.role !== "ai") {
+        return state;
+      }
+
+      const updatedLast: ChatMessage = {
+        ...lastMessage,
+        sources,
+      };
+
+      return {
+        messagesByChat: {
+          ...state.messagesByChat,
+          [chatId]: [
+            ...messages.slice(0, lastIndex),
+            updatedLast,
+          ],
         },
       };
     }),
@@ -105,11 +166,16 @@ export const useChatStore = create<ChatStoreState>((set) => ({
 
   setPdfState: (chatId, nextState) =>
     set((state) => {
-      const current = state.pdfStateByChat[chatId] ?? DEFAULT_PDF_STATE;
+      const current =
+        state.pdfStateByChat[chatId] ?? DEFAULT_PDF_STATE;
+
       return {
         pdfStateByChat: {
           ...state.pdfStateByChat,
-          [chatId]: { ...current, ...nextState },
+          [chatId]: {
+            ...current,
+            ...nextState,
+          },
         },
       };
     }),
@@ -117,15 +183,21 @@ export const useChatStore = create<ChatStoreState>((set) => ({
   clearPdfState: (chatId) =>
     set((state) => {
       const copy = { ...state.pdfStateByChat };
+
       delete copy[chatId];
-      return { pdfStateByChat: copy };
+
+      return {
+        pdfStateByChat: copy,
+      };
     }),
 
   removeChat: (chatId) =>
     set((state) => {
       const messages = { ...state.messagesByChat };
       const loadings = { ...state.loadingChatIds };
-      const streaming = { ...state.streamingStatusByChat };
+      const streaming = {
+        ...state.streamingStatusByChat,
+      };
       const pdfs = { ...state.pdfStateByChat };
 
       delete messages[chatId];
@@ -139,7 +211,9 @@ export const useChatStore = create<ChatStoreState>((set) => ({
         streamingStatusByChat: streaming,
         pdfStateByChat: pdfs,
         activeChatId:
-          state.activeChatId === chatId ? null : state.activeChatId,
+          state.activeChatId === chatId
+            ? null
+            : state.activeChatId,
       };
     }),
 

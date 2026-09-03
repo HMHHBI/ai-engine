@@ -10,6 +10,13 @@ export type AIModel =
 
 export type ChatTask = "general" | string;
 
+export interface RetrievedSource {
+  id: number;
+  page_number: number | null;
+  chunk_index: number | null;
+  distance: number;
+}
+
 export interface User {
   id: number;
   email: string;
@@ -36,6 +43,7 @@ export interface ChatMessage {
   text?: string;
   image_data?: string | null;
   created_at?: string;
+  sources?: RetrievedSource[];
 }
 
 export interface ChatDetailsResponse {

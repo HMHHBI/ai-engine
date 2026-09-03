@@ -3,15 +3,20 @@
 import { AlertCircle, RefreshCw } from "lucide-react";
 import { useState } from "react";
 
-import { useChatStore } from "@/features/chat/store/chat-store";
-import { MessageList } from "@/features/chat/components/message-list";
-import { ChatComposer } from "@/features/chat/components/chat-composer";
-import { MessageSkeleton } from "@/features/chat/components/message-skeleton";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { chatActions } from "@/features/chat/actions/chat-actions";
-import type { ChatMessage } from "@/types/api";
+import { ChatComposer } from "@/features/chat/components/chat-composer";
+import { MessageList } from "@/features/chat/components/message-list";
+import { MessageSkeleton } from "@/features/chat/components/message-skeleton";
+import { ModelSelector } from "@/features/chat/components/model-selector";
+import { useChatStore } from "@/features/chat/store/chat-store";
+import type { AIModel, AIProvider, ChatMessage } from "@/types/api";
 
 const EMPTY_MESSAGES: ChatMessage[] = [];
+
+const DEFAULT_MODEL: AIModel = "llama3.2";
+
+const DEFAULT_PROVIDER: AIProvider = "ollama";
 
 export function ChatArea() {
   const activeChatId = useChatStore((state) => state.activeChatId);
@@ -19,7 +24,7 @@ export function ChatArea() {
   const messages = useChatStore((state) =>
     activeChatId === null
       ? EMPTY_MESSAGES
-      : state.messagesByChat[activeChatId] ?? EMPTY_MESSAGES,
+      : (state.messagesByChat[activeChatId] ?? EMPTY_MESSAGES),
   );
 
   const isChatLoading = useChatStore((state) =>
@@ -29,28 +34,44 @@ export function ChatArea() {
   const streamingStatus = useChatStore((state) =>
     activeChatId === null
       ? "idle"
-      : state.streamingStatusByChat[activeChatId] ?? "idle",
+      : (state.streamingStatusByChat[activeChatId] ?? "idle"),
   );
+
+  const [model, setModel] = useState<AIModel>(DEFAULT_MODEL);
+
+  const [provider, setProvider] = useState<AIProvider>(DEFAULT_PROVIDER);
 
   const [retrying, setRetrying] = useState(false);
 
+  function handleModelChange(nextModel: AIModel, nextProvider: AIProvider) {
+    setModel(nextModel);
+    setProvider(nextProvider);
+  }
+
   async function handleRetryLastMessage() {
-    if (activeChatId === null || retrying) return;
+    if (activeChatId === null || retrying) {
+      return;
+    }
 
     const lastUserMessage = [...messages]
       .reverse()
-      .find((msg) => msg.role === "user");
+      .find((message) => message.role === "user");
 
-    if (!lastUserMessage) return;
+    if (!lastUserMessage) {
+      return;
+    }
 
     setRetrying(true);
+
     try {
       await chatActions.sendMessage({
         chatId: activeChatId,
         prompt: lastUserMessage.content,
+        model,
+        provider,
       });
     } catch {
-      // Handled in stream service
+      // Handled in chatActions.
     } finally {
       setRetrying(false);
     }
@@ -81,6 +102,7 @@ export function ChatArea() {
         >
           <div className="flex items-center gap-2">
             <AlertCircle className="size-4 shrink-0" />
+
             <span>Response incomplete due to an error.</span>
           </div>
 
@@ -93,12 +115,24 @@ export function ChatArea() {
             <RefreshCw
               className={retrying ? "size-3 animate-spin" : "size-3"}
             />
+
             <span>{retrying ? "Retrying..." : "Retry"}</span>
           </button>
         </div>
       )}
 
-      <ChatComposer chatId={activeChatId} />
+      <div className="border-t border-border bg-background">
+        <div className="mx-auto flex w-full max-w-3xl items-center justify-end px-2.5 pb-2 sm:px-4">
+          <ModelSelector
+            model={model}
+            provider={provider}
+            onChange={handleModelChange}
+            disabled={streamingStatus === "streaming"}
+          />
+        </div>
+      </div>
+
+      <ChatComposer chatId={activeChatId} model={model} provider={provider} />
     </div>
   );
 }
