@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from typing import Any
 
@@ -27,7 +28,10 @@ from app.services.providers.errors import (
     AIProviderTimeout,
     AIProviderUnavailable,
 )
-from app.services.providers.factory import LLMProviderFactory
+from app.services.providers.factory import (
+    LLMProviderFactory,
+    MODEL_REGISTRY,
+)
 from app.utils.file_validation import (
     read_upload_with_limit,
     sanitize_filename,
@@ -102,7 +106,10 @@ def _parse_embedding_provider(
         valid = ", ".join(provider.value for provider in EmbeddingProvider)
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported embedding provider '{value}'. Supported providers: {valid}.",
+            detail=(
+                f"Unsupported embedding provider '{value}'. "
+                f"Supported providers: {valid}."
+            ),
         ) from exc
 
 
@@ -110,31 +117,72 @@ def _resolve_ai_configuration(
     *,
     chat_provider: str | None,
     chat_model: str | None,
+    requested_provider: str | None,
     requested_model: str | None,
 ) -> tuple[AIProvider, AIModel]:
-    raw_model = requested_model or chat_model or settings.DEFAULT_AI_MODEL.value
-    model = _parse_ai_model(raw_model)
+    """
+    Resolve the effective AI provider/model.
 
-    if requested_model:
-        provider = None
-        for candidate_provider in AIProvider:
-            supported = LLMProviderFactory.get_supported_models(candidate_provider)
-            if model in supported:
-                provider = candidate_provider
-                break
+    Precedence:
+      1. Explicit request model + optional provider
+      2. Chat provider + model
+      3. Application defaults
 
-        if provider is None:
+    If the request supplies only a model, its provider is inferred
+    from the canonical MODEL_REGISTRY.
+    """
+    if requested_model is not None:
+        model = _parse_ai_model(requested_model)
+
+        if requested_provider is not None:
+            provider = _parse_ai_provider(requested_provider)
+        else:
+            definition = MODEL_REGISTRY.get(model)
+
+            if definition is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unsupported AI model '{model.value}'.",
+                )
+
+            provider = definition.provider
+
+        try:
+            return LLMProviderFactory.validate_configuration(
+                provider=provider,
+                model=model,
+            )
+        except ValueError as exc:
             raise HTTPException(
                 status_code=400,
-                detail=f"No provider is registered for model '{model.value}'.",
+                detail=str(exc),
+            ) from exc
+
+    if requested_provider is not None:
+        provider = _parse_ai_provider(requested_provider)
+        model = _parse_ai_model(chat_model or settings.DEFAULT_AI_MODEL.value)
+
+        try:
+            return LLMProviderFactory.validate_configuration(
+                provider=provider,
+                model=model,
             )
-    elif chat_provider:
-        provider = _parse_ai_provider(chat_provider)
-    else:
-        provider = settings.DEFAULT_AI_PROVIDER
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=str(exc),
+            ) from exc
+
+    model = _parse_ai_model(chat_model or settings.DEFAULT_AI_MODEL.value)
+
+    provider = (
+        _parse_ai_provider(chat_provider)
+        if chat_provider
+        else settings.DEFAULT_AI_PROVIDER
+    )
 
     try:
-        provider, model = LLMProviderFactory.validate_configuration(
+        return LLMProviderFactory.validate_configuration(
             provider=provider,
             model=model,
         )
@@ -144,7 +192,9 @@ def _resolve_ai_configuration(
             detail=str(exc),
         ) from exc
 
-    return provider, model
+
+def _sse_event(event: str, data: Any) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, separators=(',', ':'))}\n\n"
 
 
 # ============================================================
@@ -245,7 +295,9 @@ def get_chat_history(
         raise
     except Exception:
         logger.exception(
-            "Failed to get chat history chat_id=%s user_id=%s", chat_id, current_user.id
+            "Failed to get chat history chat_id=%s user_id=%s",
+            chat_id,
+            current_user.id,
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -284,7 +336,9 @@ def delete_chat(
         raise
     except Exception:
         logger.exception(
-            "Failed to delete chat chat_id=%s user_id=%s", chat_id, current_user.id
+            "Failed to delete chat chat_id=%s user_id=%s",
+            chat_id,
+            current_user.id,
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -326,7 +380,9 @@ def update_chat_title(
         raise
     except Exception:
         logger.exception(
-            "Failed to update title chat_id=%s user_id=%s", chat_id, current_user.id
+            "Failed to update title chat_id=%s user_id=%s",
+            chat_id,
+            current_user.id,
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -370,7 +426,9 @@ def get_chat_details(
         raise
     except Exception:
         logger.exception(
-            "Failed to get chat details chat_id=%s user_id=%s", chat_id, current_user.id
+            "Failed to get chat details chat_id=%s user_id=%s",
+            chat_id,
+            current_user.id,
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -413,6 +471,7 @@ async def ai_stream(
     ai_provider, ai_model = _resolve_ai_configuration(
         chat_provider=chat.ai_provider,
         chat_model=chat.ai_model,
+        requested_provider=req.provider,
         requested_model=req.model,
     )
 
@@ -483,6 +542,7 @@ async def ai_stream(
 
     if context_chunks:
         context_parts: list[str] = []
+
         for chunk in context_chunks:
             source_block = (
                 "[Source]\n"
@@ -495,6 +555,7 @@ async def ai_stream(
             context_parts.append(source_block)
 
         context_str = "\n\n---\n\n".join(context_parts)
+
         system_prompt = (
             "You are Hassan AI Engine, an intelligent "
             "document-grounded assistant.\n\n"
@@ -539,10 +600,49 @@ async def ai_stream(
             detail=str(exc),
         ) from exc
 
+    # --------------------------------------------------------
+    # Structured SSE stream
+    # --------------------------------------------------------
+
     async def event_generator():
         full_text = ""
-        stream_succeeded = False
 
+        # 1. Config event
+        yield _sse_event(
+            "stream_started",
+            {
+                "provider": ai_provider.value,
+                "model": ai_model.value,
+            },
+        )
+
+        # 2. Structured RAG provenance
+        sources = [
+            {
+                "id": int(chunk["id"]),
+                "page_number": (
+                    int(chunk["page_number"])
+                    if chunk["page_number"] is not None
+                    else None
+                ),
+                "chunk_index": (
+                    int(chunk["chunk_index"])
+                    if chunk["chunk_index"] is not None
+                    else None
+                ),
+                "distance": float(chunk["distance"]),
+            }
+            for chunk in context_chunks
+        ]
+
+        yield _sse_event(
+            "sources",
+            {
+                "sources": sources,
+            },
+        )
+
+        # 3. Generate stream
         try:
             async for token in provider.generate_stream(
                 prompt=clean_prompt,
@@ -560,15 +660,25 @@ async def ai_stream(
                     continue
 
                 full_text += token
-                yield token
 
-            stream_succeeded = True
+                yield _sse_event(
+                    "chunk",
+                    {
+                        "text": token,
+                    },
+                )
 
         except asyncio.CancelledError:
             logger.info(
                 "AI stream cancelled chat_id=%s user_id=%s",
                 req.chat_id,
                 current_user.id,
+            )
+            yield _sse_event(
+                "stream_cancelled",
+                {
+                    "message": "AI stream cancelled.",
+                },
             )
             raise
 
@@ -578,7 +688,14 @@ async def ai_stream(
                 req.chat_id,
                 current_user.id,
             )
-            yield "\n[The AI provider timed out. Please try again.]"
+            yield _sse_event(
+                "stream_error",
+                {
+                    "code": "provider_timeout",
+                    "message": "The AI provider timed out. Please try again.",
+                },
+            )
+            return
 
         except AIProviderUnavailable:
             logger.warning(
@@ -586,7 +703,14 @@ async def ai_stream(
                 req.chat_id,
                 current_user.id,
             )
-            yield "\n[The AI provider is temporarily unavailable. Please try again.]"
+            yield _sse_event(
+                "stream_error",
+                {
+                    "code": "provider_unavailable",
+                    "message": "The AI provider is temporarily unavailable. Please try again.",
+                },
+            )
+            return
 
         except AIProviderError:
             logger.exception(
@@ -594,7 +718,14 @@ async def ai_stream(
                 req.chat_id,
                 current_user.id,
             )
-            yield "\n[Unable to complete the AI request.]"
+            yield _sse_event(
+                "stream_error",
+                {
+                    "code": "provider_error",
+                    "message": "Unable to complete the AI request.",
+                },
+            )
+            return
 
         except Exception:
             logger.exception(
@@ -602,38 +733,74 @@ async def ai_stream(
                 req.chat_id,
                 current_user.id,
             )
-            yield "\n[Unable to complete the request right now.]"
+            yield _sse_event(
+                "stream_error",
+                {
+                    "code": "stream_error",
+                    "message": "Unable to complete the request right now.",
+                },
+            )
+            return
 
-        finally:
-            if stream_succeeded and full_text.strip():
-                try:
-                    persisted_message = await asyncio.to_thread(
-                        ChatRepository.add_message,
-                        chat_id=req.chat_id,
-                        user_id=current_user.id,
-                        role="ai",
-                        content=full_text,
-                    )
-                    if persisted_message is None:
-                        logger.error(
-                            "AI response persistence rejected chat_id=%s user_id=%s",
-                            req.chat_id,
-                            current_user.id,
-                        )
-                        yield "\n[Response generated but could not be saved. Please retry.]"
-                except asyncio.CancelledError:
-                    raise
-                except Exception:
-                    logger.exception(
-                        "Failed to persist completed AI response chat_id=%s user_id=%s",
+        # 4. Persistence
+        if full_text.strip():
+            try:
+                persisted_message = await asyncio.to_thread(
+                    ChatRepository.add_message,
+                    chat_id=req.chat_id,
+                    user_id=current_user.id,
+                    role="ai",
+                    content=full_text,
+                )
+
+                if persisted_message is None:
+                    logger.error(
+                        "AI response persistence rejected chat_id=%s user_id=%s",
                         req.chat_id,
                         current_user.id,
                     )
-                    yield "\n[Response generated but could not be saved. Please retry.]"
+                    yield _sse_event(
+                        "stream_error",
+                        {
+                            "code": "persistence_error",
+                            "message": "Response generated but could not be saved. Please retry.",
+                        },
+                    )
+                    return
+
+            except asyncio.CancelledError:
+                raise
+
+            except Exception:
+                logger.exception(
+                    "Failed to persist completed AI response chat_id=%s user_id=%s",
+                    req.chat_id,
+                    current_user.id,
+                )
+                yield _sse_event(
+                    "stream_error",
+                    {
+                        "code": "persistence_error",
+                        "message": "Response generated but could not be saved. Please retry.",
+                    },
+                )
+                return
+
+        # 5. Terminal event
+        yield _sse_event(
+            "stream_completed",
+            {
+                "message_id": (
+                    persisted_message.id
+                    if full_text.strip() and persisted_message is not None
+                    else None
+                ),
+            },
+        )
 
     return StreamingResponse(
         event_generator(),
-        media_type="text/plain",
+        media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
@@ -678,6 +845,7 @@ async def upload_pdf(
 
         if extension == ".pdf":
             validate_pdf_signature(content)
+
             try:
                 pages = await run_in_threadpool(
                     extract_text_from_pdf,
@@ -707,6 +875,7 @@ async def upload_pdf(
                     status_code=400,
                     detail="File is empty or contains no readable text.",
                 )
+
             pages = [PDFPage(page_number=1, text=text)]
 
         chunks = await run_in_threadpool(
@@ -768,9 +937,12 @@ async def upload_pdf(
                 chat_id,
                 current_user.id,
             )
+
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="Document embedding failed. Existing document was not changed.",
+                detail=(
+                    "Document embedding failed. " "Existing document was not changed."
+                ),
             )
 
         db_objs = await asyncio.to_thread(
@@ -797,12 +969,14 @@ async def upload_pdf(
 
     except HTTPException:
         raise
+
     except Exception:
         logger.exception(
             "Unexpected error in upload_pdf chat_id=%s user_id=%s",
             chat_id,
             current_user.id,
         )
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Server error during document ingestion.",
@@ -838,14 +1012,17 @@ def cleanup_chat_messages(
         return {
             "message": "Messages cleaned up successfully.",
         }
+
     except HTTPException:
         raise
+
     except Exception:
         logger.exception(
             "Failed to cleanup messages chat_id=%s user_id=%s",
             chat_id,
             current_user.id,
         )
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to cleanup messages.",

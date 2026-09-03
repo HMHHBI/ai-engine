@@ -1,4 +1,5 @@
 from typing import List, Optional
+
 from pydantic import BaseModel
 
 
@@ -8,9 +9,11 @@ class AIRequest(BaseModel):
     prompt: str
     task: str = "general"
     model: Optional[str] = None
+    provider: Optional[str] = None
     file_context: Optional[str] = None
     image_base64: Optional[List[str]] = None  # List of Base64 strings or URLs
     image_mime: Optional[List[str]] = None  # Mapped mime types per image
+
 
 # Message Out Schema (For Chat History / Streaming Output)
 class MessageOut(BaseModel):

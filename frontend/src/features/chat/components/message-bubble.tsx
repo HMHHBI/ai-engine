@@ -2,6 +2,7 @@
 
 import { Bot, User } from "lucide-react";
 
+import { CitationSources } from "@/features/chat/components/citation-sources";
 import { CopyButton } from "@/features/chat/components/copy-button";
 import type { ChatMessage } from "@/types/api";
 import { cn } from "@/lib/utils";
@@ -29,7 +30,7 @@ export function MessageBubble({
             "text-xs text-muted-foreground sm:text-sm",
           )}
         >
-          <div className="min-w-0 break-words whitespace-pre-wrap">
+          <div className="min-w-0 break-word whitespace-pre-wrap">
             {content}
           </div>
         </div>
@@ -64,13 +65,14 @@ export function MessageBubble({
       >
         <div
           className={cn(
-            "rounded-2xl px-4 py-2.5 text-xs leading-5 sm:px-4 sm:py-3 sm:text-sm sm:leading-6 shadow-sm",
+            "rounded-2xl px-4 py-2.5 text-xs leading-5 shadow-sm",
+            "sm:px-4 sm:py-3 sm:text-sm sm:leading-6",
             isUser
-              ? "bg-zinc-100 text-zinc-950 font-medium"
+              ? "bg-zinc-100 font-medium text-zinc-950"
               : "border border-zinc-800 bg-zinc-900 text-zinc-100",
           )}
         >
-          <div className="min-w-0 break-words whitespace-pre-wrap">
+          <div className="min-w-0 break-word whitespace-pre-wrap">
             {content}
             {!isUser && isStreaming && (
               <span
@@ -80,6 +82,10 @@ export function MessageBubble({
             )}
           </div>
         </div>
+
+        {!isUser && !isStreaming && message.sources?.length ? (
+          <CitationSources sources={message.sources} />
+        ) : null}
 
         {content && (
           <CopyButton

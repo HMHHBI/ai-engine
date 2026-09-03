@@ -23,14 +23,17 @@ import {
   validatePdf,
 } from "@/features/chat/utils/attachment-utils";
 import { cn } from "@/lib/utils";
+import type { AIModel, AIProvider } from "@/types/api";
 
 interface ChatComposerProps {
   chatId: number | null;
+  model: AIModel;
+  provider: AIProvider;
 }
 
 const TEXTAREA_MAX_HEIGHT = 220;
 
-export function ChatComposer({ chatId }: ChatComposerProps) {
+export function ChatComposer({ chatId, model, provider }: ChatComposerProps) {
   const [prompt, setPrompt] = useState("");
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [pdf, setPdf] = useState<PdfAttachment | null>(null);
@@ -45,7 +48,6 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
     imagesRef.current = images;
   }, [images]);
 
-  // Clean up object URLs on chat change or component unmount
   useEffect(() => {
     return () => {
       for (const image of imagesRef.current) {
@@ -59,6 +61,7 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
   );
 
   const isStreaming = status === "streaming";
+
   const isUploadingOrProcessing =
     pdf?.status === "uploading" || pdf?.status === "processing";
 
@@ -80,6 +83,7 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
     const nextHeight = Math.min(textarea.scrollHeight, TEXTAREA_MAX_HEIGHT);
 
     textarea.style.height = `${nextHeight}px`;
+
     textarea.style.overflowY =
       textarea.scrollHeight > TEXTAREA_MAX_HEIGHT ? "auto" : "hidden";
   }, [prompt]);
@@ -94,6 +98,7 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
     clearAttachmentError();
 
     const files = Array.from(event.target.files ?? []);
+
     event.target.value = "";
 
     if (files.length === 0) {
@@ -108,6 +113,7 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
     }
 
     const selectedFiles = files.slice(0, remainingSlots);
+
     if (files.length > remainingSlots) {
       setAttachmentError(
         "Maximum of 4 images allowed. Additional images were ignored.",
@@ -145,7 +151,9 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
   }
 
   async function performPdfUpload(file: File) {
-    if (chatId === null) return;
+    if (chatId === null) {
+      return;
+    }
 
     setPdf({
       file,
@@ -154,7 +162,14 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
     });
 
     try {
-      setPdf((curr) => (curr ? { ...curr, status: "processing" } : null));
+      setPdf((current) =>
+        current
+          ? {
+              ...current,
+              status: "processing",
+            }
+          : null,
+      );
 
       const result = await chatActions.uploadPdf(chatId, file);
 
@@ -180,6 +195,7 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
     clearAttachmentError();
 
     const file = event.target.files?.[0];
+
     event.target.value = "";
 
     if (!file || chatId === null) {
@@ -197,7 +213,10 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
   }
 
   function handleRetryPdf() {
-    if (!pdf?.file) return;
+    if (!pdf?.file) {
+      return;
+    }
+
     void performPdfUpload(pdf.file);
   }
 
@@ -217,6 +236,7 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
     if (chatId !== null) {
       useChatStore.getState().clearPdfState(chatId);
     }
+
     setPdf(null);
   }
 
@@ -236,6 +256,7 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
     const value = prompt.trim();
 
     const imageBase64 = images.map((image) => image.base64);
+
     const imageMime = images.map((image) => image.mimeType);
 
     setPrompt("");
@@ -244,13 +265,15 @@ export function ChatComposer({ chatId }: ChatComposerProps) {
       await chatActions.sendMessage({
         chatId,
         prompt: value,
+        model,
+        provider,
         imageBase64: imageBase64.length > 0 ? imageBase64 : undefined,
         imageMime: imageMime.length > 0 ? imageMime : undefined,
       });
 
       clearImages();
     } catch {
-      // Handled in chatActions
+      // Handled in chatActions.
     }
   }
 
