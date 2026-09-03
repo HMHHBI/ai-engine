@@ -69,8 +69,12 @@ export const useAuthStore = create<AuthState>()(
         if (state?.token && typeof window !== "undefined") {
           localStorage.setItem("token", state.token);
         }
-
-        state?.setHydrated(true);
+        // Defer to avoid synchronous render-phase update loop
+        if (typeof window !== "undefined") {
+          queueMicrotask(() => {
+            state?.setHydrated(true);
+          });
+        }
       },
     },
   ),

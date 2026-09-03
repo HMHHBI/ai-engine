@@ -1,6 +1,6 @@
-"use client";
+﻿"use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 import { useAuthStore } from "@/features/auth";
@@ -15,9 +15,14 @@ export function AuthGuard({ children }: AuthGuardProps) {
 
   const token = useAuthStore((state) => state.token);
   const isHydrated = useAuthStore((state) => state.isHydrated);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    if (!isHydrated) {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted || !isHydrated) {
       return;
     }
 
@@ -25,12 +30,12 @@ export function AuthGuard({ children }: AuthGuardProps) {
       const next = encodeURIComponent(pathname);
       router.replace(`/login?next=${next}`);
     }
-  }, [isHydrated, token, pathname, router]);
+  }, [mounted, isHydrated, token, pathname, router]);
 
-  if (!isHydrated || !token) {
+  if (!mounted || !isHydrated || !token) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-background">
-        <div className="text-sm text-muted-foreground">Loading…</div>
+        <div className="text-sm text-muted-foreground">Loading...</div>
       </div>
     );
   }

@@ -1,13 +1,16 @@
-FROM node:20-alpine
+FROM node:20-slim
 WORKDIR /app
-ENV NODE_ENV=production
-ENV PORT=3000
 
 COPY package*.json ./
-RUN npm ci
+# Build ke liye devDependencies zaroori hain
+RUN npm install
 
 COPY . .
 RUN npm run build
+
+# Runtime par sirf production packages rakhein
+ENV NODE_ENV=production
+RUN npm prune --production
 
 EXPOSE 3000
 CMD ["npm", "start"]

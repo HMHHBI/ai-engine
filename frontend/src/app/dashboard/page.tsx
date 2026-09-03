@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect } from "react";
 
@@ -8,8 +8,9 @@ import { useChatStore } from "@/features/chat/store/chat-store";
 
 function DashboardContent() {
   useEffect(() => {
-    // Root dashboard canvas par koi active conversation na ho
-    useChatStore.getState().setActiveChat(null);
+    if (useChatStore.getState().activeChatId !== null) {
+      useChatStore.getState().setActiveChat(null);
+    }
   }, []);
 
   return <AppShell />;

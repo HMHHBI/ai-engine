@@ -1,8 +1,8 @@
-import { chatApi } from "@/lib/api/chat";
+﻿import { chatApi } from "@/lib/api/chat";
 import { chatRequestController } from "@/features/chat/stream/chat-request-controller";
 import { useChatStore } from "@/features/chat/store/chat-store";
 import { useChatSessionStore } from "@/features/chat/store/chat-session-store";
-import type { ChatSession } from "@/types/api";
+import type { ChatMessage, ChatSession } from "@/types/api";
 
 class ChatSessionActions {
   private hydrationGeneration = 0;
@@ -131,13 +131,19 @@ class ChatSessionActions {
     useChatStore.getState().setChatLoading(chatId, true);
 
     try {
-      const messages = await chatApi.get(chatId);
+      const rawMessages = await chatApi.get(chatId);
 
       if (requestGeneration !== this.hydrationGeneration) {
         return false;
       }
 
-      useChatStore.getState().setMessages(chatId, messages);
+      // Normalize 'text' from backend to 'content'
+      const normalizedMessages: ChatMessage[] = (rawMessages || []).map((msg) => ({
+        ...msg,
+        content: msg.content ?? msg.text ?? "",
+      }));
+
+      useChatStore.getState().setMessages(chatId, normalizedMessages);
       useChatStore.getState().setActiveChat(chatId);
 
       return true;

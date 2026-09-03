@@ -1,4 +1,4 @@
-export type Role = "user" | "ai" | "system";
+﻿export type Role = "user" | "ai" | "system";
 
 export type AIProvider = "gemini" | "ollama" | "openai";
 
@@ -33,6 +33,8 @@ export interface ChatMessage {
   chat_id?: number;
   role: Role;
   content: string;
+  text?: string;
+  image_data?: string | null;
   created_at?: string;
 }
 

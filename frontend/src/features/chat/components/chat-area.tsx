@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { AlertCircle, RefreshCw } from "lucide-react";
 import { useState } from "react";
@@ -9,12 +9,17 @@ import { ChatComposer } from "@/features/chat/components/chat-composer";
 import { MessageSkeleton } from "@/features/chat/components/message-skeleton";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { chatActions } from "@/features/chat/actions/chat-actions";
+import type { ChatMessage } from "@/types/api";
+
+const EMPTY_MESSAGES: ChatMessage[] = [];
 
 export function ChatArea() {
   const activeChatId = useChatStore((state) => state.activeChatId);
 
   const messages = useChatStore((state) =>
-    activeChatId === null ? [] : (state.messagesByChat[activeChatId] ?? []),
+    activeChatId === null
+      ? EMPTY_MESSAGES
+      : state.messagesByChat[activeChatId] ?? EMPTY_MESSAGES,
   );
 
   const isChatLoading = useChatStore((state) =>
@@ -24,7 +29,7 @@ export function ChatArea() {
   const streamingStatus = useChatStore((state) =>
     activeChatId === null
       ? "idle"
-      : (state.streamingStatusByChat[activeChatId] ?? "idle"),
+      : state.streamingStatusByChat[activeChatId] ?? "idle",
   );
 
   const [retrying, setRetrying] = useState(false);
@@ -32,7 +37,6 @@ export function ChatArea() {
   async function handleRetryLastMessage() {
     if (activeChatId === null || retrying) return;
 
-    // Find the last user prompt from messages
     const lastUserMessage = [...messages]
       .reverse()
       .find((msg) => msg.role === "user");
@@ -46,7 +50,7 @@ export function ChatArea() {
         prompt: lastUserMessage.content,
       });
     } catch {
-      // Stream service will handle error state
+      // Handled in stream service
     } finally {
       setRetrying(false);
     }
@@ -54,7 +58,6 @@ export function ChatArea() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
-      {/* Messages area */}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {isChatLoading ? (
           <div className="flex-1 overflow-y-auto p-4 sm:p-6">
@@ -70,7 +73,6 @@ export function ChatArea() {
         )}
       </div>
 
-      {/* Recoverable stream error strip */}
       {streamingStatus === "error" && (
         <div
           role="status"
@@ -96,7 +98,6 @@ export function ChatArea() {
         </div>
       )}
 
-      {/* Composer */}
       <ChatComposer chatId={activeChatId} />
     </div>
   );
