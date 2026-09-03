@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
 import time
 from io import BytesIO
 from unittest.mock import MagicMock, patch
-import pytest
 
+import pytest
 from app.core.security import create_access_token
 from app.repositories.chat_repo import ChatRepository
 from app.repositories.user_repo import UserRepository
@@ -28,6 +29,33 @@ def user_and_chat(db_session):
 def auth_headers(user):
     token = create_access_token(user.id)
     return {"Authorization": f"Bearer {token}"}
+
+
+def parse_sse_events(response_text: str) -> list[tuple[str, dict]]:
+    events: list[tuple[str, dict]] = []
+
+    for raw_event in response_text.split("\n\n"):
+        raw_event = raw_event.strip()
+
+        if not raw_event:
+            continue
+
+        event_name = None
+        data_lines: list[str] = []
+
+        for line in raw_event.splitlines():
+            if line.startswith("event:"):
+                event_name = line[len("event:") :].strip()
+            elif line.startswith("data:"):
+                data_lines.append(line[len("data:") :].strip())
+
+        if event_name is None:
+            continue
+
+        data = json.loads("\n".join(data_lines))
+        events.append((event_name, data))
+
+    return events
 
 
 def test_create_chat_db_failure_returns_safe_500(client, user_and_chat):
@@ -72,12 +100,26 @@ def test_stream_provider_failure_yields_safe_message(client, user_and_chat):
             json={"chat_id": chat.id, "prompt": "Explain RAG"},
             headers=auth_headers(user),
         )
-        assert response.status_code == 200
-        content = response.text
-        assert "Initial tokens" in content
-        assert (
-            "[The AI provider is temporarily unavailable. Please try again.]" in content
-        )
+
+    assert response.status_code == 200
+
+    events = parse_sse_events(response.text)
+    event_names = [event_name for event_name, _ in events]
+
+    assert event_names[0] == "stream_started"
+    assert "sources" in event_names
+    assert "chunk" in event_names
+    assert event_names[-1] == "stream_error"
+
+    chunk_events = [data for event_name, data in events if event_name == "chunk"]
+    assert "".join(event["text"] for event in chunk_events) == "Initial tokens "
+
+    error_events = [data for event_name, data in events if event_name == "stream_error"]
+    assert len(error_events) == 1
+    assert error_events[0] == {
+        "code": "provider_unavailable",
+        "message": "The AI provider is temporarily unavailable. Please try again.",
+    }
 
 
 def test_failed_stream_is_not_persisted(client, user_and_chat):
