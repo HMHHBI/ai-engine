@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import NullPool
 
 from app.core.rate_limiter import limiter
+from app.db import session as db_session_module
 from app.db.models import Base
 from app.db.session import get_db
 
@@ -18,7 +19,18 @@ try:
 except ImportError:
     from app.main import app
 
-TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", os.getenv("DATABASE_URL"))
+# Target dedicated test database: hassan_ai_test
+raw_db_url = os.getenv(
+    "DATABASE_URL", "postgresql://postgres:postgres@chat_postgres:5432/hassan_ai_db"
+)
+default_test_url = raw_db_url.replace("/hassan_ai_db", "/hassan_ai_test")
+TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", default_test_url)
+
+if "/hassan_ai_db" in TEST_DATABASE_URL and not os.getenv("ALLOW_DEV_DB_TESTS"):
+    raise RuntimeError(
+        "CRITICAL: Tests attempted to run against primary development database (hassan_ai_db)! "
+        "Tests must run against hassan_ai_test to prevent data loss."
+    )
 
 test_engine = create_engine(
     TEST_DATABASE_URL,
@@ -35,6 +47,10 @@ TestingSessionLocal = sessionmaker(
     autoflush=False,
     expire_on_commit=False,
 )
+
+# Crucial: Redirect application's internal session maker to test engine
+db_session_module.engine = test_engine
+db_session_module.SessionLocal = TestingSessionLocal
 
 
 @pytest.fixture(scope="session", autouse=True)

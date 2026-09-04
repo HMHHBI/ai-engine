@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     Text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 
 from app.db.session import Base
@@ -229,6 +230,11 @@ class Message(Base):
     content = Column(
         Text,
         nullable=False,
+    )
+
+    sources = Column(
+        JSONB,
+        nullable=True,
     )
 
     created_at = Column(
