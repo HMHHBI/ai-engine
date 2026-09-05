@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Generator
+from contextlib import contextmanager
 
 import pytest
 from fastapi.testclient import TestClient
@@ -19,17 +20,17 @@ try:
 except ImportError:
     from app.main import app
 
-# Target dedicated test database: hassan_ai_test
-raw_db_url = os.getenv(
-    "DATABASE_URL", "postgresql://postgres:postgres@chat_postgres:5432/hassan_ai_db"
-)
-default_test_url = raw_db_url.replace("/hassan_ai_db", "/hassan_ai_test")
-TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", default_test_url)
-
-if "/hassan_ai_db" in TEST_DATABASE_URL and not os.getenv("ALLOW_DEV_DB_TESTS"):
+# 1. Directly read isolated test database URL from environment
+TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
+if not TEST_DATABASE_URL:
     raise RuntimeError(
-        "CRITICAL: Tests attempted to run against primary development database (hassan_ai_db)! "
-        "Tests must run against hassan_ai_test to prevent data loss."
+        "CRITICAL: TEST_DATABASE_URL is not set in environment! "
+        "Define TEST_DATABASE_URL in .env or docker-compose to prevent tests from hitting dev DB."
+    )
+
+if "/hassan_ai_db" in TEST_DATABASE_URL:
+    raise RuntimeError(
+        "CRITICAL: TEST_DATABASE_URL cannot point to primary development database (hassan_ai_db)!"
     )
 
 test_engine = create_engine(
@@ -48,9 +49,25 @@ TestingSessionLocal = sessionmaker(
     expire_on_commit=False,
 )
 
-# Crucial: Redirect application's internal session maker to test engine
+# 2. Redirect app internals to test engine
 db_session_module.engine = test_engine
 db_session_module.SessionLocal = TestingSessionLocal
+
+
+@contextmanager
+def _test_session_scope() -> Generator[Session, None, None]:
+    session = TestingSessionLocal()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+db_session_module.session_scope = _test_session_scope
 
 
 @pytest.fixture(scope="session", autouse=True)

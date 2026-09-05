@@ -34,6 +34,7 @@ services:
       - ./backend/.env
     environment:
       - DATABASE_URL=postgresql://postgres:mysecretpassword@db:5432/hassan_ai_db
+      - TEST_DATABASE_URL=postgresql://postgres:mysecretpassword@chat_postgres:5432/hassan_ai_test
       - REDIS_URL=redis://redis:6379
       - FRONTEND_URL=http://localhost:3000   # 👈 Explicit backup override
       - OLLAMA_BASE_URL=http://host.docker.internal:11434 # 👈 YEH ADD KAREIN
