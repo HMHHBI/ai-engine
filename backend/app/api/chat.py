@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 import time
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
@@ -22,7 +22,13 @@ from app.core.rate_limiter import limiter
 from app.db.models import User
 from app.repositories.chat_repo import ChatRepository
 from app.repositories.vector_repo import VectorRepository
-from app.schemas.chat_schema import AIRequest, ChatOut
+from app.schemas.chat_schema import (
+    AIRequest,
+    ChatCreate,
+    ChatDetailsOut,
+    ChatOut,
+    ChatPersonaUpdate,
+)
 from app.services.chat_service import ChatApplicationService
 from app.services.embedding_service import EmbeddingService
 from app.services.providers.errors import (
@@ -52,7 +58,7 @@ router = APIRouter(
 
 
 # ============================================================
-# Helpers
+# Helpers & Persona Prompts
 # ============================================================
 
 MODEL_ALIASES: dict[str, AIModel] = {
@@ -61,6 +67,81 @@ MODEL_ALIASES: dict[str, AIModel] = {
     "openai-gpt-4o-mini": AIModel.OPENAI_GPT_4O_MINI,
     "gemini-2.5-flash": AIModel.GEMINI_2_5_FLASH,
 }
+
+PERSONA_PROMPTS: dict[str, str] = {
+    "default": (
+        "Adopt a direct, balanced, and professional tone. Provide structured and clear answers."
+    ),
+    "academic": (
+        "Adopt the persona of a rigorous Academic Researcher. "
+        "Use precise analytical terminology, emphasize logical deduction, maintain objective tone, "
+        "and structure your reasoning with scholarly clarity."
+    ),
+    "developer": (
+        "Adopt the persona of an expert Senior Software Engineer. "
+        "Be concise, prioritize idiomatic code and architectural best practices, highlight edge cases, "
+        "and avoid fluff."
+    ),
+    "legal": (
+        "Adopt the persona of a meticulous Legal Analyst. "
+        "Pay strict attention to exact wording, definitions, conditions, obligations, and exceptions. "
+        "Differentiate clearly between explicit statements and potential interpretations."
+    ),
+    "simple": (
+        "Adopt the persona of a clear and friendly Explainer. "
+        "Explain complex ideas using simple, plain English, relatable analogies, and concise sentences."
+    ),
+}
+
+
+def _build_system_prompt(
+    persona: str,
+    custom_instructions: Optional[str],
+    context_str: Optional[str],
+) -> str:
+    parts: list[str] = [
+        "You are Hassan AI Engine, an intelligent, document-grounded assistant."
+    ]
+
+    persona_key = persona.strip().lower() if persona else "default"
+    persona_rule = PERSONA_PROMPTS.get(persona_key, PERSONA_PROMPTS["default"])
+    parts.append(f"ROLE & TONE GUIDELINES:\n{persona_rule}")
+
+    if custom_instructions and custom_instructions.strip():
+        parts.append(
+            f"USER CUSTOM INSTRUCTIONS:\n"
+            f"Adhere strictly to the following user instructions:\n{custom_instructions.strip()}"
+        )
+
+    if context_str:
+        parts.append(
+            "RULES:\n"
+            "1. Answer document questions strictly from the retrieved context.\n"
+            "2. Do not invent, speculate, or extrapolate facts beyond what is written.\n"
+            "3. Do not use general knowledge to fill gaps in the document.\n"
+            "4. Preserve the exact distinction between headings, goals, practices, examples, activities, explanations, and tests.\n"
+            "5. Do not combine separate statements merely because they occur in the same process area.\n"
+            "6. Treat temporal words such as before, after, during, then, and next as strict constraints.\n"
+            "7. Do not infer a temporal relationship unless the retrieved context explicitly supports it.\n"
+            "8. If the user asks for an explicit list, use the list supported by the document rather than constructing a new list from nearby statements.\n"
+            "9. If the retrieved context is insufficient, state that the relevant information was not retrieved instead of guessing.\n"
+            "10. When useful, mention the document page supporting the answer.\n"
+            "11. Never mention internal phrases like 'retrieved context', 'chunk', 'vector distance', or 'database' in your response.\n"
+            "12. Adopt a natural, professional tone. If citing a page, cite it naturally (e.g. 'According to page 1...').\n\n"
+            "RETRIEVED DOCUMENT CONTEXT:\n\n"
+            f"{context_str}"
+        )
+    else:
+        parts.append(
+            "The user is asking about an uploaded document, "
+            "but no sufficiently relevant document context was retrieved for this question.\n\n"
+            "Do not answer using general knowledge.\n"
+            "Do not guess.\n"
+            "Do not invent information from the document.\n"
+            "Tell the user that the relevant information was not retrieved from the uploaded document."
+        )
+
+    return "\n\n---\n\n".join(parts)
 
 
 def _parse_ai_provider(value: str | AIProvider) -> AIProvider:
@@ -193,19 +274,25 @@ def _sse_event(event: str, data: Any) -> str:
 # ============================================================
 
 
-@router.post("/new")
+@router.post("/new", response_model=ChatOut)
 @limiter.limit("10/minute")
 def create_chat(
     request: Request,
+    payload: Optional[ChatCreate] = None,
     current_user: User = Depends(get_current_user),
 ):
     try:
+        title = payload.title if payload and payload.title else "New Chat"
+        persona = payload.persona if payload else "default"
+        custom_instructions = payload.custom_instructions if payload else None
+
         chat = ChatRepository.create_chat(
             user_id=current_user.id,
+            title=title,
+            persona=persona,
+            custom_instructions=custom_instructions,
         )
-        return {
-            "chat_id": chat.id,
-        }
+        return chat
     except HTTPException:
         raise
     except Exception:
@@ -299,7 +386,49 @@ def get_chat_history(
 
 
 # ============================================================
-# 4. Delete Chat
+# 4. Update Chat Persona / Custom Instructions
+# ============================================================
+
+
+@router.patch("/{chat_id}/persona", response_model=ChatOut)
+@limiter.limit("20/minute")
+def update_chat_persona(
+    request: Request,
+    chat_id: int,
+    payload: ChatPersonaUpdate,
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        updated_chat = ChatRepository.update_persona_and_instructions(
+            chat_id=chat_id,
+            user_id=current_user.id,
+            persona=payload.persona,
+            custom_instructions=payload.custom_instructions,
+        )
+
+        if updated_chat is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Chat not found.",
+            )
+
+        return updated_chat
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception(
+            "Failed to update persona chat_id=%s user_id=%s",
+            chat_id,
+            current_user.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to update persona settings.",
+        )
+
+
+# ============================================================
+# 5. Delete Chat
 # ============================================================
 
 
@@ -340,7 +469,7 @@ def delete_chat(
 
 
 # ============================================================
-# 5. Update Chat Title
+# 6. Update Chat Title
 # ============================================================
 
 
@@ -384,11 +513,11 @@ def update_chat_title(
 
 
 # ============================================================
-# 6. Get Chat Details
+# 7. Get Chat Details
 # ============================================================
 
 
-@router.get("/details/{chat_id}")
+@router.get("/details/{chat_id}", response_model=ChatDetailsOut)
 @limiter.limit("30/minute")
 def get_chat_details(
     request: Request,
@@ -407,14 +536,7 @@ def get_chat_details(
                 detail="Chat not found.",
             )
 
-        return {
-            "id": chat.id,
-            "title": chat.title,
-            "pdf_context": chat.pdf_context,
-            "ai_provider": chat.ai_provider,
-            "ai_model": chat.ai_model,
-            "embedding_provider": chat.embedding_provider,
-        }
+        return chat
     except HTTPException:
         raise
     except Exception:
@@ -430,7 +552,7 @@ def get_chat_details(
 
 
 # ============================================================
-# 7. AI Streaming + RAG
+# 8. AI Streaming + RAG + Persona Prompt Layering
 # ============================================================
 
 
@@ -580,54 +702,26 @@ async def ai_stream(
                 },
             )
 
+    context_str = None
     if context_chunks:
         context_parts: list[str] = []
-
         for chunk in context_chunks:
             page_info = (
                 f" (Page {chunk['page_number']})"
                 if chunk.get("page_number") is not None
                 else ""
             )
-            source_block = f"[Document Passage{page_info}]\n" f"{chunk['content']}"
+            source_block = f"[Document Passage{page_info}]\n{chunk['content']}"
             context_parts.append(source_block)
 
         context_str = "\n\n---\n\n".join(context_parts)
 
-        system_prompt = (
-            "You are Hassan AI Engine, an intelligent "
-            "document-grounded assistant.\n\n"
-            "The user is asking a question about an uploaded "
-            "document. The retrieved context below is the "
-            "authoritative source for document-specific claims.\n\n"
-            "RULES:\n"
-            "1. Answer document questions strictly from the retrieved context.\n"
-            "2. Do not invent, speculate, or extrapolate facts beyond what is written.\n"
-            "3. Do not use general knowledge to fill gaps in the document.\n"
-            "4. Preserve the exact distinction between headings, goals, practices, examples, activities, explanations, and tests.\n"
-            "5. Do not combine separate statements merely because they occur in the same process area.\n"
-            "6. Treat temporal words such as before, after, during, then, and next as strict constraints.\n"
-            "7. Do not infer a temporal relationship unless the retrieved context explicitly supports it.\n"
-            "8. If the user asks for an explicit list, use the list supported by the document rather than constructing a new list from nearby statements.\n"
-            "9. If the retrieved context is insufficient, state that the relevant information was not retrieved instead of guessing.\n"
-            "10. When useful, mention the document page supporting the answer.\n"
-            "11. Never mention internal phrases like 'retrieved context', 'chunk', 'vector distance', or 'database' in your response.\n"
-            "12. Adopt a natural, professional tone. If citing a page, cite it naturally (e.g. 'According to page 1...').\n\n"
-            "RETRIEVED DOCUMENT CONTEXT:\n\n"
-            f"{context_str}"
-        )
-    else:
-        system_prompt = (
-            "You are Hassan AI Engine, a document-grounded assistant.\n\n"
-            "The user is asking about an uploaded document, "
-            "but no sufficiently relevant document context "
-            "was retrieved for this question.\n\n"
-            "Do not answer using general knowledge.\n"
-            "Do not guess.\n"
-            "Do not invent information from the document.\n"
-            "Tell the user that the relevant information was "
-            "not retrieved from the uploaded document."
-        )
+    # Dynamic Layered System Prompt
+    system_prompt = _build_system_prompt(
+        persona=getattr(chat, "persona", "default"),
+        custom_instructions=getattr(chat, "custom_instructions", None),
+        context_str=context_str if (chat.pdf_context and context_chunks) else None,
+    )
 
     try:
         provider = LLMProviderFactory.get_provider(
@@ -647,6 +741,7 @@ async def ai_stream(
             "chat_id": req.chat_id,
             "provider": ai_provider.value,
             "model": ai_model.value,
+            "persona": getattr(chat, "persona", "default"),
         },
     )
 
@@ -1006,7 +1101,7 @@ async def ai_stream(
 
 
 # ============================================================
-# 8. Hardened Document Upload & Ingestion
+# 9. Hardened Document Upload & Ingestion
 # ============================================================
 
 
@@ -1178,7 +1273,7 @@ async def upload_pdf(
 
 
 # ============================================================
-# 9. Cleanup Chat Messages
+# 10. Cleanup Chat Messages
 # ============================================================
 
 

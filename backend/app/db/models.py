@@ -175,6 +175,18 @@ class Chat(Base):
         nullable=True,
     )
 
+    persona = Column(
+        String(50),
+        nullable=False,
+        default="default",
+        server_default="default",
+    )
+
+    custom_instructions = Column(
+        Text,
+        nullable=True,
+    )
+
     owner = relationship(
         "User",
         back_populates="chats",
