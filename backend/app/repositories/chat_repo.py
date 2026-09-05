@@ -98,14 +98,27 @@ class ChatRepository:
     def create_chat(
         user_id: int,
         title: str = "New Chat",
+        persona: str = "default",
+        custom_instructions: Optional[str] = None,
     ) -> Chat:
+        normalized_persona = (
+            persona.strip().lower() if persona else "default"
+        ) or "default"
+        normalized_instructions = (
+            custom_instructions.strip()
+            if custom_instructions and custom_instructions.strip()
+            else None
+        )
+
         with session_scope() as db:
             new_chat = Chat(
                 user_id=user_id,
                 title=title,
+                persona=normalized_persona,
+                custom_instructions=normalized_instructions,
                 ai_provider=settings.DEFAULT_AI_PROVIDER.value,
                 ai_model=settings.DEFAULT_AI_MODEL.value,
-                embedding_provider=(settings.DEFAULT_EMBEDDING_PROVIDER.value),
+                embedding_provider=settings.DEFAULT_EMBEDDING_PROVIDER.value,
             )
 
             db.add(new_chat)
@@ -138,6 +151,40 @@ class ChatRepository:
             chat.title = title
             db.flush()
 
+            return chat
+
+    @staticmethod
+    def update_persona_and_instructions(
+        chat_id: int,
+        user_id: int,
+        persona: Optional[str] = None,
+        custom_instructions: Optional[str] = None,
+    ) -> Optional[Chat]:
+        """
+        Update chat persona and/or custom instructions with chat ownership verification.
+        """
+        with session_scope() as db:
+            chat = db.execute(
+                select(Chat).where(
+                    Chat.id == chat_id,
+                    Chat.user_id == user_id,
+                )
+            ).scalar_one_or_none()
+
+            if chat is None:
+                return None
+
+            if persona is not None:
+                norm_persona = persona.strip().lower()
+                chat.persona = norm_persona if norm_persona else "default"
+
+            if custom_instructions is not None:
+                norm_instructions = custom_instructions.strip()
+                chat.custom_instructions = (
+                    norm_instructions if norm_instructions else None
+                )
+
+            db.flush()
             return chat
 
     @staticmethod
