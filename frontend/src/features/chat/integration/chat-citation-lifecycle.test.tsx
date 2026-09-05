@@ -740,4 +740,53 @@ describe("Phase 3.2 — End-to-End Citation Lifecycle", () => {
       }),
     ).toBeNull();
   });
+
+  it("restores persisted citations when a chat is hydrated from backend", async () => {
+    seedChat(CHAT_A, {
+      hasPdf: true,
+    });
+
+    mockedChatApi.get.mockResolvedValue([
+      {
+        id: 1,
+        chat_id: CHAT_A,
+        role: "user",
+        content: "What does the document say?",
+      },
+      {
+        id: 2,
+        chat_id: CHAT_A,
+        role: "ai",
+        content: "Here is the information from page 4.",
+        sources: [SOURCE_A1],
+      },
+    ]);
+
+    const loaded = await chatSessionActions.loadChat(CHAT_A);
+    expect(loaded).toBe(true);
+
+    const hydratedAssistant = getLastMessage(CHAT_A);
+    expect(hydratedAssistant?.content).toBe(
+      "Here is the information from page 4.",
+    );
+    expect(hydratedAssistant?.sources).toEqual([SOURCE_A1]);
+
+    renderLastAiMessage(CHAT_A);
+
+    expect(
+      screen.getByRole("button", {
+        name: /1 source/i,
+      }),
+    ).toBeDefined();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /1 source/i,
+      }),
+    );
+
+    expect(screen.getByText("Page 4")).toBeDefined();
+    expect(screen.getByText("Chunk 12")).toBeDefined();
+    expect(screen.getByText("Relevance 92%")).toBeDefined();
+  });
 });

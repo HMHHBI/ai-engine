@@ -10,6 +10,17 @@ export interface UploadPdfResponse {
   chunks_count: number;
 }
 
+function normalizeChatMessage(message: ChatMessage): ChatMessage {
+  return {
+    ...message,
+    content: message.content ?? message.text ?? "",
+    sources:
+      Array.isArray(message.sources) && message.sources.length > 0
+        ? message.sources
+        : undefined,
+  };
+}
+
 export const chatApi = {
   getAll(): Promise<ChatSession[]> {
     return apiClient.get<ChatSession[]>("/chat/all");
@@ -20,7 +31,7 @@ export const chatApi = {
   },
 
   get(chatId: number): Promise<ChatMessage[]> {
-    return apiClient.get<ChatMessage[]>(`/chat/${chatId}`);
+    return apiClient.get<ChatMessage[]>(`/chat/${chatId}`).then((messages) => messages.map(normalizeChatMessage));
   },
 
   updateTitle(chatId: number, title: string): Promise<void> {
