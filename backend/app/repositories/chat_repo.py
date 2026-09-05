@@ -1,13 +1,61 @@
 from __future__ import annotations
 
 import json
-from typing import Optional
+from typing import Any, Optional, TypedDict
 
 from sqlalchemy import delete, select
 
 from app.core.config import settings
 from app.db.models import AILog, Chat, Message
 from app.db.session import session_scope
+
+
+class RetrievedSource(TypedDict):
+    id: int
+    page_number: int | None
+    chunk_index: int | None
+    distance: float
+
+
+def _normalize_sources(raw_sources: Any) -> Optional[list[dict[str, Any]]]:
+    """Validate and normalize source citation metadata before persistence."""
+    if not raw_sources:
+        return None
+
+    if not isinstance(raw_sources, list):
+        return None
+
+    normalized: list[dict[str, Any]] = []
+    for item in raw_sources:
+        if not isinstance(item, dict):
+            continue
+        try:
+            source_id = int(item["id"])
+            page_num = (
+                int(item["page_number"])
+                if item.get("page_number") is not None
+                else None
+            )
+            chunk_idx = (
+                int(item["chunk_index"])
+                if item.get("chunk_index") is not None
+                else None
+            )
+            distance = (
+                float(item["distance"]) if item.get("distance") is not None else 0.0
+            )
+            normalized.append(
+                {
+                    "id": source_id,
+                    "page_number": page_num,
+                    "chunk_index": chunk_idx,
+                    "distance": round(distance, 6),
+                }
+            )
+        except (KeyError, TypeError, ValueError):
+            continue
+
+    return normalized if normalized else None
 
 
 class ChatRepository:
@@ -185,9 +233,6 @@ class ChatRepository:
             if chat is None:
                 return None
 
-            # Only the first successful concurrent turn initializes
-            # the default title. A later concurrent request cannot
-            # overwrite an already initialized title.
             if title is not None and chat.title == "New Chat":
                 chat.title = title
 
@@ -210,9 +255,11 @@ class ChatRepository:
         role: str,
         content: str,
         image_data_list: Optional[list[str] | str] = None,
+        sources: Optional[list[dict]] = None,
     ) -> Optional[Message]:
         """
         Insert a message only when the authenticated user owns the chat.
+        Optionally persists structured RAG source citations (JSONB).
         """
         normalized_role = role.strip().lower()
 
@@ -254,6 +301,8 @@ class ChatRepository:
                 normalized_images,
             )
 
+        db_sources = _normalize_sources(sources)
+
         with session_scope() as db:
             chat_exists = db.execute(
                 select(Chat.id).where(
@@ -270,6 +319,7 @@ class ChatRepository:
                 role=normalized_role,
                 content=content,
                 image_data=db_image_data,
+                sources=db_sources,
             )
 
             db.add(new_message)

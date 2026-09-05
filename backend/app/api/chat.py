@@ -276,9 +276,11 @@ def get_chat_history(
 
         return [
             {
+                "id": message.id,
                 "role": message.role,
                 "text": message.content,
                 "image_data": message.image_data,
+                "sources": message.sources,
             }
             for message in messages
         ]
@@ -582,14 +584,12 @@ async def ai_stream(
         context_parts: list[str] = []
 
         for chunk in context_chunks:
-            source_block = (
-                "[Source]\n"
-                f"Page: {chunk['page_number']}\n"
-                f"Chunk Index: {chunk['chunk_index']}\n"
-                f"Vector Distance: {chunk['distance']:.6f}\n"
-                "Content:\n"
-                f"{chunk['content']}"
+            page_info = (
+                f" (Page {chunk['page_number']})"
+                if chunk.get("page_number") is not None
+                else ""
             )
+            source_block = f"[Document Passage{page_info}]\n" f"{chunk['content']}"
             context_parts.append(source_block)
 
         context_str = "\n\n---\n\n".join(context_parts)
@@ -602,7 +602,7 @@ async def ai_stream(
             "authoritative source for document-specific claims.\n\n"
             "RULES:\n"
             "1. Answer document questions strictly from the retrieved context.\n"
-            "2. Do not invent facts that are not supported by the retrieved context.\n"
+            "2. Do not invent, speculate, or extrapolate facts beyond what is written.\n"
             "3. Do not use general knowledge to fill gaps in the document.\n"
             "4. Preserve the exact distinction between headings, goals, practices, examples, activities, explanations, and tests.\n"
             "5. Do not combine separate statements merely because they occur in the same process area.\n"
@@ -610,7 +610,9 @@ async def ai_stream(
             "7. Do not infer a temporal relationship unless the retrieved context explicitly supports it.\n"
             "8. If the user asks for an explicit list, use the list supported by the document rather than constructing a new list from nearby statements.\n"
             "9. If the retrieved context is insufficient, state that the relevant information was not retrieved instead of guessing.\n"
-            "10. When useful, mention the document page supporting the answer.\n\n"
+            "10. When useful, mention the document page supporting the answer.\n"
+            "11. Never mention internal phrases like 'retrieved context', 'chunk', 'vector distance', or 'database' in your response.\n"
+            "12. Adopt a natural, professional tone. If citing a page, cite it naturally (e.g. 'According to page 1...').\n\n"
             "RETRIEVED DOCUMENT CONTEXT:\n\n"
             f"{context_str}"
         )
@@ -881,7 +883,7 @@ async def ai_stream(
             )
             return
 
-        # 4. Persistence
+        # 4. Persistence (Only upon successful generation)
         persisted_message = None
         if full_text.strip():
             try:
@@ -891,6 +893,7 @@ async def ai_stream(
                     user_id=current_user.id,
                     role="ai",
                     content=full_text,
+                    sources=sources if context_chunks else None,
                 )
 
                 if persisted_message is None:
