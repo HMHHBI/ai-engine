@@ -108,3 +108,40 @@ export interface ChatDetailsResponse {
   persona: ChatPersona;
   custom_instructions: string | null;
 }
+
+export type DocumentStatus = "processing" | "ready" | "failed";
+
+export interface Document {
+  id: number;
+  user_id: number;
+  chat_id: number;
+  filename: string;
+  mime_type: string;
+  file_size: number | null;
+  page_count: number | null;
+  storage_url: string | null;
+  status: DocumentStatus;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DocumentSummary {
+  id: number;
+  chat_id: number;
+  filename: string;
+  mime_type: string;
+  file_size: number | null;
+  page_count: number | null;
+  status: DocumentStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DocumentMetadataUpdate {
+  filename?: string;
+  mime_type?: string;
+  file_size?: number | null;
+  page_count?: number | null;
+  storage_url?: string | null;
+}
