@@ -6,7 +6,8 @@ WORKDIR /app
 
 # Environment Variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
-  PYTHONUNBUFFERED=1
+  PYTHONUNBUFFERED=1 \
+  PYTHONPATH=/app
 
 # Upgrade pip for fast parallel binary wheels support
 RUN pip install --no-cache-dir --upgrade pip

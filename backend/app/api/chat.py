@@ -21,6 +21,7 @@ from app.core.error_codes import ErrorCode, SAFE_CLIENT_MESSAGES
 from app.core.rate_limiter import limiter
 from app.db.models import User
 from app.repositories.chat_repo import ChatRepository
+from app.repositories.document_repo import DocumentRepository
 from app.repositories.vector_repo import VectorRepository
 from app.schemas.chat_schema import (
     AIRequest,
@@ -1113,6 +1114,7 @@ async def upload_pdf(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
 ):
+    document = None
     try:
         chat = await asyncio.to_thread(
             ChatRepository.get_by_id,
@@ -1234,12 +1236,39 @@ async def upload_pdf(
                 ),
             )
 
+        # 1. Create processing document entity
+        document = await asyncio.to_thread(
+            DocumentRepository.create,
+            user_id=current_user.id,
+            chat_id=chat.id,
+            filename=safe_filename,
+            mime_type=file.content_type or "application/pdf",
+            file_size=len(content),
+            page_count=len(pages),
+            storage_url=None,
+        )
+
+        if not document:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Chat session missing or unauthorized.",
+            )
+
+        # 2. Persist chunks using document_id
         db_objs = await asyncio.to_thread(
             VectorRepository.replace_document_chunks,
             user_id=current_user.id,
-            chat_id=chat_id,
+            document_id=document.id,
             chunks_with_embeddings=chunks_with_embeddings,
             pdf_context=f"Indexed File: {safe_filename}",
+        )
+
+        # 3. Mark document ready
+        await asyncio.to_thread(
+            DocumentRepository.update_status,
+            document_id=document.id,
+            user_id=current_user.id,
+            status="ready",
         )
 
         return {
@@ -1254,12 +1283,37 @@ async def upload_pdf(
                 f"Indexed {len(chunks_with_embeddings)} "
                 f"of {len(chunks)} chunks into pgvector."
             ),
+            "document": {
+                "id": document.id,
+                "chat_id": document.chat_id,
+                "filename": document.filename,
+                "mime_type": document.mime_type,
+                "file_size": document.file_size,
+                "page_count": document.page_count,
+                "status": "ready",
+            },
         }
 
     except HTTPException:
+        if document:
+            await asyncio.to_thread(
+                DocumentRepository.update_status,
+                document_id=document.id,
+                user_id=current_user.id,
+                status="failed",
+                error_message="Document ingestion failed.",
+            )
         raise
 
     except Exception:
+        if document:
+            await asyncio.to_thread(
+                DocumentRepository.update_status,
+                document_id=document.id,
+                user_id=current_user.id,
+                status="failed",
+                error_message="Server error during document ingestion.",
+            )
         logger.exception(
             "Unexpected error in upload_pdf chat_id=%s user_id=%s",
             chat_id,

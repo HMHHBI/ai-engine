@@ -78,7 +78,7 @@ class VectorRepository:
         user_id: int,
         document_id: int,
         chunks_with_embeddings: Sequence[tuple[Any, list[float]]],
-        pdf_context: str,
+        pdf_context: str | None = None,
     ) -> list[dict[str, Any]]:
         """
         Atomically replace all chunks belonging to one document.
@@ -165,7 +165,18 @@ class VectorRepository:
             if chat is None:
                 raise LookupError("Chat not found.")
 
-            chat.pdf_context = pdf_context
+            if pdf_context is not None:
+                chat = db.execute(
+                    select(Chat).where(
+                        Chat.id == chat_id,
+                        Chat.user_id == user_id,
+                    )
+                ).scalar_one_or_none()
+
+                if chat is None:
+                    raise LookupError("Chat not found.")
+
+                chat.pdf_context = pdf_context
 
             db.flush()
 
