@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Column,
     DateTime,
@@ -128,6 +129,13 @@ class User(Base):
         passive_deletes=True,
     )
 
+    documents = relationship(
+        "Document",
+        back_populates="owner",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
 
 class Chat(Base):
     __tablename__ = "chats"
@@ -199,8 +207,8 @@ class Chat(Base):
         passive_deletes=True,
     )
 
-    chunks = relationship(
-        "DocumentChunk",
+    documents = relationship(
+        "Document",
         back_populates="chat",
         cascade="all, delete-orphan",
         passive_deletes=True,
@@ -210,6 +218,112 @@ class Chat(Base):
         Index(
             "ix_chats_user_id_id",
             "user_id",
+            "id",
+        ),
+    )
+
+
+class Document(Base):
+    __tablename__ = "documents"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True,
+    )
+
+    user_id = Column(
+        Integer,
+        ForeignKey(
+            "users.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+
+    chat_id = Column(
+        Integer,
+        ForeignKey(
+            "chats.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+
+    filename = Column(
+        String(255),
+        nullable=False,
+    )
+
+    mime_type = Column(
+        String(100),
+        nullable=False,
+    )
+
+    file_size = Column(
+        BigInteger,
+        nullable=True,
+    )
+
+    page_count = Column(
+        Integer,
+        nullable=True,
+    )
+
+    storage_url = Column(
+        Text,
+        nullable=True,
+    )
+
+    status = Column(
+        String(20),
+        nullable=False,
+        default="processing",
+        server_default="processing",
+    )
+
+    error_message = Column(
+        Text,
+        nullable=True,
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default="now()",
+    )
+
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default="now()",
+    )
+
+    owner = relationship(
+        "User",
+        back_populates="documents",
+    )
+
+    chat = relationship(
+        "Chat",
+        back_populates="documents",
+    )
+
+    chunks = relationship(
+        "DocumentChunk",
+        back_populates="document",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_documents_chat_id_id",
+            "chat_id",
             "id",
         ),
     )
@@ -336,6 +450,16 @@ class DocumentChunk(Base):
         index=True,
     )
 
+    document_id = Column(
+        Integer,
+        ForeignKey(
+            "documents.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+
     content = Column(
         Text,
         nullable=False,
@@ -366,6 +490,10 @@ class DocumentChunk(Base):
 
     chat = relationship(
         "Chat",
+    )
+
+    document = relationship(
+        "Document",
         back_populates="chunks",
     )
 
@@ -373,6 +501,11 @@ class DocumentChunk(Base):
         Index(
             "ix_document_chunks_chat_id_id",
             "chat_id",
+            "id",
+        ),
+        Index(
+            "ix_document_chunks_document_id_id",
+            "document_id",
             "id",
         ),
     )
