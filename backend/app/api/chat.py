@@ -667,15 +667,33 @@ async def ai_stream(
             )
 
             try:
-                context_chunks = await asyncio.to_thread(
-                    VectorRepository.search_similar_chunks,
-                    user_id=current_user.id,
+                active_document = await asyncio.to_thread(
+                    DocumentRepository.get_active_for_chat,
                     chat_id=req.chat_id,
-                    query_vector=query_vector,
-                    top_k=6,
-                    max_distance=0.70,
-                    adaptive_margin=0.15,
+                    user_id=current_user.id,
                 )
+
+                has_legacy_context = bool(getattr(chat, "pdf_context", None))
+                context_chunks = []
+
+                if active_document is not None or has_legacy_context:
+                    doc_id = active_document.id if active_document is not None else req.chat_id
+
+                    query_vector = await EmbeddingService.generate_embedding(
+                        req.prompt,
+                        model_provider=embedding_provider.value,
+                    )
+
+                    if query_vector:
+                        context_chunks = await asyncio.to_thread(
+                            VectorRepository.search_similar_chunks,
+                            user_id=current_user.id,
+                            document_id=doc_id,
+                            query_vector=query_vector,
+                            top_k=6,
+                            max_distance=0.70,
+                            adaptive_margin=0.15,
+                        )
             except Exception:
                 logger.exception(
                     "rag_retrieval_failed",

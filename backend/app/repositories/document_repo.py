@@ -401,3 +401,44 @@ class DocumentRepository:
             db.delete(document)
 
             return True
+
+    @staticmethod
+    def get_active_for_chat(
+        chat_id: int,
+        user_id: int,
+    ) -> Optional[Document]:
+        """
+        Retrieve the latest ready document for a chat owned by the user.
+
+        Requires dual ownership:
+            Chat.id == chat_id AND Chat.user_id == user_id
+            Document.chat_id == chat_id AND Document.user_id == user_id
+            Document.status == 'ready'
+
+        Ordered deterministically by created_at DESC, id DESC.
+        """
+        DocumentRepository._validate_ids(
+            user_id=user_id,
+            chat_id=chat_id,
+        )
+
+        with session_scope() as db:
+            return db.execute(
+                select(Document)
+                .join(
+                    Chat,
+                    Chat.id == Document.chat_id,
+                )
+                .where(
+                    Document.chat_id == chat_id,
+                    Document.user_id == user_id,
+                    Chat.id == chat_id,
+                    Chat.user_id == user_id,
+                    Document.status == "ready",
+                )
+                .order_by(
+                    Document.created_at.desc(),
+                    Document.id.desc(),
+                )
+                .limit(1)
+            ).scalar_one_or_none()
