@@ -1,5 +1,10 @@
 import { apiClient } from "@/lib/api/client";
-import type { ChatMessage, ChatSession } from "@/types/api";
+import type {
+  ChatDetailsResponse,
+  ChatMessage,
+  ChatPersonaUpdate,
+  ChatSession,
+} from "@/types/api";
 
 export interface CreateChatResponse {
   chat_id: number;
@@ -8,6 +13,17 @@ export interface CreateChatResponse {
 export interface UploadPdfResponse {
   filename: string;
   chunks_count: number;
+}
+
+function normalizeChatMessage(message: ChatMessage): ChatMessage {
+  return {
+    ...message,
+    content: message.content ?? message.text ?? "",
+    sources:
+      Array.isArray(message.sources) && message.sources.length > 0
+        ? message.sources
+        : undefined,
+  };
 }
 
 export const chatApi = {
@@ -20,7 +36,20 @@ export const chatApi = {
   },
 
   get(chatId: number): Promise<ChatMessage[]> {
-    return apiClient.get<ChatMessage[]>(`/chat/${chatId}`);
+    return apiClient
+      .get<ChatMessage[]>(`/chat/${chatId}`)
+      .then((messages) => (messages || []).map(normalizeChatMessage));
+  },
+
+  getDetails(chatId: number): Promise<ChatDetailsResponse> {
+    return apiClient.get<ChatDetailsResponse>(`/chat/details/${chatId}`);
+  },
+
+  updatePersona(
+    chatId: number,
+    payload: ChatPersonaUpdate,
+  ): Promise<ChatSession> {
+    return apiClient.patch<ChatSession>(`/chat/${chatId}/persona`, payload);
   },
 
   updateTitle(chatId: number, title: string): Promise<void> {

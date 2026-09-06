@@ -2,7 +2,7 @@
 import { chatRequestController } from "@/features/chat/stream/chat-request-controller";
 import { useChatStore } from "@/features/chat/store/chat-store";
 import { useChatSessionStore } from "@/features/chat/store/chat-session-store";
-import type { ChatMessage, ChatSession } from "@/types/api";
+import type { ChatMessage, ChatPersona, ChatSession } from "@/types/api";
 
 class ChatSessionActions {
   private hydrationGeneration = 0;
@@ -100,6 +100,28 @@ class ChatSessionActions {
     } finally {
       useChatSessionStore.getState().setChatMutating(chatId, false);
     }
+  }
+
+  async updatePersona(
+    chatId: number,
+    persona: ChatPersona,
+    customInstructions: string,
+  ): Promise<ChatSession> {
+    const normalizedInstructions = customInstructions.trim();
+
+    const updatedChat = await chatApi.updatePersona(chatId, {
+      persona,
+      custom_instructions:
+        normalizedInstructions.length > 0 ? normalizedInstructions : null,
+    });
+
+    useChatSessionStore.getState().updateSession(chatId, {
+      persona: updatedChat.persona,
+      custom_instructions: updatedChat.custom_instructions,
+      updated_at: new Date().toISOString(),
+    });
+
+    return updatedChat;
   }
 
   async deleteChat(chatId: number): Promise<boolean> {

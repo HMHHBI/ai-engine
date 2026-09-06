@@ -12,8 +12,11 @@ vi.mock("@/lib/api/chat", () => ({
     getAll: vi.fn(),
     create: vi.fn(),
     get: vi.fn(),
+    getDetails: vi.fn(),
+    updatePersona: vi.fn(),
     updateTitle: vi.fn(),
     delete: vi.fn(),
+    uploadPdf: vi.fn(),
   },
 }));
 
@@ -608,5 +611,72 @@ describe("chatSessionActions", () => {
     expect(wasActive).toBe(false);
     expect(useChatStore.getState().activeChatId).toBe(99);
     expect(useChatSessionStore.getState().sessions).toHaveLength(0);
+  });
+
+  it("updates persona and custom instructions via updatePersona", async () => {
+    const chatId = 101;
+    useChatSessionStore.getState().addSession({
+      id: chatId,
+      user_id: 1,
+      title: "Chat 101",
+      created_at: "2026-09-06T10:00:00.000Z",
+      updated_at: "2026-09-06T10:00:00.000Z",
+      has_pdf: false,
+    });
+
+    vi.spyOn(chatApi, "updatePersona").mockResolvedValueOnce({
+      id: chatId,
+      user_id: 1,
+      title: "Chat 101",
+      created_at: "2026-09-06T10:00:00.000Z",
+      updated_at: "2026-09-06T10:05:00.000Z",
+      has_pdf: false,
+      persona: "developer",
+      custom_instructions: "Keep answers concise.",
+    });
+
+    await chatSessionActions.updatePersona(chatId, "developer", "  Keep answers concise.  ");
+
+    expect(chatApi.updatePersona).toHaveBeenCalledWith(chatId, {
+      persona: "developer",
+      custom_instructions: "Keep answers concise.",
+    });
+
+    const session = useChatSessionStore
+      .getState()
+      .sessions.find((item) => item.id === chatId);
+
+    expect(session?.persona).toBe("developer");
+    expect(session?.custom_instructions).toBe("Keep answers concise.");
+  });
+
+  it("normalizes empty custom instructions to null", async () => {
+    const chatId = 102;
+    useChatSessionStore.getState().addSession({
+      id: chatId,
+      user_id: 1,
+      title: "Chat 102",
+      created_at: "2026-09-06T10:00:00.000Z",
+      updated_at: "2026-09-06T10:00:00.000Z",
+      has_pdf: false,
+    });
+
+    vi.spyOn(chatApi, "updatePersona").mockResolvedValueOnce({
+      id: chatId,
+      user_id: 1,
+      title: "Chat 102",
+      created_at: "2026-09-06T10:00:00.000Z",
+      updated_at: "2026-09-06T10:05:00.000Z",
+      has_pdf: false,
+      persona: "academic",
+      custom_instructions: null,
+    });
+
+    await chatSessionActions.updatePersona(chatId, "academic", "    ");
+
+    expect(chatApi.updatePersona).toHaveBeenCalledWith(chatId, {
+      persona: "academic",
+      custom_instructions: null,
+    });
   });
 });

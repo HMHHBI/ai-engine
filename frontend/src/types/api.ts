@@ -33,6 +33,8 @@ export interface ChatSession {
   created_at: string;
   updated_at: string;
   has_pdf?: boolean;
+  persona?: ChatPersona;
+  custom_instructions?: string | null;
 }
 
 export interface ChatMessage {
@@ -82,4 +84,27 @@ export interface AuthTokens {
 export interface GoogleAuthPayload {
   credential?: string;
   token?: string;
+}
+
+export type ChatPersona =
+  | "default"
+  | "academic"
+  | "developer"
+  | "legal"
+  | "simple";
+
+export interface ChatPersonaUpdate {
+  persona?: ChatPersona;
+  custom_instructions?: string | null;
+}
+
+export interface ChatDetailsResponse {
+  id: number;
+  title: string;
+  pdf_context: string | null;
+  ai_provider: string | null;
+  ai_model: string | null;
+  embedding_provider: string | null;
+  persona: ChatPersona;
+  custom_instructions: string | null;
 }
