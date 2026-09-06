@@ -39,3 +39,14 @@ export function normalizeDocumentSummary(raw: Record<string, unknown>): Document
     updated_at: String(raw.updated_at ?? new Date().toISOString()),
   };
 }
+
+export function formatFileSize(bytes: number | null | undefined): string | null {
+  if (bytes === null || bytes === undefined || isNaN(bytes) || bytes < 0) {
+    return null;
+  }
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  const mb = kb / 1024;
+  return `${mb.toFixed(1)} MB`;
+}

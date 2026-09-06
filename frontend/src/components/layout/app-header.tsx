@@ -1,13 +1,14 @@
 "use client";
 
-import { forwardRef, useState } from "react";
-import { Menu, PanelLeft, Settings } from "lucide-react";
+import { forwardRef, useRef, useState } from "react";
+import { FileText, Menu, PanelLeft, Settings } from "lucide-react";
 
 import { IconButton } from "@/components/ui/icon-button";
 import { RagStatusBadge } from "@/features/chat/components/rag-status-badge";
 import { ChatSettingsDrawer } from "@/features/chat/components/chat-settings-drawer";
 import { useChatStore } from "@/features/chat/store/chat-store";
 import { useChatSessionStore } from "@/features/chat/store/chat-session-store";
+import { DocumentWorkspace } from "@/features/documents/components/DocumentWorkspace";
 
 interface AppHeaderProps {
   onOpenMobileSidebar: () => void;
@@ -17,6 +18,9 @@ interface AppHeaderProps {
 export const AppHeader = forwardRef<HTMLButtonElement, AppHeaderProps>(
   function AppHeader({ onOpenMobileSidebar, onToggleSidebar }, ref) {
     const [settingsOpen, setSettingsOpen] = useState(false);
+    const [documentsOpen, setDocumentsOpen] = useState(false);
+    const docTriggerRef = useRef<HTMLButtonElement>(null);
+
     const activeChatId = useChatStore((state) => state.activeChatId);
 
     const activeSession = useChatSessionStore((state) =>
@@ -63,23 +67,44 @@ export const AppHeader = forwardRef<HTMLButtonElement, AppHeaderProps>(
             <RagStatusBadge chatId={activeChatId} />
 
             {activeChatId !== null && (
-              <IconButton
-                label="Chat settings"
-                onClick={() => setSettingsOpen(true)}
-                className="size-9"
-              >
-                <Settings className="size-4" />
-              </IconButton>
+              <>
+                <IconButton
+                  ref={docTriggerRef}
+                  label="Documents workspace"
+                  onClick={() => setDocumentsOpen(true)}
+                  className="size-9"
+                  data-testid="open-documents-button"
+                >
+                  <FileText className="size-4" />
+                </IconButton>
+
+                <IconButton
+                  label="Chat settings"
+                  onClick={() => setSettingsOpen(true)}
+                  className="size-9"
+                >
+                  <Settings className="size-4" />
+                </IconButton>
+              </>
             )}
           </div>
         </header>
 
         {activeChatId !== null && (
-          <ChatSettingsDrawer
-            chatId={activeChatId}
-            open={settingsOpen}
-            onClose={() => setSettingsOpen(false)}
-          />
+          <>
+            <ChatSettingsDrawer
+              chatId={activeChatId}
+              open={settingsOpen}
+              onClose={() => setSettingsOpen(false)}
+            />
+
+            <DocumentWorkspace
+              chatId={activeChatId}
+              isOpen={documentsOpen}
+              onClose={() => setDocumentsOpen(false)}
+              triggerRef={docTriggerRef}
+            />
+          </>
         )}
       </>
     );
