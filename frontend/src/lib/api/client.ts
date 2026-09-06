@@ -187,6 +187,23 @@ export const apiClient = {
     });
   },
 
+  patch<T>(
+    path: string,
+    body?: unknown,
+    options?: RequestOptions,
+  ): Promise<T> {
+    return request<T>(path, {
+      ...options,
+      method: "PATCH",
+      body:
+        body instanceof FormData
+          ? body
+          : body !== undefined
+            ? JSON.stringify(body)
+            : undefined,
+    });
+  },
+
   delete<T>(path: string, options?: RequestOptions): Promise<T> {
     return request<T>(path, {
       ...options,
