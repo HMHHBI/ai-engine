@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useMemo } from "react";
-import { X, Upload, FileText, AlertTriangle } from "lucide-react";
+import { X, FileText, AlertTriangle } from "lucide-react";
 import { useDocumentStore } from "../document-store";
 import { loadDocuments, selectDocument } from "../document-actions";
 import { DocumentList } from "./DocumentList";
 import { DocumentEmptyState } from "./DocumentEmptyState";
+import { DocumentUpload } from "./DocumentUpload";
 import type { Document } from "@/types/api";
 
 interface DocumentWorkspaceProps {
@@ -22,9 +23,7 @@ export function DocumentWorkspace({
   triggerRef,
 }: DocumentWorkspaceProps) {
   const drawerRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Stable direct references from store
   const documentsByChat = useDocumentStore((state) => state.documentsByChat);
   const selectedDocumentIdByChat = useDocumentStore(
     (state) => state.selectedDocumentIdByChat,
@@ -66,25 +65,6 @@ export function DocumentWorkspace({
   }, [isOpen, onClose, triggerRef]);
 
   if (!isOpen) return null;
-
-  const handleUploadTrigger = () => {
-    fileInputRef.current?.click();
-  };
-
-  const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (
-      file.type !== "application/pdf" &&
-      !file.name.toLowerCase().endsWith(".pdf")
-    ) {
-      alert("Only PDF documents are supported.");
-      e.target.value = "";
-      return;
-    }
-    e.target.value = "";
-  };
 
   return (
     <div
@@ -137,25 +117,12 @@ export function DocumentWorkspace({
           </button>
         </div>
 
+        {/* Upload Action Area */}
         <div className="p-4 border-b border-zinc-100 dark:border-zinc-900">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="application/pdf"
-            className="hidden"
-            onChange={handleFileSelected}
-            data-testid="document-upload-input"
-          />
-          <button
-            onClick={handleUploadTrigger}
-            className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 text-xs font-medium text-white bg-zinc-900 dark:bg-zinc-100 dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-zinc-200 rounded-lg shadow-sm transition-colors"
-            data-testid="upload-pdf-button"
-          >
-            <Upload className="w-3.5 h-3.5" />
-            Upload PDF
-          </button>
+          <DocumentUpload chatId={chatId} />
         </div>
 
+        {/* Content Area */}
         <div className="flex-1 overflow-y-auto p-4">
           {error && (
             <div
@@ -174,7 +141,7 @@ export function DocumentWorkspace({
               <div className="h-16 rounded-xl bg-zinc-100 dark:bg-zinc-900 animate-pulse" />
             </div>
           ) : documents.length === 0 ? (
-            <DocumentEmptyState onUploadClick={handleUploadTrigger} />
+            <DocumentEmptyState />
           ) : (
             <DocumentList
               documents={documents}

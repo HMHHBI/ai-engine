@@ -145,3 +145,15 @@ export interface DocumentMetadataUpdate {
   page_count?: number | null;
   storage_url?: string | null;
 }
+
+export interface PdfUploadResponse {
+  status: string;
+  filename: string;
+  pdf_context?: string;
+  chunks_total: number;
+  chunks_indexed: number;
+  chunks_failed: number;
+  embedding_provider: string;
+  message: string;
+  document?: DocumentSummary | Document;
+}
