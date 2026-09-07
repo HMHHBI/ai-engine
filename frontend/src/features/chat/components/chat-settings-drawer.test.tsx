@@ -72,13 +72,11 @@ describe("ChatSettingsDrawer", () => {
 
     render(<ChatSettingsDrawer chatId={42} open={true} onClose={onClose} />);
 
-    await waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: /save changes/i }),
-      ).toBeDefined();
+    const developerRadio = await screen.findByRole("radio", {
+      name: /developer/i,
     });
-
-    fireEvent.click(screen.getByRole("radio", { name: /developer/i }));
+    
+    fireEvent.click(developerRadio);
 
     const textarea = screen.getByPlaceholderText(/tell the assistant/i);
     fireEvent.change(textarea, { target: { value: "Code only" } });

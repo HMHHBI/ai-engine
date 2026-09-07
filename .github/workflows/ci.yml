@@ -66,6 +66,11 @@ jobs:
           CLOUDINARY_NAME: ci-placeholder
           CLOUDINARY_API_KEY: ci-placeholder
           CLOUDINARY_API_SECRET: ci-placeholder
+          MAIL_USERNAME: ci-placeholder@example.com
+          MAIL_PASSWORD: ci-placeholder-password
+          MAIL_FROM: ci-placeholder@example.com
+          MAIL_PORT: 587
+          MAIL_SERVER: smtp.example.com
         run: alembic upgrade head
 
       - name: Run backend tests
@@ -81,6 +86,11 @@ jobs:
           CLOUDINARY_NAME: ci-placeholder
           CLOUDINARY_API_KEY: ci-placeholder
           CLOUDINARY_API_SECRET: ci-placeholder
+          MAIL_USERNAME: ci-placeholder@example.com
+          MAIL_PASSWORD: ci-placeholder-password
+          MAIL_FROM: ci-placeholder@example.com
+          MAIL_PORT: 587
+          MAIL_SERVER: smtp.example.com
         run: pytest
 
   frontend:
