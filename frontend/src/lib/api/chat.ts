@@ -4,6 +4,7 @@ import type {
   ChatMessage,
   ChatPersonaUpdate,
   ChatSession,
+  RetrievedSource,
 } from "@/types/api";
 
 export interface CreateChatResponse {
@@ -15,14 +16,27 @@ export interface UploadPdfResponse {
   chunks_count: number;
 }
 
+function parseSources(sources: unknown): RetrievedSource[] | undefined {
+  if (!sources) return undefined;
+  if (Array.isArray(sources)) {
+    return sources.length > 0 ? (sources as RetrievedSource[]) : undefined;
+  }
+  if (typeof sources === "string") {
+    try {
+      const parsed = JSON.parse(sources);
+      return Array.isArray(parsed) && parsed.length > 0 ? (parsed as RetrievedSource[]) : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
 function normalizeChatMessage(message: ChatMessage): ChatMessage {
   return {
     ...message,
     content: message.content ?? message.text ?? "",
-    sources:
-      Array.isArray(message.sources) && message.sources.length > 0
-        ? message.sources
-        : undefined,
+    sources: parseSources(message.sources),
   };
 }
 
