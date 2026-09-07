@@ -1,3 +1,5 @@
+"use client";
+
 import React, { useEffect, useRef, useMemo, useState } from "react";
 import { X, FileText, AlertTriangle } from "lucide-react";
 import { useDocumentStore } from "../document-store";
@@ -9,6 +11,8 @@ import {
 import { DocumentList } from "./DocumentList";
 import { DocumentEmptyState } from "./DocumentEmptyState";
 import { DocumentUpload } from "./DocumentUpload";
+import { DocumentDeleteDialog } from "./DocumentDeleteDialog";
+import { DocumentMetadataForm } from "./DocumentMetadataForm";
 import type { Document } from "@/types/api";
 
 interface DocumentWorkspaceProps {
@@ -20,64 +24,6 @@ interface DocumentWorkspaceProps {
 
 const EMPTY_DOCUMENTS: Document[] = [];
 
-interface DocumentDeleteDialogProps {
-  filename: string;
-  deleting: boolean;
-  onCancel: () => void;
-  onConfirm: () => void | Promise<void>;
-}
-
-function DocumentDeleteDialog({
-  filename,
-  deleting,
-  onCancel,
-  onConfirm,
-}: DocumentDeleteDialogProps) {
-  return (
-    <div className="fixed inset-0 z-60 flex items-center justify-center p-4">
-      <div
-        className="fixed inset-0 bg-black/40"
-        onClick={deleting ? undefined : onCancel}
-        aria-hidden="true"
-      />
-      <div
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="document-delete-title"
-        className="relative z-10 w-full max-w-sm rounded-xl bg-white p-5 shadow-2xl dark:bg-zinc-900"
-      >
-        <h2
-          id="document-delete-title"
-          className="text-sm font-semibold text-zinc-900 dark:text-zinc-100"
-        >
-          Delete document?
-        </h2>
-        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-          Are you sure you want to delete “{filename}”?
-        </p>
-        <div className="mt-5 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={deleting}
-            className="rounded-lg px-3 py-2 text-sm text-zinc-600 hover:bg-zinc-100 disabled:opacity-50 dark:text-zinc-300 dark:hover:bg-zinc-800"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={deleting}
-            className="rounded-lg bg-rose-600 px-3 py-2 text-sm text-white hover:bg-rose-700 disabled:opacity-50"
-          >
-            {deleting ? "Deleting…" : "Delete"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export function DocumentWorkspace({
   chatId,
   isOpen,
@@ -87,6 +33,9 @@ export function DocumentWorkspace({
   const drawerRef = useRef<HTMLDivElement>(null);
 
   const [deletingDocumentId, setDeletingDocumentId] = useState<number | null>(
+    null,
+  );
+  const [editingDocumentId, setEditingDocumentId] = useState<number | null>(
     null,
   );
 
@@ -113,6 +62,11 @@ export function DocumentWorkspace({
     [documents, deletingDocumentId],
   );
 
+  const editingDocument = useMemo(
+    () => documents.find((doc) => doc.id === editingDocumentId) ?? null,
+    [documents, editingDocumentId],
+  );
+
   useEffect(() => {
     if (isOpen && chatId) {
       loadDocuments(chatId).catch(() => {});
@@ -123,7 +77,7 @@ export function DocumentWorkspace({
     if (!isOpen) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !deletingDocumentId) {
+      if (e.key === "Escape" && !deletingDocumentId && !editingDocumentId) {
         e.preventDefault();
         onClose();
         triggerRef?.current?.focus();
@@ -136,7 +90,7 @@ export function DocumentWorkspace({
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isOpen, onClose, triggerRef, deletingDocumentId]);
+  }, [isOpen, onClose, triggerRef, deletingDocumentId, editingDocumentId]);
 
   if (!isOpen) return null;
 
@@ -221,12 +175,20 @@ export function DocumentWorkspace({
               documents={documents}
               selectedDocumentId={selectedDocumentId}
               onSelectDocument={(doc) => selectDocument(chatId, doc.id)}
-              onEditDocument={() => {}}
+              onEditDocument={(doc) => setEditingDocumentId(doc.id)}
               onDeleteDocument={(doc) => setDeletingDocumentId(doc.id)}
             />
           )}
         </div>
       </div>
+
+      {editingDocument && (
+        <DocumentMetadataForm
+          document={editingDocument}
+          isOpen={!!editingDocument}
+          onClose={() => setEditingDocumentId(null)}
+        />
+      )}
 
       {deletingDocument && (
         <DocumentDeleteDialog

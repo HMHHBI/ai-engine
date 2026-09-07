@@ -160,10 +160,13 @@ class ChatSessionActions {
         return false;
       }
 
-      // Normalize 'text' from backend to 'content'
+      // Normalize 'text' and 'sources' from backend
       const normalizedMessages: ChatMessage[] = (rawMessages || []).map((msg) => ({
         ...msg,
         content: msg.content ?? msg.text ?? "",
+        sources: Array.isArray(msg.sources) && msg.sources.length > 0 
+          ? msg.sources 
+          : (typeof msg.sources === "string" ? JSON.parse(msg.sources) : undefined),
       }));
 
       useChatStore.getState().setMessages(chatId, normalizedMessages);
