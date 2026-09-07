@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import type { Document } from "@/types/api";
+import type { Document, DocumentMetadataUpdate } from "@/types/api";
+import { documentApi } from "@/lib/api/documents";
 
 export interface DocumentState {
   documentsByChat: Record<number, Document[]>;
@@ -173,3 +174,31 @@ export const useDocumentStore = create<DocumentState>((set) => ({
 
   reset: () => set(initialState),
 }));
+
+export async function updateDocumentMetadata(
+  chatId: number,
+  documentId: number,
+  payload: DocumentMetadataUpdate,
+): Promise<Document> {
+  const store = useDocumentStore.getState();
+  store.setDocumentMutating(documentId, true);
+
+  try {
+    const updated = await documentApi.update(documentId, payload);
+    store.updateDocumentInStore(updated);
+    return updated;
+  } finally {
+    useDocumentStore.getState().setDocumentMutating(documentId, false);
+  }
+}
+
+export const updateDocument = (
+  documentId: number,
+  payload: DocumentMetadataUpdate,
+): Promise<Document> => {
+  const store = useDocumentStore.getState();
+  const chatId = Object.keys(store.documentsByChat).find((cId) =>
+    store.documentsByChat[Number(cId)]?.some((d) => d.id === documentId),
+  );
+  return updateDocumentMetadata(chatId ? Number(chatId) : 0, documentId, payload);
+};

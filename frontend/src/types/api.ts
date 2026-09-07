@@ -10,6 +10,15 @@ export type AIModel =
 
 export type ChatTask = "general" | string;
 
+export type ChatPersona =
+  | "default"
+  | "academic"
+  | "developer"
+  | "legal"
+  | "simple";
+
+  export type DocumentStatus = "processing" | "ready" | "failed";
+
 export interface RetrievedSource {
   id: number;
   page_number: number | null;
@@ -51,11 +60,22 @@ export interface ChatMessage {
 export interface ChatDetailsResponse {
   id: number;
   title: string;
-  created_at: string;
-  updated_at: string;
-  messages: ChatMessage[];
-  has_pdf: boolean;
+  pdf_context: string | null;
+  ai_provider: string | null;
+  ai_model: string | null;
+  embedding_provider: string | null;
+  persona: ChatPersona;
+  custom_instructions: string | null;
+  messages?: ChatMessage[];
+  has_pdf?: boolean;
   pdf_filename?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ChatPersonaUpdate {
+  persona?: ChatPersona;
+  custom_instructions?: string | null;
 }
 
 export interface StreamPayload {
@@ -86,31 +106,6 @@ export interface GoogleAuthPayload {
   credential?: string;
   token?: string;
 }
-
-export type ChatPersona =
-  | "default"
-  | "academic"
-  | "developer"
-  | "legal"
-  | "simple";
-
-export interface ChatPersonaUpdate {
-  persona?: ChatPersona;
-  custom_instructions?: string | null;
-}
-
-export interface ChatDetailsResponse {
-  id: number;
-  title: string;
-  pdf_context: string | null;
-  ai_provider: string | null;
-  ai_model: string | null;
-  embedding_provider: string | null;
-  persona: ChatPersona;
-  custom_instructions: string | null;
-}
-
-export type DocumentStatus = "processing" | "ready" | "failed";
 
 export interface Document {
   id: number;
