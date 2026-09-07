@@ -10,6 +10,15 @@ export type AIModel =
 
 export type ChatTask = "general" | string;
 
+export type ChatPersona =
+  | "default"
+  | "academic"
+  | "developer"
+  | "legal"
+  | "simple";
+
+  export type DocumentStatus = "processing" | "ready" | "failed";
+
 export interface RetrievedSource {
   id: number;
   page_number: number | null;
@@ -51,11 +60,22 @@ export interface ChatMessage {
 export interface ChatDetailsResponse {
   id: number;
   title: string;
-  created_at: string;
-  updated_at: string;
-  messages: ChatMessage[];
-  has_pdf: boolean;
+  pdf_context: string | null;
+  ai_provider: string | null;
+  ai_model: string | null;
+  embedding_provider: string | null;
+  persona: ChatPersona;
+  custom_instructions: string | null;
+  messages?: ChatMessage[];
+  has_pdf?: boolean;
   pdf_filename?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ChatPersonaUpdate {
+  persona?: ChatPersona;
+  custom_instructions?: string | null;
 }
 
 export interface StreamPayload {
@@ -67,6 +87,7 @@ export interface StreamPayload {
   file_context?: string;
   image_base64?: string[];
   image_mime?: string[];
+  document_id?: number | null;
 }
 
 export interface UploadPdfResponse {
@@ -86,25 +107,49 @@ export interface GoogleAuthPayload {
   token?: string;
 }
 
-export type ChatPersona =
-  | "default"
-  | "academic"
-  | "developer"
-  | "legal"
-  | "simple";
-
-export interface ChatPersonaUpdate {
-  persona?: ChatPersona;
-  custom_instructions?: string | null;
+export interface Document {
+  id: number;
+  user_id: number;
+  chat_id: number;
+  filename: string;
+  mime_type: string;
+  file_size: number | null;
+  page_count: number | null;
+  storage_url: string | null;
+  status: DocumentStatus;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
-export interface ChatDetailsResponse {
+export interface DocumentSummary {
   id: number;
-  title: string;
-  pdf_context: string | null;
-  ai_provider: string | null;
-  ai_model: string | null;
-  embedding_provider: string | null;
-  persona: ChatPersona;
-  custom_instructions: string | null;
+  chat_id: number;
+  filename: string;
+  mime_type: string;
+  file_size: number | null;
+  page_count: number | null;
+  status: DocumentStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DocumentMetadataUpdate {
+  filename?: string;
+  mime_type?: string;
+  file_size?: number | null;
+  page_count?: number | null;
+  storage_url?: string | null;
+}
+
+export interface PdfUploadResponse {
+  status: string;
+  filename: string;
+  pdf_context?: string;
+  chunks_total: number;
+  chunks_indexed: number;
+  chunks_failed: number;
+  embedding_provider: string;
+  message: string;
+  document?: DocumentSummary | Document;
 }

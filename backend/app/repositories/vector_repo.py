@@ -2,62 +2,130 @@ from __future__ import annotations
 
 from typing import Any, Sequence
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, select
 
-from app.db.models import Chat, DocumentChunk
+from app.db.models import Chat, Document, DocumentChunk
 from app.db.session import session_scope
 
 
 class VectorRepository:
     """
     Tenant-scoped repository for document chunks and vector search.
-    Security invariant: user_id -> Chat.user_id -> Chat.id -> DocumentChunk.chat_id
+
+    Ownership invariant:
+        user_id
+            -> Document.user_id
+            -> Document.chat_id
+            -> Chat.user_id
+            -> DocumentChunk.document_id
+
+    `document_id` is the source of truth for vector ownership.
+
+    `chat_id` is intentionally populated on DocumentChunk for the current
+    F3-A transition and remains a legacy compatibility field until the
+    later cleanup phase removes it.
     """
 
+    VALID_STATUSES = {"processing", "ready", "failed"}
+
     @staticmethod
-    def _validate_ids(user_id: int, chat_id: int) -> None:
+    def _validate_ids(
+        user_id: int,
+        document_id: int,
+    ) -> None:
         if user_id <= 0:
             raise ValueError("user_id must be a positive integer.")
-        if chat_id <= 0:
-            raise ValueError("chat_id must be a positive integer.")
+
+        if document_id <= 0:
+            raise ValueError("document_id must be a positive integer.")
+
+    @staticmethod
+    def _get_owned_document(
+        db,
+        *,
+        user_id: int,
+        document_id: int,
+        lock: bool = False,
+    ) -> Document | None:
+        """
+        Resolve a document only when BOTH ownership relationships are valid:
+
+        1. Document.user_id == authenticated user
+        2. Document.chat_id belongs to authenticated user
+
+        This deliberately does not trust Document.user_id alone.
+        """
+        query = (
+            select(Document)
+            .join(
+                Chat,
+                Chat.id == Document.chat_id,
+            )
+            .where(
+                Document.id == document_id,
+                Document.user_id == user_id,
+                Chat.user_id == user_id,
+            )
+        )
+
+        if lock:
+            query = query.with_for_update()
+
+        return db.execute(query).scalar_one_or_none()
 
     @staticmethod
     def replace_document_chunks(
         user_id: int,
-        chat_id: int,
+        document_id: int,
         chunks_with_embeddings: Sequence[tuple[Any, list[float]]],
-        pdf_context: str,
+        pdf_context: str | None = None,
     ) -> list[dict[str, Any]]:
         """
-        Atomically replace all document chunks owned by a chat.
+        Atomically replace all chunks belonging to one document.
 
-        The owning chat row is locked for the duration of the transaction
-        so concurrent document replacements are serialized.
+        Ownership is verified through both:
+
+            Document.user_id == user_id
+            Chat.user_id == user_id
+
+        The Document row is locked for the duration of the transaction,
+        serializing concurrent replacements of the same document.
+
+        Every new DocumentChunk receives:
+
+            document_id = document.id
+            chat_id     = document.chat_id
+
+        `chat_id` is retained only as transitional compatibility.
         """
         VectorRepository._validate_ids(
             user_id=user_id,
-            chat_id=chat_id,
+            document_id=document_id,
         )
 
         if not chunks_with_embeddings:
             raise ValueError("chunks_with_embeddings cannot be empty.")
 
         with session_scope() as db:
-            chat = db.execute(
-                select(Chat)
-                .where(
-                    Chat.id == chat_id,
-                    Chat.user_id == user_id,
-                )
-                .with_for_update()
-            ).scalar_one_or_none()
+            document = VectorRepository._get_owned_document(
+                db,
+                user_id=user_id,
+                document_id=document_id,
+                lock=True,
+            )
 
-            if chat is None:
-                raise LookupError("Chat not found.")
+            if document is None:
+                raise LookupError("Document not found.")
 
+            chat_id = document.chat_id
+
+            # Delete ONLY this document's chunks.
+            #
+            # Never delete by chat_id here because one chat may contain
+            # multiple documents after the F3-A migration.
             db.execute(
                 delete(DocumentChunk).where(
-                    DocumentChunk.chat_id == chat_id,
+                    DocumentChunk.document_id == document.id,
                 )
             )
 
@@ -68,12 +136,14 @@ class VectorRepository:
                     continue
 
                 db_obj = DocumentChunk(
+                    document_id=document.id,
                     chat_id=chat_id,
                     content=chunk.text,
                     page_number=chunk.page_number,
                     chunk_index=chunk.chunk_index,
                     embedding=embedding,
                 )
+
                 db.add(db_obj)
                 db_objs.append(db_obj)
 
@@ -82,7 +152,31 @@ class VectorRepository:
                     "No valid document chunks with embeddings were provided."
                 )
 
-            chat.pdf_context = pdf_context
+            # Transitional compatibility:
+            # keep the legacy Chat.pdf_context populated until the later
+            # F3 cleanup removes that field.
+            chat = db.execute(
+                select(Chat).where(
+                    Chat.id == chat_id,
+                    Chat.user_id == user_id,
+                )
+            ).scalar_one_or_none()
+
+            if chat is None:
+                raise LookupError("Chat not found.")
+
+            if pdf_context is not None:
+                chat = db.execute(
+                    select(Chat).where(
+                        Chat.id == chat_id,
+                        Chat.user_id == user_id,
+                    )
+                ).scalar_one_or_none()
+
+                if chat is None:
+                    raise LookupError("Chat not found.")
+
+                chat.pdf_context = pdf_context
 
             db.flush()
 
@@ -90,6 +184,7 @@ class VectorRepository:
                 {
                     "id": chunk.id,
                     "chat_id": chunk.chat_id,
+                    "document_id": chunk.document_id,
                     "page_number": chunk.page_number,
                     "chunk_index": chunk.chunk_index,
                 }
@@ -99,27 +194,41 @@ class VectorRepository:
     @staticmethod
     def store_document_chunks(
         user_id: int,
-        chat_id: int,
+        document_id: int,
         chunks_with_embeddings: Sequence[tuple[Any, list[float]]],
     ) -> list[dict[str, Any]]:
+        """
+        Store chunks for one owned document.
+
+        Every inserted chunk receives both:
+
+            document_id = document.id
+            chat_id     = document.chat_id
+
+        Ownership requires BOTH:
+
+            document.user_id == user_id
+            document.chat.user_id == user_id
+        """
         VectorRepository._validate_ids(
             user_id=user_id,
-            chat_id=chat_id,
+            document_id=document_id,
         )
 
         if not chunks_with_embeddings:
             return []
 
         with session_scope() as db:
-            chat_exists = db.execute(
-                select(Chat.id).where(
-                    Chat.id == chat_id,
-                    Chat.user_id == user_id,
-                )
-            ).scalar_one_or_none()
+            document = VectorRepository._get_owned_document(
+                db,
+                user_id=user_id,
+                document_id=document_id,
+            )
 
-            if chat_exists is None:
-                raise LookupError("Chat not found.")
+            if document is None:
+                raise LookupError("Document not found.")
+
+            chat_id = document.chat_id
 
             db_objs: list[DocumentChunk] = []
 
@@ -128,12 +237,14 @@ class VectorRepository:
                     continue
 
                 db_obj = DocumentChunk(
+                    document_id=document.id,
                     chat_id=chat_id,
                     content=chunk.text,
                     page_number=chunk.page_number,
                     chunk_index=chunk.chunk_index,
                     embedding=embedding,
                 )
+
                 db.add(db_obj)
                 db_objs.append(db_obj)
 
@@ -146,6 +257,7 @@ class VectorRepository:
                 {
                     "id": chunk.id,
                     "chat_id": chunk.chat_id,
+                    "document_id": chunk.document_id,
                     "page_number": chunk.page_number,
                     "chunk_index": chunk.chunk_index,
                 }
@@ -155,15 +267,26 @@ class VectorRepository:
     @staticmethod
     def search_similar_chunks(
         user_id: int,
-        chat_id: int,
+        document_id: int,
         query_vector: list[float],
         top_k: int = 6,
         max_distance: float = 0.70,
         adaptive_margin: float = 0.15,
     ) -> list[dict[str, Any]]:
+        """
+        Search vectors belonging to exactly one owned document.
+
+        The query is constrained by:
+
+            DocumentChunk.document_id == document_id
+            Document.user_id == user_id
+            Chat.user_id == user_id
+
+        Therefore a document ID from another tenant cannot expose vectors.
+        """
         VectorRepository._validate_ids(
             user_id=user_id,
-            chat_id=chat_id,
+            document_id=document_id,
         )
 
         if not query_vector:
@@ -183,11 +306,16 @@ class VectorRepository:
             results = db.execute(
                 select(DocumentChunk, distance)
                 .join(
+                    Document,
+                    Document.id == DocumentChunk.document_id,
+                )
+                .join(
                     Chat,
-                    Chat.id == DocumentChunk.chat_id,
+                    Chat.id == Document.chat_id,
                 )
                 .where(
-                    Chat.id == chat_id,
+                    DocumentChunk.document_id == document_id,
+                    Document.user_id == user_id,
                     Chat.user_id == user_id,
                     DocumentChunk.embedding.is_not(None),
                 )
@@ -215,6 +343,8 @@ class VectorRepository:
             return [
                 {
                     "id": chunk.id,
+                    "document_id": chunk.document_id,
+                    "chat_id": chunk.chat_id,
                     "content": chunk.content,
                     "page_number": chunk.page_number,
                     "chunk_index": chunk.chunk_index,
@@ -226,27 +356,31 @@ class VectorRepository:
     @staticmethod
     def delete_document_chunks(
         user_id: int,
-        chat_id: int,
+        document_id: int,
     ) -> bool:
+        """
+        Delete all chunks belonging to one owned document.
+
+        Deletion is document-scoped, never chat-scoped.
+        """
         VectorRepository._validate_ids(
             user_id=user_id,
-            chat_id=chat_id,
+            document_id=document_id,
         )
 
         with session_scope() as db:
-            authorized_chat = db.execute(
-                select(Chat.id).where(
-                    Chat.id == chat_id,
-                    Chat.user_id == user_id,
-                )
-            ).scalar_one_or_none()
+            document = VectorRepository._get_owned_document(
+                db,
+                user_id=user_id,
+                document_id=document_id,
+            )
 
-            if authorized_chat is None:
+            if document is None:
                 return False
 
             db.execute(
                 delete(DocumentChunk).where(
-                    DocumentChunk.chat_id == chat_id,
+                    DocumentChunk.document_id == document.id,
                 )
             )
 
