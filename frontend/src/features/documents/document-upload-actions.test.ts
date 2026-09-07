@@ -36,6 +36,26 @@ describe("document-upload-actions", () => {
     expect(validatePdfFile(empty).valid).toBe(false);
   });
 
+  it("enforces 10 MiB upload limit boundaries", () => {
+    // 9 MiB -> valid
+    const nineMib = new File(["x"], "9mib.pdf", { type: "application/pdf" });
+    Object.defineProperty(nineMib, "size", { value: 9 * 1024 * 1024 });
+    expect(validatePdfFile(nineMib)).toEqual({ valid: true });
+
+    // 10 MiB -> valid
+    const tenMib = new File(["x"], "10mib.pdf", { type: "application/pdf" });
+    Object.defineProperty(tenMib, "size", { value: 10 * 1024 * 1024 });
+    expect(validatePdfFile(tenMib)).toEqual({ valid: true });
+
+    // 10 MiB + 1 byte -> invalid
+    const overLimit = new File(["x"], "over.pdf", { type: "application/pdf" });
+    Object.defineProperty(overLimit, "size", { value: 10 * 1024 * 1024 + 1 });
+    expect(validatePdfFile(overLimit)).toEqual({
+      valid: false,
+      error: "File size exceeds the 10 MiB limit.",
+    });
+  });
+
   it("uploads PDF and refreshes authoritative documents list", async () => {
     const file = new File(["%PDF-1.4 sample"], "sample.pdf", {
       type: "application/pdf",
