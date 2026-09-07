@@ -110,7 +110,7 @@ export function clearDocumentSelection(chatId: number): void {
 // F3-B.3: Validation, Upload & Lifecycle
 // ==========================================
 
-export const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50MB
+export const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MiB
 
 export function validatePdfFile(file: File): { valid: boolean; error?: string } {
   if (!file || !file.name) {
@@ -126,7 +126,7 @@ export function validatePdfFile(file: File): { valid: boolean; error?: string } 
     return { valid: false, error: "File is empty." };
   }
   if (file.size > MAX_FILE_SIZE_BYTES) {
-    return { valid: false, error: "File size exceeds the 50MB limit." };
+    return { valid: false, error: "File size exceeds the 10 MiB limit." };
   }
   return { valid: true };
 }
