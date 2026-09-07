@@ -41,12 +41,31 @@ export const useDocumentStore = create<DocumentState>((set) => ({
   ...initialState,
 
   setDocuments: (chatId, documents) =>
-    set((state) => ({
-      documentsByChat: {
-        ...state.documentsByChat,
-        [chatId]: documents,
-      },
-    })),
+    set((state) => {
+      const currentSelected =
+        state.selectedDocumentIdByChat[chatId] ?? null;
+
+      const selectedDocument =
+        currentSelected !== null
+          ? documents.find((document) => document.id === currentSelected)
+          : undefined;
+
+      const nextSelectedDocumentId =
+        selectedDocument?.status === "ready"
+          ? currentSelected
+          : null;
+
+      return {
+        documentsByChat: {
+          ...state.documentsByChat,
+          [chatId]: documents,
+        },
+        selectedDocumentIdByChat: {
+          ...state.selectedDocumentIdByChat,
+          [chatId]: nextSelectedDocumentId,
+        },
+      };
+    }),
 
   addDocument: (document) =>
     set((state) => {
@@ -60,16 +79,33 @@ export const useDocumentStore = create<DocumentState>((set) => ({
       };
     }),
 
-  updateDocumentInStore: (document) =>
-    set((state) => {
-      const existing = state.documentsByChat[document.chat_id] ?? [];
-      return {
-        documentsByChat: {
-          ...state.documentsByChat,
-          [document.chat_id]: existing.map((d) => (d.id === document.id ? document : d)),
-        },
-      };
-    }),
+    updateDocumentInStore: (document) =>
+      set((state) => {
+        const existing =
+          state.documentsByChat[document.chat_id] ?? [];
+  
+        const currentSelected =
+          state.selectedDocumentIdByChat[document.chat_id] ?? null;
+  
+        const nextSelectedDocumentId =
+          currentSelected === document.id &&
+          document.status !== "ready"
+            ? null
+            : currentSelected;
+  
+        return {
+          documentsByChat: {
+            ...state.documentsByChat,
+            [document.chat_id]: existing.map((item) =>
+              item.id === document.id ? document : item,
+            ),
+          },
+          selectedDocumentIdByChat: {
+            ...state.selectedDocumentIdByChat,
+            [document.chat_id]: nextSelectedDocumentId,
+          },
+        };
+      }),
 
   removeDocumentFromStore: (chatId, documentId) =>
     set((state) => {

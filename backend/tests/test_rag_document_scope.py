@@ -162,3 +162,208 @@ def test_same_chat_multi_document_retrieval_isolation(setup_user_and_chat):
     contents = [r["content"] for r in results]
     assert "BANANA_SECRET" in contents
     assert "APPLE_SECRET" not in contents
+
+
+def test_get_ready_for_chat_returns_explicit_ready_document(
+    setup_user_and_chat,
+):
+    user, chat = setup_user_and_chat
+
+    doc1 = DocumentRepository.create(
+        user_id=user.id,
+        chat_id=chat.id,
+        filename="older.pdf",
+        mime_type="application/pdf",
+    )
+    DocumentRepository.update_status(
+        document_id=doc1.id,
+        user_id=user.id,
+        status="ready",
+    )
+
+    doc2 = DocumentRepository.create(
+        user_id=user.id,
+        chat_id=chat.id,
+        filename="newer.pdf",
+        mime_type="application/pdf",
+    )
+    DocumentRepository.update_status(
+        document_id=doc2.id,
+        user_id=user.id,
+        status="ready",
+    )
+
+    selected = DocumentRepository.get_ready_for_chat(
+        document_id=doc1.id,
+        chat_id=chat.id,
+        user_id=user.id,
+    )
+
+    assert selected is not None
+    assert selected.id == doc1.id
+    assert selected.filename == "older.pdf"
+
+
+def test_explicit_selection_rejects_processing_document(
+    setup_user_and_chat,
+):
+    user, chat = setup_user_and_chat
+
+    document = DocumentRepository.create(
+        user_id=user.id,
+        chat_id=chat.id,
+        filename="processing.pdf",
+        mime_type="application/pdf",
+    )
+
+    selected = DocumentRepository.get_ready_for_chat(
+        document_id=document.id,
+        chat_id=chat.id,
+        user_id=user.id,
+    )
+
+    assert selected is None
+
+
+def test_explicit_selection_rejects_failed_document(
+    setup_user_and_chat,
+):
+    user, chat = setup_user_and_chat
+
+    document = DocumentRepository.create(
+        user_id=user.id,
+        chat_id=chat.id,
+        filename="failed.pdf",
+        mime_type="application/pdf",
+    )
+
+    DocumentRepository.update_status(
+        document_id=document.id,
+        user_id=user.id,
+        status="failed",
+        error_message="Embedding failed",
+    )
+
+    selected = DocumentRepository.get_ready_for_chat(
+        document_id=document.id,
+        chat_id=chat.id,
+        user_id=user.id,
+    )
+
+    assert selected is None
+
+
+def test_explicit_selection_rejects_cross_user_document(
+    setup_user_and_chat,
+    db_session,
+):
+    user_a, chat_a = setup_user_and_chat
+
+    document = DocumentRepository.create(
+        user_id=user_a.id,
+        chat_id=chat_a.id,
+        filename="private.pdf",
+        mime_type="application/pdf",
+    )
+    DocumentRepository.update_status(
+        document_id=document.id,
+        user_id=user_a.id,
+        status="ready",
+    )
+
+    ts = int(time.time() * 1000)
+
+    user_b = UserRepository.create(
+        db_session,
+        name="User B",
+        email=f"explicit-b-{ts}@example.com",
+        password="Password!123",
+    )
+
+    selected = DocumentRepository.get_ready_for_chat(
+        document_id=document.id,
+        chat_id=chat_a.id,
+        user_id=user_b.id,
+    )
+
+    assert selected is None
+
+
+def test_explicit_selection_rejects_cross_chat_document(
+    setup_user_and_chat,
+):
+    user, chat_a = setup_user_and_chat
+
+    document = DocumentRepository.create(
+        user_id=user.id,
+        chat_id=chat_a.id,
+        filename="chat-a.pdf",
+        mime_type="application/pdf",
+    )
+    DocumentRepository.update_status(
+        document_id=document.id,
+        user_id=user.id,
+        status="ready",
+    )
+
+    chat_b = ChatRepository.create_chat(user_id=user.id)
+
+    selected = DocumentRepository.get_ready_for_chat(
+        document_id=document.id,
+        chat_id=chat_b.id,
+        user_id=user.id,
+    )
+
+    assert selected is None
+
+
+def test_explicit_selection_rejects_nonexistent_document(
+    setup_user_and_chat,
+):
+    user, chat = setup_user_and_chat
+
+    selected = DocumentRepository.get_ready_for_chat(
+        document_id=999999999,
+        chat_id=chat.id,
+        user_id=user.id,
+    )
+
+    assert selected is None
+
+
+def test_null_selection_preserves_latest_ready_fallback(
+    setup_user_and_chat,
+):
+    user, chat = setup_user_and_chat
+
+    doc1 = DocumentRepository.create(
+        user_id=user.id,
+        chat_id=chat.id,
+        filename="a.pdf",
+        mime_type="application/pdf",
+    )
+    DocumentRepository.update_status(
+        document_id=doc1.id,
+        user_id=user.id,
+        status="ready",
+    )
+
+    doc2 = DocumentRepository.create(
+        user_id=user.id,
+        chat_id=chat.id,
+        filename="b.pdf",
+        mime_type="application/pdf",
+    )
+    DocumentRepository.update_status(
+        document_id=doc2.id,
+        user_id=user.id,
+        status="ready",
+    )
+
+    active = DocumentRepository.get_active_for_chat(
+        chat_id=chat.id,
+        user_id=user.id,
+    )
+
+    assert active is not None
+    assert active.id == doc2.id

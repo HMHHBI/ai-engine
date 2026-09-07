@@ -14,6 +14,7 @@ class AIRequest(BaseModel):
     file_context: Optional[str] = None
     image_base64: Optional[List[str]] = None
     image_mime: Optional[List[str]] = None
+    document_id: Optional[int] = None
 
 
 # Create Chat Request Schema

@@ -442,3 +442,44 @@ class DocumentRepository:
                 )
                 .limit(1)
             ).scalar_one_or_none()
+
+    @staticmethod
+    def get_ready_for_chat(
+        document_id: int,
+        chat_id: int,
+        user_id: int,
+    ) -> Optional[Document]:
+        """
+        Retrieve an explicitly selected document only when:
+
+        - the document exists
+        - the document belongs to the authenticated user
+        - the document belongs to the requested chat
+        - the owning chat belongs to the authenticated user
+        - the document is ready
+
+        Explicit document selection must never silently fall back to
+        another document.
+        """
+        DocumentRepository._validate_ids(
+            user_id=user_id,
+            chat_id=chat_id,
+            document_id=document_id,
+        )
+
+        with session_scope() as db:
+            return db.execute(
+                select(Document)
+                .join(
+                    Chat,
+                    Chat.id == Document.chat_id,
+                )
+                .where(
+                    Document.id == document_id,
+                    Document.chat_id == chat_id,
+                    Document.user_id == user_id,
+                    Chat.id == chat_id,
+                    Chat.user_id == user_id,
+                    Document.status == "ready",
+                )
+            ).scalar_one_or_none()

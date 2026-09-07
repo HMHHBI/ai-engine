@@ -5,6 +5,7 @@ import { chatRequestController } from "@/features/chat/stream/chat-request-contr
 import { chatSessionActions } from "@/features/chat/actions/chat-session-actions";
 import { useChatStore } from "@/features/chat/store/chat-store";
 import { useChatSessionStore } from "@/features/chat/store/chat-session-store";
+import { useDocumentStore } from "@/features/documents/document-store";
 import type {
   AIModel,
   AIProvider,
@@ -19,6 +20,26 @@ export interface SendMessageOptions {
   provider?: AIProvider;
   imageBase64?: string[];
   imageMime?: string[];
+}
+
+export function buildStreamPayload(
+  options: SendMessageOptions,
+  selectedDocumentId: number | null,
+): StreamPayload {
+  const payload: StreamPayload = {
+    chat_id: options.chatId,
+    prompt: options.prompt.trim(),
+    model: options.model,
+    provider: options.provider,
+    image_base64: options.imageBase64,
+    image_mime: options.imageMime,
+  };
+
+  if (selectedDocumentId !== null) {
+    payload.document_id = selectedDocumentId;
+  }
+
+  return payload;
 }
 
 class ChatActions {
@@ -85,14 +106,21 @@ class ChatActions {
 
     store.setStreamingStatus(chatId, "streaming");
 
-    const payload: StreamPayload = {
-      chat_id: chatId,
-      prompt: trimmedPrompt,
-      model,
-      provider,
-      image_base64: imageBase64,
-      image_mime: imageMime,
-    };
+    const selectedDocumentId =
+    useDocumentStore.getState()
+      .selectedDocumentIdByChat[chatId] ?? null;
+
+    const payload = buildStreamPayload(
+      {
+        chatId,
+        prompt: trimmedPrompt,
+        model,
+        provider,
+        imageBase64,
+        imageMime,
+      },
+      selectedDocumentId,
+    );
 
     try {
       await chatStreamService.stream(payload, {

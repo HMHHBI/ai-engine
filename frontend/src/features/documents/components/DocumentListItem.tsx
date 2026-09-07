@@ -15,6 +15,8 @@ export function DocumentListItem({
   isSelected = false,
   onSelect,
 }: DocumentListItemProps) {
+  const isSelectable = document.status === "ready";
+
   const metadataParts: string[] = [];
 
   if (document.mime_type === "application/pdf") {
@@ -32,28 +34,44 @@ export function DocumentListItem({
   }
 
   const formattedSize = formatFileSize(document.file_size);
+
   if (formattedSize) {
     metadataParts.push(formattedSize);
   }
 
+  const handleSelect = (): void => {
+    if (!isSelectable) {
+      return;
+    }
+
+    onSelect?.(document);
+  };
+
   return (
     <div
       role="button"
-      tabIndex={0}
-      onClick={() => onSelect?.(document)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onSelect?.(document);
+      tabIndex={isSelectable ? 0 : -1}
+      aria-disabled={!isSelectable}
+      aria-pressed={isSelected}
+      onClick={handleSelect}
+      onKeyDown={(event) => {
+        if (!isSelectable) {
+          return;
+        }
+
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          handleSelect();
         }
       }}
-      className={`group w-full text-left p-3 rounded-xl border transition-all cursor-pointer ${
+      className={`group w-full text-left p-3 rounded-xl border transition-all ${
+        isSelectable ? "cursor-pointer" : "cursor-not-allowed opacity-70"
+      } ${
         isSelected
           ? "border-blue-500/40 bg-blue-50/50 dark:bg-blue-950/20 shadow-sm"
           : "border-zinc-200 dark:border-zinc-800/80 bg-white dark:bg-zinc-900/40 hover:border-zinc-300 dark:hover:border-zinc-700"
       }`}
       data-testid={`document-item-${document.id}`}
-      aria-pressed={isSelected}
     >
       <div className="flex items-start gap-3">
         <div className="p-2 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 mt-0.5 shrink-0">
@@ -68,6 +86,7 @@ export function DocumentListItem({
             >
               {document.filename}
             </span>
+
             <DocumentStatusBadge
               status={document.status}
               className="shrink-0"
@@ -77,6 +96,14 @@ export function DocumentListItem({
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 flex items-center gap-1.5 flex-wrap">
             {metadataParts.join(" · ")}
           </p>
+
+          {!isSelectable && (
+            <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-1">
+              {document.status === "processing"
+                ? "Processing — selection unavailable"
+                : "Processing failed — selection unavailable"}
+            </p>
+          )}
         </div>
       </div>
     </div>

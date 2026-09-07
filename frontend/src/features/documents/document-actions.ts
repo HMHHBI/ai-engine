@@ -2,6 +2,7 @@ import { documentApi } from "@/lib/api/documents";
 import { chatApi } from "@/lib/api/chat";
 import { useDocumentStore } from "./document-store";
 import type { Document, DocumentMetadataUpdate, PdfUploadResponse } from "@/types/api";
+import { chatRequestController } from "@/features/chat/stream/chat-request-controller";
 
 export async function loadDocuments(chatId: number): Promise<Document[]> {
   const store = useDocumentStore.getState();
@@ -55,12 +56,54 @@ export async function deleteDocument(chatId: number, documentId: number): Promis
   }
 }
 
-export function selectDocument(chatId: number, documentId: number | null): void {
-  useDocumentStore.getState().setSelectedDocument(chatId, documentId);
+export function selectDocument(
+  chatId: number,
+  documentId: number | null,
+): boolean {
+  const store = useDocumentStore.getState();
+
+  const currentSelected =
+    store.selectedDocumentIdByChat[chatId] ?? null;
+
+  if (documentId === null) {
+    if (currentSelected !== null) {
+      chatRequestController.invalidate();
+    }
+
+    store.clearSelectedDocument(chatId);
+    return true;
+  }
+
+  const document =
+    (store.documentsByChat[chatId] ?? []).find(
+      (item) => item.id === documentId,
+    );
+
+  if (!document || document.status !== "ready") {
+    return false;
+  }
+
+  if (currentSelected === documentId) {
+    chatRequestController.invalidate();
+    store.clearSelectedDocument(chatId);
+    return true;
+  }
+
+  chatRequestController.invalidate();
+  store.setSelectedDocument(chatId, documentId);
+
+  return true;
 }
 
 export function clearDocumentSelection(chatId: number): void {
-  useDocumentStore.getState().clearSelectedDocument(chatId);
+  const store = useDocumentStore.getState();
+  const currentSelected = store.selectedDocumentIdByChat[chatId] ?? null;
+
+  if (currentSelected !== null) {
+    chatRequestController.invalidate();
+  }
+
+  store.clearSelectedDocument(chatId);
 }
 
 // ==========================================

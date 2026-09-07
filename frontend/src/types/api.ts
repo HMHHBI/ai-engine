@@ -67,6 +67,7 @@ export interface StreamPayload {
   file_context?: string;
   image_base64?: string[];
   image_mime?: string[];
+  document_id?: number | null;
 }
 
 export interface UploadPdfResponse {

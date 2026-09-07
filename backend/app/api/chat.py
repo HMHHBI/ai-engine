@@ -667,17 +667,35 @@ async def ai_stream(
             )
 
             try:
-                active_document = await asyncio.to_thread(
-                    DocumentRepository.get_active_for_chat,
-                    chat_id=req.chat_id,
-                    user_id=current_user.id,
-                )
+                if req.document_id is not None:
+                    active_document = await asyncio.to_thread(
+                        DocumentRepository.get_ready_for_chat,
+                        document_id=req.document_id,
+                        chat_id=req.chat_id,
+                        user_id=current_user.id,
+                    )
+
+                    if active_document is None:
+                        raise HTTPException(
+                            status_code=status.HTTP_404_NOT_FOUND,
+                            detail="Document not found.",
+                        )
+                else:
+                    active_document = await asyncio.to_thread(
+                        DocumentRepository.get_active_for_chat,
+                        chat_id=req.chat_id,
+                        user_id=current_user.id,
+                    )
 
                 has_legacy_context = bool(getattr(chat, "pdf_context", None))
                 context_chunks = []
 
                 if active_document is not None or has_legacy_context:
-                    doc_id = active_document.id if active_document is not None else req.chat_id
+                    doc_id = (
+                        active_document.id
+                        if active_document is not None
+                        else req.chat_id
+                    )
 
                     query_vector = await EmbeddingService.generate_embedding(
                         req.prompt,
@@ -694,6 +712,7 @@ async def ai_stream(
                             max_distance=0.70,
                             adaptive_margin=0.15,
                         )
+
             except Exception:
                 logger.exception(
                     "rag_retrieval_failed",

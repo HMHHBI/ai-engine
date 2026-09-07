@@ -98,6 +98,23 @@ describe("document-actions", () => {
   });
 
   it("selectDocument and clearDocumentSelection manage selection state", () => {
+    useDocumentStore.getState().setDocuments(5, [
+      {
+        id: 100,
+        user_id: 1,
+        chat_id: 5,
+        filename: "test.pdf",
+        mime_type: "application/pdf",
+        file_size: 1024,
+        page_count: 1,
+        storage_url: null,
+        status: "ready",
+        error_message: null,
+        created_at: "2026-09-01T00:00:00Z",
+        updated_at: "2026-09-01T00:00:00Z",
+      },
+    ]);
+
     selectDocument(5, 100);
     expect(useDocumentStore.getState().selectedDocumentIdByChat[5]).toBe(100);
 
