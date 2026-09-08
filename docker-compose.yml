@@ -1,56 +1,65 @@
 services:
-  # 1. PostgreSQL Database with pgvector extension pre-installed
   db:
     image: pgvector/pgvector:pg16
     container_name: chat_postgres
-    restart: always
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: mysecretpassword
-      POSTGRES_DB: hassan_ai_db
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-hassan_ai_db}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-hassan_ai_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
-  # 2. Redis Cache & Rate Limiter
   redis:
     image: redis:7-alpine
     container_name: chat_redis
-    restart: always
+    restart: unless-stopped
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
-  # 3. FastAPI Backend
   backend:
     build: ./backend
     container_name: chat_backend
-    restart: always
+    restart: unless-stopped
     ports:
       - "8000:8000"
-    extra_hosts:
-      - "host.docker.internal:host-gateway" # 👈 YEH ADD KAREIN (Host Network Access ke liye)
-    env_file:               # 👈 YEH ADD KAREIN (Poori .env file container mein Inject ho gi)
+    env_file:
       - ./backend/.env
     environment:
-      - DATABASE_URL=postgresql://postgres:mysecretpassword@db:5432/hassan_ai_db
-      - TEST_DATABASE_URL=postgresql://postgres:mysecretpassword@chat_postgres:5432/hassan_ai_test
-      - REDIS_URL=redis://redis:6379
-      - FRONTEND_URL=http://localhost:3000   # 👈 Explicit backup override
-      - OLLAMA_BASE_URL=http://host.docker.internal:11434 # 👈 YEH ADD KAREIN
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-hassan_ai_db}
+      TEST_DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-hassan_ai_test}
+      REDIS_URL: redis://redis:6379
+      FRONTEND_URL: http://localhost:3000
+      ALLOWED_ORIGINS: http://localhost:3000
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
-  # 4. Vue Frontend
   frontend:
     build: ./frontend
     container_name: chat_frontend
-    restart: always
+    restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      NEXT_PUBLIC_API_URL: http://localhost:8000
     depends_on:
       - backend
 
