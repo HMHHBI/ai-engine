@@ -25,12 +25,11 @@ from app.services.embedding_service import EmbeddingService
 
 
 def get_or_create_bench_user(db):
-    user = db.query(User).filter(User.email.like("%benchmark%") | User.email.like("%test%")).first()
+    BENCH_EMAIL = "benchmark_runner_p203@example.com"
+    user = db.query(User).filter(User.email == BENCH_EMAIL).first()
     created = False
     if not user:
-        user = db.query(User).first()
-    if not user:
-        user = User(email="benchmark_runner_p203@example.com", hashed_password="fixture_dummy_hash", is_active=True)
+        user = User(email=BENCH_EMAIL, hashed_password="fixture_dummy_hash", is_active=True)
         db.add(user)
         db.commit()
         db.refresh(user)
@@ -198,7 +197,7 @@ async def run_e2e_ingestion_benchmark(chunk_counts: List[int]) -> List[Dict[str,
                 db.flush()
 
                 doc = Document(
-                    user_id=8,
+                    user_id=bench_user.id,
                     chat_id=chat.id,
                     filename=f"bench_{strat_name}_c{concurrency}_n{n_chunks}.pdf",
                     mime_type="application/pdf",
