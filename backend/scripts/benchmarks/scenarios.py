@@ -22,21 +22,23 @@ async def benchmark_health_live(
         result.errors += 1
 
 
-async def benchmark_chat_non_rag(
+async def benchmark_chat_stream(
     client: httpx.AsyncClient,
     result: ScenarioResult,
     headers: Dict[str, str],
     chat_id: int,
-    prompt: str = "Explain the difference between synchronous and asynchronous I/O in two concise paragraphs.",
+    prompt: str,
+    document_id: Optional[int] = None,
 ) -> None:
     payload = {
         "chat_id": chat_id,
         "prompt": prompt,
         "task": "general",
-        "document_id": None,
+        "document_id": document_id,
     }
 
     t0 = time.perf_counter()
+    retrieval_ms: Optional[float] = None
     ttft_ms: Optional[float] = None
     chunks_count = 0
     chars_count = 0
@@ -66,10 +68,13 @@ async def benchmark_chat_non_rag(
                     except json.JSONDecodeError:
                         continue
 
-                    # Server-side stream error handling
                     if current_event == "stream_error":
                         result.errors += 1
                         return
+
+                    # RAG retrieval completes when "sources" event arrives
+                    if current_event == "sources" and retrieval_ms is None:
+                        retrieval_ms = (time.perf_counter() - t0) * 1000.0
 
                     text = data.get("text", "")
                     if text and ttft_ms is None:
@@ -88,8 +93,11 @@ async def benchmark_chat_non_rag(
 
         total_duration_ms = (time.perf_counter() - t0) * 1000.0
 
+        if retrieval_ms is not None:
+            result.retrieval_ms.append(retrieval_ms)
         if ttft_ms is not None:
             result.ttft_ms.append(ttft_ms)
+
         result.latencies_ms.append(total_duration_ms)
         result.stream_duration_ms.append(total_duration_ms)
         result.chunk_counts.append(chunks_count)
@@ -100,3 +108,24 @@ async def benchmark_chat_non_rag(
 
     except httpx.RequestError:
         result.errors += 1
+
+
+async def benchmark_chat_non_rag(
+    client: httpx.AsyncClient,
+    result: ScenarioResult,
+    headers: Dict[str, str],
+    chat_id: int,
+    prompt: str = "Explain the difference between synchronous and asynchronous I/O in two concise paragraphs.",
+) -> None:
+    await benchmark_chat_stream(client, result, headers, chat_id, prompt, document_id=None)
+
+
+async def benchmark_chat_rag(
+    client: httpx.AsyncClient,
+    result: ScenarioResult,
+    headers: Dict[str, str],
+    chat_id: int,
+    document_id: int,
+    prompt: str = "What are the main principles of distributed systems mentioned in the document?",
+) -> None:
+    await benchmark_chat_stream(client, result, headers, chat_id, prompt, document_id=document_id)
