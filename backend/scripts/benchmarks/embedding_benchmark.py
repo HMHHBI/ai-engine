@@ -19,9 +19,23 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from app.core.config import settings
-from app.db.models import Chat, Document, DocumentChunk
+from app.db.models import Chat, Document, DocumentChunk, User
 from app.db.session import SessionLocal
 from app.services.embedding_service import EmbeddingService
+
+
+def get_or_create_bench_user(db):
+    user = db.query(User).filter(User.email.like("%benchmark%") | User.email.like("%test%")).first()
+    created = False
+    if not user:
+        user = db.query(User).first()
+    if not user:
+        user = User(email="benchmark_runner_p203@example.com", hashed_password="fixture_dummy_hash", is_active=True)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        created = True
+    return user, created
 
 SAMPLE_PROMPT = "Retrieval-augmented generation pipelines depend on low-latency embedding throughput and efficient vector search."
 
@@ -178,7 +192,8 @@ async def run_e2e_ingestion_benchmark(chunk_counts: List[int]) -> List[Dict[str,
 
             for strat_name, concurrency in strategies:
                 db = SessionLocal()
-                chat = Chat(user_id=8, title=f"Bench E2E {strat_name} C={concurrency} N={n_chunks}")
+                bench_user, user_created = get_or_create_bench_user(db)
+                chat = Chat(user_id=bench_user.id, title=f"Bench E2E {strat_name} C={concurrency} N={n_chunks}")
                 db.add(chat)
                 db.flush()
 
@@ -261,6 +276,8 @@ async def run_e2e_ingestion_benchmark(chunk_counts: List[int]) -> List[Dict[str,
                 db.query(DocumentChunk).filter(DocumentChunk.document_id == doc.id).delete()
                 db.query(Document).filter(Document.id == doc.id).delete()
                 db.query(Chat).filter(Chat.id == chat.id).delete()
+                if user_created:
+                    db.query(User).filter(User.id == bench_user.id).delete()
                 db.commit()
                 db.close()
 
