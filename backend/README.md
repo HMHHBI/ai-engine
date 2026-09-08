@@ -3,13 +3,22 @@
 Production FastAPI backend for the AI Engine application.
 
 **Runtime:** Python 3.11
+
 **Framework:** FastAPI
+
 **Database:** PostgreSQL + pgvector
+
 **Cache / Rate Limiting:** Redis
+
 **AI Providers:** Gemini, Ollama, OpenAI
+
 **Migrations:** Alembic
+
 **Production:** Render
-**Release baseline:** `27882ed`
+
+**CI:** GitHub Actions
+
+**Status:** Production — GO
 
 ---
 
@@ -17,32 +26,38 @@ Production FastAPI backend for the AI Engine application.
 
 ```text
                          FastAPI Application
+
                                 │
                 ┌───────────────┴────────────────┐
                 │                                │
-        Correlation Middleware            Rate Limiting
+        Correlation Middleware             Rate Limiting
                 │                                │
                 └───────────────┬────────────────┘
                                 │
-                         API Routers
-                                │
-              ┌─────────────────┼─────────────────┐
-              │                 │                 │
-             Auth             Chat              User
-                                │
-                       Chat Application Service
+                           API Routers
                                 │
              ┌──────────────────┼──────────────────┐
              │                  │                  │
-       Chat Repository    Vector Repository   Provider Factory
-             │                  │                  │
-             │                  ▼                  │
-             │            pgvector RAG             │
-             │                                     │
-             │                          ┌──────────┼─────────┐
-             │                          │          │         │
-             ▼                          ▼          ▼         ▼
-        PostgreSQL                   Gemini     Ollama    OpenAI
+            Auth               Chat               User
+                                │
+                     Chat Application Service
+                                │
+        ┌───────────────────────┼───────────────────────┐
+        │                       │                       │
+ Chat Repository       Document Repository       Provider Factory
+        │                       │                       │
+        │                       ▼                       │
+        │                Document Workspace             │
+        │                       │                       │
+        │                Vector Repository              │
+        │                       │                       │
+        │                       ▼                       │
+        │                pgvector RAG                   │
+        │                                               │
+        ▼                                               ▼
+    PostgreSQL                                      AI Providers
+                                                    │    │    │
+                                                 Gemini Ollama OpenAI
 ```
 
 ---
@@ -51,11 +66,13 @@ Production FastAPI backend for the AI Engine application.
 
 ```text
 backend/
+
 │
 ├── app/
 │   ├── api/
 │   │   ├── auth.py
 │   │   ├── chat.py
+│   │   ├── documents.py
 │   │   ├── health.py
 │   │   ├── user.py
 │   │   └── v1_router.py
@@ -74,13 +91,16 @@ backend/
 │   │
 │   ├── repositories/
 │   │   ├── chat_repo.py
+│   │   ├── document_repo.py
 │   │   └── vector_repo.py
 │   │
 │   ├── schemas/
-│   │   └── chat_schema.py
+│   │   ├── chat_schema.py
+│   │   └── document_schema.py
 │   │
 │   ├── services/
 │   │   ├── chat_service.py
+│   │   ├── document_ingestion_service.py
 │   │   ├── embedding_service.py
 │   │   └── providers/
 │   │
@@ -114,16 +134,18 @@ Responsibilities include:
 * chat operations
 * streaming responses
 * file uploads
+* document operations
 * health checks
 * user endpoints
 
 ## `services/`
 
-Application/business orchestration.
+Application and business orchestration.
 
 Examples:
 
 * `ChatApplicationService`
+* `DocumentIngestionService`
 * `EmbeddingService`
 * provider implementations
 
@@ -134,9 +156,10 @@ Persistence and retrieval boundary.
 Examples:
 
 * `ChatRepository`
+* `DocumentRepository`
 * `VectorRepository`
 
-Repositories enforce ownership/scoping rules before accessing user-specific resources.
+Repositories enforce ownership and resource-scoping rules before accessing user-specific resources.
 
 ## `core/`
 
@@ -192,7 +215,7 @@ Primary AI endpoint:
 POST /chat/stream
 ```
 
-Request model:
+Request model supports fields equivalent to:
 
 ```json
 {
@@ -203,11 +226,24 @@ Request model:
   "provider": "gemini",
   "file_context": null,
   "image_base64": [],
-  "image_mime": []
+  "image_mime": [],
+  "document_id": null
 }
 ```
 
-The model and provider fields are optional and are resolved against chat/application configuration when necessary.
+`document_id` is optional.
+
+When omitted, the backend automatically resolves the newest ready document associated with the target chat.
+
+When supplied, the backend validates:
+
+* document existence
+* document ownership
+* chat ownership
+* document/chat relationship
+* document readiness
+
+Invalid explicit document selections return an error and do not silently fall back.
 
 ---
 
@@ -279,43 +315,158 @@ Exactly one terminal lifecycle state should be emitted for a stream.
 
 ---
 
+# Document Workspace
+
+Documents are first-class backend resources:
+
+```text
+User
+ └── Chat
+      └── Document
+           └── DocumentChunk
+```
+
+Every document is owned by both a user and a chat.
+
+Document states:
+
+```text
+processing
+ready
+failed
+```
+
+Repository and API operations enforce:
+
+```text
+authenticated user
+        ↓
+owned chat
+        ↓
+owned document
+```
+
+Cross-user and cross-chat access is rejected.
+
+Document operations include:
+
+```text
+GET    /documents/chat/{chat_id}
+GET    /documents/{document_id}
+PATCH  /documents/{document_id}
+DELETE /documents/{document_id}
+```
+
+Vector operations are document-scoped.
+
+The legacy chat relationship remains available where required for transitional compatibility, but document identity is the source of truth for vector operations.
+
+---
+
 # RAG Pipeline
 
 ```text
-PDF
- │
- ▼
-Upload validation
- │
- ├── size limit
- ├── extension validation
- ├── content-type validation
- ├── PDF signature validation
- └── page/text/chunk limits
- │
- ▼
-PDF text extraction
- │
- ▼
+PDF upload
+    ↓
+Document created: processing
+    ↓
+PDF validation
+    ↓
+Text extraction
+    ↓
 Chunk generation
- │
- ▼
-Embedding provider
- │
- ▼
+    ↓
+Embedding generation
+    ↓
 PostgreSQL + pgvector
- │
- ▼
-Similarity search
- │
- ▼
+    ↓
+Document marked ready
+    ↓
+Chat request
+    ↓
+Explicit document selection
+       OR
+newest ready document fallback
+    ↓
+Document-scoped similarity search
+    ↓
 Ranked chunks
- │
- ▼
-LLM prompt/context
+    ↓
+LLM context
+    ↓
+Answer + persisted source metadata
 ```
 
-Production retrieval uses user and chat scoping to prevent cross-user vector access.
+Explicit document selection is validated against the authenticated user and target chat.
+
+If an explicit document is:
+
+* nonexistent
+* unauthorized
+* cross-user
+* cross-chat
+* processing
+* failed
+
+the request fails rather than silently falling back to another document.
+
+---
+
+# Persisted Citations
+
+Retrieved source metadata is persisted with the completed assistant message.
+
+The SSE protocol exposes sources separately:
+
+```text
+sources
+chunk
+stream_completed
+```
+
+Persisted source metadata is restored when chat history is loaded.
+
+The backend does not persist or expose raw retrieved chunk text as citation metadata.
+
+Persisted source metadata includes:
+
+```text
+id
+page_number
+chunk_index
+distance
+```
+
+Internal retrieval details are sanitized before persistence or client exposure.
+
+---
+
+# Chat Personas & Custom Instructions
+
+Chats support persisted:
+
+```text
+persona
+custom_instructions
+```
+
+These values are incorporated into the runtime system prompt before optional RAG context.
+
+The effective runtime prompt structure is:
+
+```text
+Base system behavior
+        ↓
+Persona guidelines
+        ↓
+Custom instructions
+        ↓
+RAG context
+        ↓
+User request
+```
+
+Persona updates are ownership-scoped and cannot modify another user's chat.
 
 ---
 
@@ -342,7 +493,7 @@ ALLOWED_ORIGINS
 
 `ALLOWED_ORIGINS` must contain explicit comma-separated origins.
 
-Wildcard CORS is rejected.
+Wildcard production CORS is rejected.
 
 ---
 
@@ -350,6 +501,7 @@ Wildcard CORS is rejected.
 
 ```text
 DATABASE_URL
+
 DB_POOL_SIZE=10
 DB_MAX_OVERFLOW=20
 DB_POOL_TIMEOUT=30
@@ -386,13 +538,19 @@ Defaults:
 
 ```text
 MAX_UPLOAD_SIZE_BYTES=10485760
+
 MAX_PDF_PAGES=100
+
 MAX_EXTRACTED_TEXT_CHARS=2000000
+
 MAX_DOCUMENT_CHUNKS=5000
+
 MAX_CHUNK_EMBEDDINGS=5000
 ```
 
 These values are configurable through environment variables.
+
+The frontend upload contract is aligned with the backend's 10 MiB maximum upload size.
 
 ---
 
@@ -400,11 +558,15 @@ These values are configurable through environment variables.
 
 ```text
 AI_CONNECT_TIMEOUT=10
+
 AI_READ_TIMEOUT=60
+
 AI_WRITE_TIMEOUT=10
+
 AI_POOL_TIMEOUT=5
 
 AI_REQUEST_TIMEOUT=120
+
 AI_STREAM_MAX_SECONDS=120
 ```
 
@@ -412,8 +574,11 @@ Gemini worker configuration:
 
 ```text
 GEMINI_MAX_WORKERS=4
+
 GEMINI_WORKER_JOIN_TIMEOUT=0.5
+
 GEMINI_QUEUE_SIZE=32
+
 GEMINI_QUEUE_POLL_SECONDS=0.25
 ```
 
@@ -455,7 +620,10 @@ REDIS_PORT=6379
 REDIS_URL=redis://localhost:6379
 ```
 
-Redis is used by the rate limiter and readiness probe.
+Redis is used by:
+
+* rate limiting
+* readiness probes
 
 Production uses Upstash Redis.
 
@@ -540,7 +708,7 @@ embeddings
 
 Operational telemetry records metadata rather than sensitive payloads.
 
-For AI generation:
+For AI generation, acceptable operational metadata includes:
 
 ```text
 provider
@@ -550,8 +718,6 @@ duration_ms
 time_to_first_token_ms
 error_code
 ```
-
-are acceptable operational metadata.
 
 ---
 
@@ -681,18 +847,30 @@ The checks are bounded and independent.
 Current migration head:
 
 ```text
-7a99b1a5acae
+c7efc0cfd435
 ```
 
 Migration chain:
 
 ```text
 744e13609578
+       ↓
 19b113b14a35
+       ↓
 444652176ea6
+       ↓
 d3ba22db292b
+       ↓
 7a99b1a5acae
+       ↓
+21f288e57a41
+       ↓
+e1256d638e34
+       ↓
+c7efc0cfd435
 ```
+
+The migration history is linear.
 
 ## Step 1 — Inspect current revision
 
@@ -703,7 +881,7 @@ alembic current
 Expected production head:
 
 ```text
-7a99b1a5acae
+c7efc0cfd435
 ```
 
 ## Step 2 — Inspect migration graph
@@ -715,7 +893,7 @@ alembic heads
 Expected:
 
 ```text
-7a99b1a5acae
+c7efc0cfd435
 ```
 
 There should be exactly one head.
@@ -726,7 +904,7 @@ There should be exactly one head.
 alembic upgrade head
 ```
 
-This applies all pending migrations transactionally where supported by PostgreSQL.
+This applies all pending migrations through the migration system.
 
 ## Step 4 — Verify revision
 
@@ -737,7 +915,7 @@ alembic current
 Confirm:
 
 ```text
-7a99b1a5acae
+c7efc0cfd435
 ```
 
 ## Step 5 — Verify application readiness
@@ -764,7 +942,7 @@ Expected:
 
 The migration chain initializes the pgvector extension through the migration that introduces vector support.
 
-The expected migration sequence is:
+The current migration sequence includes:
 
 ```text
 initial schema
@@ -776,9 +954,34 @@ chunk metadata
 chat embedding provider
       ↓
 reset token hash + expiry
+      ↓
+persisted message sources
+      ↓
+chat personas + custom instructions
+      ↓
+Document Workspace and document/chunk linkage
 ```
 
 Do not manually mutate production schema outside the migration system.
+
+---
+
+# Continuous Integration
+
+Backend CI runs on pull requests targeting `main`.
+
+The backend CI job uses:
+
+* Python 3.11
+* PostgreSQL 16 with pgvector
+* Redis 7
+* exact-pinned `requirements.txt`
+* Alembic migrations
+* pytest
+
+The CI database and Redis services are health-checked before migrations and tests execute.
+
+The CI workflow does not deploy automatically.
 
 ---
 
@@ -788,6 +991,7 @@ Production service:
 
 ```text
 Render Web Service
+
 Name: ai-engine
 Working directory: backend/
 ```
@@ -842,10 +1046,10 @@ For local development, migrations should be run explicitly before starting the a
 
 # Testing
 
-The backend release gate is:
+The current backend release gate is:
 
 ```text
-145 / 145 tests passing
+185 / 185 tests passing
 ```
 
 Run the test suite locally:
@@ -862,13 +1066,13 @@ Example:
 docker compose run --rm backend pytest
 ```
 
-or execute the equivalent project-specific Docker test command used by the development environment.
-
 Expected result:
 
 ```text
-145 passed
+185 passed
 ```
+
+The CI pipeline additionally runs the backend against PostgreSQL/pgvector and Redis service containers.
 
 ---
 
@@ -879,6 +1083,8 @@ The backend test suite covers:
 * authentication security
 * IDOR protection
 * vector ownership
+* document ownership
+* document/chat isolation
 * persistence consistency
 * upload hardening
 * ingestion integrity
@@ -893,6 +1099,10 @@ The backend test suite covers:
 * database recovery
 * Redis recovery
 * rollback after database failure
+* persisted citation behavior
+* chat persona behavior
+* explicit document selection
+* document fallback behavior
 
 Failure resilience specifically verifies that transient database and Redis failures can recover without requiring an application/container restart.
 
@@ -901,11 +1111,10 @@ Failure resilience specifically verifies that transient database and Redis failu
 # Production Baseline
 
 ```text
-Release:       27882ed
-Branch:        main
-Alembic head:  7a99b1a5acae
-Tests:         145 / 145
-Status:        GO
+Branch:         main
+Alembic head:   c7efc0cfd435
+Backend tests:  185 / 185
+Status:         GO
 ```
 
 The backend is approved for the current production release.
