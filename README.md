@@ -1,13 +1,21 @@
 # AI Engine
 
-Production-grade full-stack AI application with authenticated chat, multi-provider LLM streaming, PDF/RAG retrieval, vector search, structured citations, multimodal input, and operational observability.
+Production-grade full-stack AI application with authenticated chat, multi-provider LLM streaming, PDF/RAG retrieval, vector search, persisted citations, multimodal input, document workspace management, chat personas, custom instructions, and operational observability.
 
-**Production baseline:** `27882ed`
 **Branch:** `main`
+
 **Backend:** FastAPI / Python 3.11
+
 **Frontend:** Next.js 16 / React 19 / TypeScript
+
 **Database:** PostgreSQL + pgvector
+
+**Cache / Rate Limiting:** Redis
+
 **Deployment:** Vercel + Render
+
+**CI:** GitHub Actions
+
 **Status:** Production — GO
 
 ---
@@ -27,7 +35,10 @@ The application provides:
 * Gemini/Ollama embeddings
 * PostgreSQL + pgvector similarity search
 * Retrieval-Augmented Generation (RAG)
-* In-memory source/citation metadata
+* Persisted RAG source/citation metadata
+* Document Workspace with per-chat document isolation
+* Explicit document selection with newest-ready fallback
+* Chat personas and custom instructions
 * Image/multimodal input
 * Request correlation IDs
 * Structured JSON operational logging
@@ -67,41 +78,41 @@ The application provides:
                                        │
                                        ▼
                     ┌──────────────────────────────────────┐
-                    │           Render Web Service          │
+                    │          Render Web Service           │
                     │                                      │
-                    │             FastAPI                   │
+                    │               FastAPI                │
                     │                                      │
                     │  Correlation ID Middleware            │
                     │  CORS / Rate Limiting                 │
-                    │  Error Taxonomy / Exception Boundary  │
-                    │  Authentication / Authorization       │
+                    │  Error Taxonomy / Exception Boundary │
+                    │  Authentication / Authorization      │
                     │                                      │
                     │  ┌────────────────────────────────┐  │
-                    │  │        Chat API / Service       │  │
+                    │  │       Chat API / Service         │  │
                     │  │                                │  │
-                    │  │  Provider Resolution            │  │
-                    │  │  RAG Retrieval                  │  │
-                    │  │  SSE Generation                 │  │
-                    │  │  Persistence                    │  │
+                    │  │  Provider Resolution           │  │
+                    │  │  Document Resolution           │  │
+                    │  │  RAG Retrieval                 │  │
+                    │  │  SSE Generation                │  │
+                    │  │  Persistence                   │  │
                     │  └───────────────┬────────────────┘  │
                     │                  │                   │
                     │       ┌──────────┴──────────┐        │
                     │       │                     │        │
                     │       ▼                     ▼        │
-                    │  Embedding Service      LLM Factory │
-                    │       │                     │        │
+                    │  Embedding Service      LLM Factory  │
                     └───────┼─────────────────────┼────────┘
                             │                     │
-             ┌──────────────┼───────┐       ┌─────┼──────────────┐
-             │              │       │       │     │              │
-             ▼              ▼       ▼       ▼     ▼              ▼
-       ┌──────────┐   ┌─────────┐ ┌─────┐ ┌───────┐ ┌────────┐
-       │ Supabase │   │ Upstash │ │Cloud│ │Gemini │ │ Ollama │
-       │PostgreSQL│   │  Redis  │ │inary│ │       │ │        │
-       │ + pgvector│  │         │ │     │ │       │ │        │
-       └──────────┘   └─────────┘ └─────┘ └───────┘ └────────┘
-                                               │
-                                               ▼
+             ┌──────────────┼──────────┐     ┌────┼──────────────┐
+             │              │          │     │    │              │
+             ▼              ▼          ▼     ▼    ▼              ▼
+       ┌──────────┐   ┌─────────┐ ┌───────┐ ┌───────┐ ┌────────┐
+       │ Supabase │   │ Upstash │ │Cloud- │ │Gemini │ │ Ollama │
+       │PostgreSQL│  │  Redis  │ │inary  │ │       │ │        │
+       │ + pgvector│ │         │ │       │ │       │ │        │
+       └──────────┘   └─────────┘ └───────┘ └───────┘ └────────┘
+                                                │
+                                                ▼
                                            ┌────────┐
                                            │ OpenAI │
                                            └────────┘
@@ -126,17 +137,26 @@ FastAPI
     ├── Validate request
     ├── Resolve provider/model
     │
-    ├── PDF context available?
+    ├── Document explicitly selected?
+    │       │
+    │       ├── yes → validate ownership + ready state
+    │       │
+    │       └── no
+    │             │
+    │             ▼
+    │       Resolve newest ready document
+    │
+    ├── Document available?
     │       │
     │       └── yes
-    │            │
-    │            ▼
+    │             │
+    │             ▼
     │       Generate embedding
-    │            │
-    │            ▼
+    │             │
+    │             ▼
     │       pgvector similarity search
-    │            │
-    │            ▼
+    │             │
+    │             ▼
     │       Ranked source chunks
     │
     ▼
@@ -168,12 +188,14 @@ Citation UI
 
 ```text
 ai-engine/
+
 │
 ├── backend/
 │   ├── app/
 │   │   ├── api/
 │   │   │   ├── auth.py
 │   │   │   ├── chat.py
+│   │   │   ├── documents.py
 │   │   │   ├── health.py
 │   │   │   ├── user.py
 │   │   │   └── v1_router.py
@@ -192,13 +214,16 @@ ai-engine/
 │   │   │
 │   │   ├── repositories/
 │   │   │   ├── chat_repo.py
+│   │   │   ├── document_repo.py
 │   │   │   └── vector_repo.py
 │   │   │
 │   │   ├── schemas/
-│   │   │   └── chat_schema.py
+│   │   │   ├── chat_schema.py
+│   │   │   └── document_schema.py
 │   │   │
 │   │   ├── services/
 │   │   │   ├── chat_service.py
+│   │   │   ├── document_ingestion_service.py
 │   │   │   ├── embedding_service.py
 │   │   │   └── providers/
 │   │   │
@@ -220,7 +245,8 @@ ai-engine/
 │   │   ├── app/
 │   │   ├── features/
 │   │   │   ├── auth/
-│   │   │   └── chat/
+│   │   │   ├── chat/
+│   │   │   └── documents/
 │   │   ├── lib/
 │   │   │   ├── api/
 │   │   │   └── errors/
@@ -236,7 +262,9 @@ ai-engine/
 └── README.md
 ```
 
-The frontend is an **in-place Next.js replacement** for the legacy Vue frontend. There is no separate `frontend-next/` application.
+The frontend is an **in-place Next.js replacement** for the legacy Vue frontend.
+
+There is no separate `frontend-next/` application.
 
 ---
 
@@ -281,18 +309,92 @@ Embedding generation
     ↓
 PostgreSQL + pgvector
     ↓
-Similarity search
+Document-scoped similarity search
     ↓
 Ranked chunks
     ↓
 LLM context
     ↓
-Answer + source metadata
+Answer + persisted source metadata
 ```
 
 The production system uses PostgreSQL with pgvector for vector retrieval.
 
-## Streaming
+---
+
+# Document Workspace
+
+Documents are first-class resources scoped through the ownership chain:
+
+```text
+User
+ └── Chat
+      └── Document
+           └── DocumentChunk
+```
+
+Each document belongs to both a user and a chat.
+
+Document lifecycle states are:
+
+```text
+processing
+ready
+failed
+```
+
+Document operations enforce user → chat → document ownership.
+
+For RAG requests:
+
+* an explicitly selected document is used when supplied
+* the selected document must belong to the authenticated user and target chat
+* the selected document must be `ready`
+* invalid explicit selections return an error and do not silently fall back
+* when no document is selected, retrieval automatically uses the newest ready document for the chat
+
+Vector retrieval is strictly document-scoped.
+
+The frontend provides document workspace controls for:
+
+* listing documents
+* selecting a document for chat retrieval
+* uploading PDFs
+* observing processing status
+* editing supported metadata
+* deleting documents
+* clearing a deleted document's active selection
+
+---
+
+# Chat Personas & Custom Instructions
+
+Each chat can optionally define:
+
+* a persona
+* custom instructions
+
+These settings are persisted with the chat and incorporated into the runtime system prompt.
+
+The effective prompt layers are:
+
+```text
+Base system behavior
+        ↓
+Persona guidelines
+        ↓
+Custom instructions
+        ↓
+RAG context
+        ↓
+User request
+```
+
+Persona and instruction updates are ownership-scoped to the authenticated chat owner.
+
+---
+
+# Streaming
 
 AI responses use structured Server-Sent Events rather than a single blocking response.
 
@@ -307,19 +409,43 @@ stream_error
 stream_cancelled
 ```
 
-The frontend protects against stale streams, chat switching, retry races, cancellation races, and late events from previous requests.
+The frontend protects against:
 
-## Multimodal Input
+* stale streams
+* chat switching races
+* retry races
+* cancellation races
+* deletion during streaming
+* late events from previous requests
 
-The frontend supports image attachments with a maximum of four images per request. Object URLs are cleaned up when no longer required.
+Exactly one terminal stream state is expected.
 
-## Citations
+---
 
-Retrieved RAG sources are transmitted separately from generated text.
+# Citations
 
-The frontend renders source metadata through an inline collapsible citation UI.
+RAG source metadata is emitted separately from generated text through the SSE `sources` event.
 
-Citation metadata currently exists in-memory on the client and is intentionally not duplicated into the relational `messages` table.
+Sources are persisted with the completed assistant message in PostgreSQL and restored when chat history is hydrated.
+
+Persisted citation metadata includes:
+
+* source document chunk ID
+* page number
+* chunk index
+* retrieval distance
+
+Internal retrieval details are sanitized before persistence or client exposure.
+
+The frontend renders persisted citations through the citation UI.
+
+---
+
+# Multimodal Input
+
+The frontend supports image attachments with a maximum of four images per request.
+
+Object URLs are cleaned up when no longer required.
 
 ---
 
@@ -337,7 +463,7 @@ event
 correlation_id
 ```
 
-Sensitive payloads are excluded/redacted, including:
+Sensitive payloads are excluded or redacted, including:
 
 ```text
 prompt
@@ -366,7 +492,7 @@ Generated prompts, completions, PDF contents, embeddings, JWTs, and credentials 
 
 # Health Endpoints
 
-### Liveness
+## Liveness
 
 ```http
 GET /health/live
@@ -382,7 +508,7 @@ Expected:
 
 This endpoint does not require database or Redis availability.
 
-### Readiness
+## Readiness
 
 ```http
 GET /health/ready
@@ -435,7 +561,6 @@ The backend image is based on `python:3.11-slim`.
 
 ```bash
 cd backend
-
 python -m venv .venv
 ```
 
@@ -468,8 +593,6 @@ Backend:
 ```text
 http://localhost:8000
 ```
-
----
 
 ## Frontend
 
@@ -507,8 +630,6 @@ Required public environment variables:
 NEXT_PUBLIC_API_URL
 NEXT_PUBLIC_GOOGLE_CLIENT_ID
 ```
-
----
 
 ## Backend — Render
 
@@ -556,10 +677,10 @@ Production PostgreSQL database with:
 
 * PostgreSQL
 * pgvector
-* relational chat/user/message storage
-* document chunks
-* vector indexes
-* automated physical snapshots
+* relational user/chat/message storage
+* document and document chunk storage
+* vector retrieval
+* automated database infrastructure/backups provided by the platform
 
 ## Upstash Redis
 
@@ -581,7 +702,7 @@ Credentials remain server-side.
 The project currently has one Alembic head:
 
 ```text
-7a99b1a5acae
+c7efc0cfd435
 ```
 
 Migration chain:
@@ -596,27 +717,85 @@ Migration chain:
 d3ba22db292b
        ↓
 7a99b1a5acae
+       ↓
+21f288e57a41
+       ↓
+e1256d638e34
+       ↓
+c7efc0cfd435
 ```
 
-The migration history is linear and includes deterministic pgvector initialization.
+The migration history is linear.
+
+Key milestones include:
+
+* PostgreSQL + pgvector initialization
+* document chunk metadata
+* chat embedding provider configuration
+* reset-token hardening
+* persisted message sources
+* chat personas and custom instructions
+* Document Workspace creation
+* document/chunk linkage
+
+Run locally:
+
+```bash
+alembic upgrade head
+```
+
+Verify:
+
+```bash
+alembic current
+alembic heads
+```
+
+There should be exactly one head:
+
+```text
+c7efc0cfd435
+```
+
+---
+
+# Continuous Integration
+
+GitHub Actions runs on pull requests targeting `main`.
+
+The CI pipeline verifies:
+
+## Backend
+
+* Python 3.11
+* PostgreSQL 16 with pgvector
+* Redis 7
+* Alembic migrations
+* backend test suite
+
+## Frontend
+
+* Node.js 20
+* `npm ci`
+* Vitest tests
+* ESLint
+* production build
+
+The CI environment uses PostgreSQL/pgvector and Redis service containers to exercise the backend against production-relevant infrastructure.
+
+CI does not deploy automatically.
 
 ---
 
 # Production Verification
 
-Release baseline:
-
-```text
-27882ed
-```
-
 Final backend verification:
 
 ```text
-145 / 145 tests passing
+185 / 185 tests passing
 ```
 
-Production smoke testing verified:
+Production smoke testing has verified:
 
 * Google authentication
 * JWT session management
@@ -625,11 +804,28 @@ Production smoke testing verified:
 * rename
 * deletion
 * PDF ingestion
+* document workspace
+* document selection
+* document ownership isolation
 * vector retrieval
 * provider failure handling
 * safe error responses
 * correlation IDs
 * production health/readiness
+* persisted citation hydration
+* chat persona/custom instruction behavior
+
+Frontend production verification includes:
+
+* Vitest suite
+* ESLint
+* Next.js production build
+* responsive/mobile behavior
+* accessibility checks
+* streaming race protection
+* document workspace lifecycle
+* citation rendering
+* document selection integration
 
 ---
 
@@ -641,7 +837,8 @@ The application enforces:
 * user ownership checks
 * IDOR protection
 * authenticated chat access
-* scoped vector retrieval
+* user/chat/document ownership validation
+* document-scoped vector retrieval
 * explicit CORS origins
 * rate limiting
 * upload size/page/chunk limits
@@ -653,34 +850,44 @@ The application enforces:
 
 Internal database, provider, and infrastructure exceptions are not exposed directly to clients.
 
+Explicit document selection does not silently fall back when the supplied document is invalid or unauthorized.
+
 ---
 
 # Release Status
 
 ```text
-Phase 5.1  Production Configuration       ✅
-Phase 5.2  Security & Secret Hardening    ✅
-Phase 5.3  Reliability Verification       ✅
-Phase 5.4  DB / Migration / Recovery      ✅
-Phase 5.5  Production Deployment/Smoke    ✅
+Phase 5.1  Production Configuration        ✅
+Phase 5.2  Security & Secret Hardening     ✅
+Phase 5.3  Reliability Verification        ✅
+Phase 5.4  DB / Migration / Recovery       ✅
+Phase 5.5  Production Deployment/Smoke     ✅
 Phase 5.6  Final Release Gate              ✅
 ```
 
 **Release decision: GO**
 
-**Production baseline: `27882ed`**
+The current `main` branch represents the production application baseline.
 
 ---
 
 # Known Operational Contracts
 
-### Citation persistence
+## Citation persistence
 
-Citation metadata is currently delivered through the live SSE stream and stored in frontend memory.
+Citation metadata is emitted through the live SSE `sources` event and persisted with completed assistant messages.
 
-It is not persisted as a separate relational message field.
+Persisted citations are restored when chat history is hydrated.
 
-### Local LLM fallback
+## Document selection
+
+A chat may optionally select a specific ready document for RAG retrieval.
+
+When no document is selected, the backend automatically resolves the newest ready document for the chat.
+
+An explicitly supplied invalid, unauthorized, processing, failed, cross-chat, or cross-user document does not trigger fallback retrieval.
+
+## Local LLM fallback
 
 Ollama remains supported by the application architecture, but the production cloud deployment does not host a local Ollama daemon on the free-tier infrastructure.
 
@@ -696,4 +903,6 @@ GitHub: `https://github.com/HMHHBI`
 
 # License
 
-Add the project's chosen license here when a repository license is formally established.
+MIT License.
+
+See `LICENSE` for the full license text.
