@@ -1,11 +1,18 @@
 import os
 import psutil
-from typing import Tuple
+from typing import Tuple, Optional
 
 
 class ProcessSampler:
-    def __init__(self, pid: int = None):
-        self.process = psutil.Process(pid or os.getpid())
+    """
+    Samples process telemetry.
+    Defaults to the benchmark runner process unless TARGET_PID / pid is explicitly passed.
+    Note: Client-side sampling measures the benchmark runner overhead. For container/host
+    backend measurements, pass the backend server PID or use container stats.
+    """
+    def __init__(self, pid: Optional[int] = None):
+        target_pid = pid or (int(os.environ["TARGET_PID"]) if os.getenv("TARGET_PID") else os.getpid())
+        self.process = psutil.Process(target_pid)
 
     def sample(self) -> Tuple[float, float]:
         """Returns (cpu_percent, rss_mb)."""

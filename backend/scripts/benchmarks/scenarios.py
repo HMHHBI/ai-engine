@@ -72,7 +72,8 @@ async def benchmark_chat_stream(
                         result.errors += 1
                         return
 
-                    # RAG retrieval completes when "sources" event arrives
+                    # Client-perceived wire boundary: arrival of "sources" SSE frame
+                    # Reflects network + RAG embedding + similarity search before provider streaming starts
                     if current_event == "sources" and retrieval_ms is None:
                         retrieval_ms = (time.perf_counter() - t0) * 1000.0
 

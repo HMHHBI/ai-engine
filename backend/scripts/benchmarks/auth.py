@@ -1,9 +1,11 @@
 import os
+import secrets
 from typing import Dict
 import httpx
 
 BENCHMARK_EMAIL = os.getenv("BENCHMARK_EMAIL", "perf_test_runner@benchmark.internal")
-BENCHMARK_PASSWORD = os.getenv("BENCHMARK_PASSWORD", "PerfRunnerSecret#2026")
+# Dynamic fallback to prevent committing static credentials
+BENCHMARK_PASSWORD = os.getenv("BENCHMARK_PASSWORD") or secrets.token_urlsafe(24)
 BENCHMARK_NAME = os.getenv("BENCHMARK_NAME", "Benchmark Runner")
 
 
