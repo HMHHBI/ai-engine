@@ -6,10 +6,10 @@ Characterizes:
 2. Workload B: RAG (500 chunks, top_k=6) + Ollama (llama3.2)
 3. Workload C: Non-RAG + Gemini (gemini-2.5-flash)
 4. Workload D: RAG (500 chunks, top_k=6) + Gemini (gemini-2.5-flash)
-5. Concurrency Sweep: C in {1, 2, 4, 8} (and C=16 if stable)
+5. Concurrency Sweep: C in {1, 2, 4, 8}
 6. Metrics: TTFT, Duration, E2E Latency, Speedup, Efficiency, Chars/sec, Chunks/sec
-7. Resource Attribution: CPU % (peak/avg), RSS Memory delta (start/peak/end)
-8. Lifecycle Verification: stream_started -> chunk -> exactly one terminal event
+7. Resource Attribution: CPU % (avg/peak), RSS Memory MB (start, observed peak, end, delta)
+8. Lifecycle Verification: stream_started -> chunk -> terminal event
 """
 
 import asyncio
@@ -153,10 +153,6 @@ class StreamCollector:
         self.has_stream_started: bool = False
 
     def parse_sse_line(self, line: str, current_event: Optional[str]) -> Tuple[Optional[str], bool]:
-        """
-        Parses a single line of SSE wire output.
-        Returns: (updated_event, is_completed)
-        """
         if not line or line.startswith(":"):
             return current_event, False
 
@@ -290,20 +286,21 @@ async def run_concurrency_batch(
     rss_start = process.memory_info().rss / (1024 * 1024)
 
     cpu_samples: List[float] = []
+    rss_samples: List[float] = [rss_start]
     stop_sampler = asyncio.Event()
 
-    async def sample_cpu():
+    async def sample_resources():
         while not stop_sampler.is_set():
             cpu_samples.append(process.cpu_percent(interval=None))
+            rss_samples.append(process.memory_info().rss / (1024 * 1024))
             await asyncio.sleep(0.1)
 
-    sampler_task = asyncio.create_task(sample_cpu())
+    sampler_task = asyncio.create_task(sample_resources())
 
     sem = asyncio.Semaphore(concurrency)
     created_chat_ids: List[int] = []
     results: List[Dict[str, Any]] = []
 
-    # Pre-create independent chats for each request to avoid concurrent chat-lock or title conflicts
     for i in range(n_requests):
         c_id = create_ephemeral_chat(user_id, f"Bench Chat C{concurrency}_{i}")
         created_chat_ids.append(c_id)
@@ -331,12 +328,10 @@ async def run_concurrency_batch(
     await sampler_task
 
     rss_end = process.memory_info().rss / (1024 * 1024)
-    rss_peak = rss_end  # In Linux cgroup / container, current RSS at workload end approximates peak
+    rss_peak = max(rss_samples)
 
-    # Cleanup ephemeral chats
     cleanup_fixtures(created_chat_ids, [])
 
-    # Calculate metrics
     successful = [r for r in results if r["success"]]
     failed = [r for r in results if not r["success"]]
     throughput = len(successful) / wall_duration if wall_duration > 0 else 0.0
@@ -378,6 +373,7 @@ async def run_concurrency_batch(
         "cpu_avg_pct": round(statistics.mean(cpu_samples), 1) if cpu_samples else 0.0,
         "cpu_peak_pct": round(max(cpu_samples), 1) if cpu_samples else 0.0,
         "rss_start_mb": round(rss_start, 2),
+        "rss_peak_mb": round(rss_peak, 2),
         "rss_end_mb": round(rss_end, 2),
         "rss_delta_mb": round(rss_end - rss_start, 2),
         "errors": [r["error"] for r in failed if r["error"]],
@@ -403,7 +399,6 @@ async def run_workload_suite(
     print(f"  Provider: {provider} | Model: {model} | RAG: {document_id is not None}")
     print(f"=======================================================")
 
-    # Warmup
     print("Executing warmup stream...")
     c_warmup = create_ephemeral_chat(user_id, "Warmup Chat")
     async with httpx.AsyncClient(base_url=APP_BASE_URL, timeout=60.0) as client:
@@ -454,7 +449,6 @@ async def run_workload_suite(
         )
         workload_results.append(metrics)
 
-        # Early check: if C=8 collapsed or failed heavily, skip C=16
         if metrics["failed"] > (n_requests_per_c // 2):
             print(f"High failure rate detected at C={c}. Halting concurrency progression.")
             break
@@ -477,8 +471,8 @@ def export_full_p205_report(all_workloads: Dict[str, Any]) -> Tuple[pathlib.Path
         for w_name, w_data in all_workloads.items():
             f.write(f"## Workload: {w_name}\n\n")
             f.write(f"- **Provider:** {w_data['provider']} | **Model:** {w_data['model']} | **RAG Enabled:** {w_data['rag']}\n\n")
-            f.write("| C | QPS | Speedup | Efficiency | TTFT p50 (ms) | TTFT p95 (ms) | Duration p50 (ms) | Chars/s | CPU Avg/Peak % | RSS Delta (MB) | Errors |\n")
-            f.write("|---|---|---|---|---|---|---|---|---|---|---|\n")
+            f.write("| C | QPS | Speedup | Efficiency | TTFT p50 (ms) | TTFT p95 (ms) | Duration p50 (ms) | Chars/s | CPU Avg/Peak % | RSS Peak (MB) | RSS Delta (MB) | Errors |\n")
+            f.write("|---|---|---|---|---|---|---|---|---|---|---|---|\n")
             for row in w_data["results"]:
                 f.write(
                     f"| {row['concurrency']} "
@@ -490,6 +484,7 @@ def export_full_p205_report(all_workloads: Dict[str, Any]) -> Tuple[pathlib.Path
                     f"| {row['duration_p50_ms']} "
                     f"| {row['chars_per_sec']} "
                     f"| {row['cpu_avg_pct']}% / {row['cpu_peak_pct']}% "
+                    f"| {row['rss_peak_mb']} "
                     f"| {row['rss_delta_mb']} "
                     f"| {row['failed']} |\n"
                 )
@@ -509,7 +504,6 @@ async def main():
     user = ensure_bench_user()
     token = create_access_token(user_id=user.id)
 
-    # Fixed seed RAG document (500 chunks)
     print("Seeding baseline RAG document fixture (500 chunks)...")
     rag_chat_id, rag_doc_id = seed_rag_document(user.id, chunk_count=500)
     print(f"Seeded RAG fixture: doc_id={rag_doc_id}, chat_id={rag_chat_id}")
@@ -596,7 +590,6 @@ async def main():
             "results": res_d,
         }
 
-        # Export full report
         export_full_p205_report(all_workloads)
 
     finally:
