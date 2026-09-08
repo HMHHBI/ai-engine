@@ -22,6 +22,17 @@ class DocumentChunk:
 
 
 class EmbeddingService:
+    _client: Optional[httpx.AsyncClient] = None
+
+    @classmethod
+    def set_client(cls, client: Optional[httpx.AsyncClient]) -> None:
+        """Configure the persistent HTTP client instance managed by app lifecycle."""
+        cls._client = client
+
+    @classmethod
+    def get_client(cls) -> Optional[httpx.AsyncClient]:
+        """Retrieve configured persistent client if available."""
+        return cls._client
     @staticmethod
     def chunk_text(
         pages: Union[List[PDFPage], str],
@@ -228,8 +239,9 @@ class EmbeddingService:
 
         raise TypeError("pages must be a list of PDFPage objects or a string.")
 
-    @staticmethod
+    @classmethod
     async def generate_embedding(
+        cls,
         text: str,
         model_provider: str,
     ) -> Optional[List[float]]:
@@ -271,8 +283,12 @@ class EmbeddingService:
             }
 
             try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
+                client = cls._client
+                if client is not None and not client.is_closed:
                     response = await client.post(url, headers=headers, json=payload)
+                else:
+                    async with httpx.AsyncClient(timeout=30.0) as temp_client:
+                        response = await temp_client.post(url, headers=headers, json=payload)
 
                 if response.status_code == 200:
                     data = response.json()
@@ -319,7 +335,8 @@ class EmbeddingService:
             ) or getattr(settings, "OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
 
             try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
+                client = cls._client
+                if client is not None and not client.is_closed:
                     response = await client.post(
                         f"{ollama_url}/api/embeddings",
                         json={
@@ -327,6 +344,15 @@ class EmbeddingService:
                             "prompt": text.strip(),
                         },
                     )
+                else:
+                    async with httpx.AsyncClient(timeout=30.0) as temp_client:
+                        response = await temp_client.post(
+                            f"{ollama_url}/api/embeddings",
+                            json={
+                                "model": model_name,
+                                "prompt": text.strip(),
+                            },
+                        )
 
                 if response.status_code == 200:
                     data = response.json()

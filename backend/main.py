@@ -1,3 +1,5 @@
+from app.services.embedding_service import EmbeddingService
+import httpx
 from contextlib import asynccontextmanager
 import logging
 
@@ -54,7 +56,17 @@ async def lifespan(app: FastAPI):
             "Application startup failed: database initialization is unavailable."
         ) from exc
 
+    # Startup: Initialize persistent HTTP client for EmbeddingService
+    http_client = httpx.AsyncClient(timeout=30.0)
+    EmbeddingService.set_client(http_client)
+    logger.info("http_client_initialized", extra={"event": "http_client_initialized"})
+
     yield
+
+    # Shutdown: Teardown persistent HTTP client
+    EmbeddingService.set_client(None)
+    await http_client.aclose()
+    logger.info("http_client_closed", extra={"event": "http_client_closed"})
 
     # Shutdown
     logger.info("application_shutdown", extra={"event": "application_shutdown"})
