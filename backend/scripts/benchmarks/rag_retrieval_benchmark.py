@@ -5,8 +5,8 @@ Characterizes:
 1. Single-document corpus scaling: N in {50, 500, 1000, 5000, 10000, 25000, 50000}
 2. Multi-document selective filtering: 500-chunk target with background corpus scaling to 50k
 3. Concurrency scaling sweep: C in {1, 2, 4, 8, 16}
-4. PostgreSQL EXPLAIN (ANALYZE, BUFFERS) execution and buffer profiling
-5. Retrieval correctness, distance distribution, and cross-user IDOR isolation
+4. PostgreSQL EXPLAIN (ANALYZE, BUFFERS) execution, buffers, and recursive scan node extraction
+5. Retrieval correctness, distance distribution, same-user cross-doc isolation, and cross-user ownership isolation
 """
 
 import asyncio
@@ -133,6 +133,26 @@ def cleanup_seeded_fixtures(doc_ids: List[int], chat_ids: List[int]) -> None:
         db.close()
 
 
+def extract_scan_nodes(plan_dict: Dict[str, Any]) -> List[str]:
+    nodes = []
+    node_type = plan_dict.get("Node Type", "")
+    relation = plan_dict.get("Relation Name", "")
+    index_name = plan_dict.get("Index Name", "")
+
+    if "Scan" in node_type or node_type in ("Index Only Scan", "Bitmap Index Scan", "Bitmap Heap Scan", "Seq Scan"):
+        descr = node_type
+        if relation:
+            descr += f" on {relation}"
+        if index_name:
+            descr += f" using {index_name}"
+        nodes.append(descr)
+
+    for child in plan_dict.get("Plans", []):
+        nodes.extend(extract_scan_nodes(child))
+
+    return nodes
+
+
 def profile_explain_analyze(user_id: int, document_id: int, query_vector: List[float], top_k: int = 6) -> Dict[str, Any]:
     db = SessionLocal()
     try:
@@ -156,15 +176,18 @@ def profile_explain_analyze(user_id: int, document_id: int, query_vector: List[f
         plan_node = plan_json.get("Plan", {})
         planning_time_ms = plan_json.get("Planning Time", 0.0)
         execution_time_ms = plan_json.get("Execution Time", 0.0)
-        
+
         shared_hit = plan_node.get("Shared Hit Blocks", 0)
         shared_read = plan_node.get("Shared Read Blocks", 0)
+        scan_nodes = extract_scan_nodes(plan_node)
 
         return {
             "planning_time_ms": round(planning_time_ms, 3),
             "execution_time_ms": round(execution_time_ms, 3),
             "total_cost": plan_node.get("Total Cost", 0.0),
             "node_type": plan_node.get("Node Type", ""),
+            "scan_nodes": scan_nodes,
+            "scan_strategy": " -> ".join(scan_nodes) if scan_nodes else plan_node.get("Node Type", ""),
             "shared_hit_blocks": shared_hit,
             "shared_read_blocks": shared_read,
             "raw_plan": plan_json,
@@ -290,39 +313,44 @@ async def benchmark_concurrency_sweep(
 def verify_retrieval_isolation_and_invariants(
     owner_id: int,
     unauth_id: int,
-    owner_doc_id: int,
+    owner_doc_a_id: int,
+    owner_doc_b_id: int,
     unauth_doc_id: int,
     query_vector: List[float],
 ) -> Dict[str, bool]:
-    # 1. Cross-user isolation: Unauthorized user cannot query owner's document
-    res_idor_1 = VectorRepository.search_similar_chunks(
+    # 1. Cross-user isolation: Unauthorized user receives 0 results querying owner's document
+    res_cross_user = VectorRepository.search_similar_chunks(
         user_id=unauth_id,
-        document_id=owner_doc_id,
+        document_id=owner_doc_a_id,
         query_vector=query_vector,
     )
 
-    # 2. Cross-doc isolation: Owner cannot access unauthorized user's document
-    res_idor_2 = VectorRepository.search_similar_chunks(
+    # 2. Same-user cross-document isolation: Querying Doc A returns ONLY Doc A chunks
+    res_doc_a = VectorRepository.search_similar_chunks(
         user_id=owner_id,
-        document_id=unauth_doc_id,
-        query_vector=query_vector,
-    )
-
-    # 3. Legitimate search returns chunks
-    res_valid = VectorRepository.search_similar_chunks(
-        user_id=owner_id,
-        document_id=owner_doc_id,
+        document_id=owner_doc_a_id,
         query_vector=query_vector,
         top_k=6,
     )
 
+    # 3. Same-user cross-document isolation: Querying Doc B returns ONLY Doc B chunks
+    res_doc_b = VectorRepository.search_similar_chunks(
+        user_id=owner_id,
+        document_id=owner_doc_b_id,
+        query_vector=query_vector,
+        top_k=6,
+    )
+
+    doc_a_pure = len(res_doc_a) > 0 and all(c["document_id"] == owner_doc_a_id for c in res_doc_a)
+    doc_b_pure = len(res_doc_b) > 0 and all(c["document_id"] == owner_doc_b_id for c in res_doc_b)
+
     return {
-        "cross_user_isolation_enforced": (len(res_idor_1) == 0),
-        "cross_doc_isolation_enforced": (len(res_idor_2) == 0),
-        "valid_query_returns_data": (len(res_valid) > 0),
-        "top_k_bound_respected": (len(res_valid) <= 6),
+        "cross_user_ownership_enforced": (len(res_cross_user) == 0),
+        "same_user_cross_doc_isolation_enforced": (doc_a_pure and doc_b_pure),
+        "valid_query_returns_data": (len(res_doc_a) > 0),
+        "top_k_bound_respected": (len(res_doc_a) <= 6),
         "distance_ordered_monotonically": all(
-            res_valid[i]["distance"] <= res_valid[i+1]["distance"] for i in range(len(res_valid) - 1)
+            res_doc_a[i]["distance"] <= res_doc_a[i+1]["distance"] for i in range(len(res_doc_a) - 1)
         ),
     }
 
@@ -357,18 +385,20 @@ def export_artifacts(
             f.write(f"- **{k}**: {'PASSED' if v else 'FAILED'}\n")
 
         f.write("\n## 2. Single-Document Corpus Scaling (Exact Search with B-tree document_id filter)\n\n")
-        f.write("| Document Chunks | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) | Plan Time (ms) | Exec Time (ms) | Buffer Hit/Read | Node Type |\n")
+        f.write("| Document Chunks | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) | Plan Time (ms) | Exec Time (ms) | Buffer Hit/Read | Scan Strategy |\n")
         f.write("|---|---|---|---|---|---|---|---|---|\n")
         for r in single_doc_results:
             plan = r["explain"]
-            f.write(f"| {r['chunks']} | {r['p50_ms']} | {r['p95_ms']} | {r['p99_ms']} | {r['mean_ms']} | {plan['planning_time_ms']} | {plan['execution_time_ms']} | {plan['shared_hit_blocks']}/{plan['shared_read_blocks']} | {plan['node_type']} |\n")
+            strat = plan.get("scan_strategy", plan.get("node_type", ""))
+            f.write(f"| {r['chunks']} | {r['p50_ms']} | {r['p95_ms']} | {r['p99_ms']} | {r['mean_ms']} | {plan['planning_time_ms']} | {plan['execution_time_ms']} | {plan['shared_hit_blocks']}/{plan['shared_read_blocks']} | {strat} |\n")
 
         f.write("\n## 3. Multi-Document Selective Filtering (500-chunk target vs Global Corpus)\n\n")
-        f.write("| Global Corpus | Target Chunks | p50 (ms) | p95 (ms) | Exec Time (ms) | Buffer Hit/Read | Node Type |\n")
+        f.write("| Global Corpus | Target Chunks | p50 (ms) | p95 (ms) | Exec Time (ms) | Buffer Hit/Read | Scan Strategy |\n")
         f.write("|---|---|---|---|---|---|---|\n")
         for m in multi_doc_results:
             plan = m["explain"]
-            f.write(f"| {m['global_chunks']} | {m['target_chunks']} | {m['p50_ms']} | {m['p95_ms']} | {plan['execution_time_ms']} | {plan['shared_hit_blocks']}/{plan['shared_read_blocks']} | {plan['node_type']} |\n")
+            strat = plan.get("scan_strategy", plan.get("node_type", ""))
+            f.write(f"| {m['global_chunks']} | {m['target_chunks']} | {m['p50_ms']} | {m['p95_ms']} | {plan['execution_time_ms']} | {plan['shared_hit_blocks']}/{plan['shared_read_blocks']} | {strat} |\n")
 
         f.write("\n## 4. Concurrency Sweep (Target: 500 Chunks, N=40)\n\n")
         f.write("| Concurrency (C) | Throughput (QPS) | p50 (ms) | p95 (ms) | p99 (ms) | Errors |\n")
@@ -393,15 +423,16 @@ async def main():
     created_chats = []
 
     try:
-        # Step 1: Seed Unauthorized Document for IDOR Verification
+        # Step 1: Seed Invariant Fixtures (Unauthorized doc + 2 distinct owner docs)
         print("\n--- [Phase 1] Seeding Invariant Fixtures ---")
         chat_unauth, doc_unauth = bulk_seed_document(unauth.id, 50, "unauthorized_doc", query_vector)
-        chat_owner_inv, doc_owner_inv = bulk_seed_document(owner.id, 50, "owner_inv_doc", query_vector)
-        created_docs.extend([doc_unauth, doc_owner_inv])
-        created_chats.extend([chat_unauth, chat_owner_inv])
+        chat_owner_a, doc_owner_a = bulk_seed_document(owner.id, 50, "owner_inv_doc_a", query_vector)
+        chat_owner_b, doc_owner_b = bulk_seed_document(owner.id, 50, "owner_inv_doc_b", query_vector)
+        created_docs.extend([doc_unauth, doc_owner_a, doc_owner_b])
+        created_chats.extend([chat_unauth, chat_owner_a, chat_owner_b])
 
         invariants = verify_retrieval_isolation_and_invariants(
-            owner.id, unauth.id, doc_owner_inv, doc_unauth, query_vector
+            owner.id, unauth.id, doc_owner_a, doc_owner_b, doc_unauth, query_vector
         )
         print("Invariants verification:", invariants)
         assert all(invariants.values()), f"Invariant check failed: {invariants}"
@@ -426,28 +457,27 @@ async def main():
                 **lat_metrics,
             }
             single_doc_results.append(record)
-            print(f"[SingleDoc N={sz:5d}] p50={lat_metrics['p50_ms']:5.2f}ms | p95={lat_metrics['p95_ms']:5.2f}ms | SQL exec={explain_plan['execution_time_ms']:5.2f}ms | Scan={explain_plan['node_type']}")
+            strat = explain_plan.get("scan_strategy", explain_plan["node_type"])
+            print(f"[SingleDoc N={sz:5d}] p50={lat_metrics['p50_ms']:5.2f}ms | p95={lat_metrics['p95_ms']:5.2f}ms | SQL exec={explain_plan['execution_time_ms']:5.2f}ms | Scan={strat}")
 
         # Step 3: Multi-Document Selective Filtering
         print("\n--- [Phase 3] Multi-Document Selective Filtering ---")
-        # Use existing documents from Phase 2 as background corpus; target document = single_doc_500
-        target_500_id = single_doc_results[1]["explain"]["raw_plan"]["Plan"]["Plans"][0]["Relation Name"] if "Relation Name" in single_doc_results[1]["explain"]["raw_plan"] else created_docs[2]
-        
-        # Actually pick the 500-chunk document from created_docs
-        target_doc_id = created_docs[3] # 50-inv, 50-unauth, 50-single, 500-single
+        # created_docs has: [unauth_doc, doc_owner_a, doc_owner_b, single_doc_50, single_doc_500, ...]
+        target_doc_id = created_docs[4]  # single_doc_500
         
         multi_doc_results = []
         global_checkpoints = [5000, 10000, 25000, 50000]
         for gc in global_checkpoints:
             lat_metrics = benchmark_retrieval_latency(owner.id, target_doc_id, query_vector, n_queries=30)
             explain_plan = profile_explain_analyze(owner.id, target_doc_id, query_vector)
+            strat = explain_plan.get("scan_strategy", explain_plan["node_type"])
             multi_doc_results.append({
                 "global_chunks": gc,
                 "target_chunks": 500,
                 "explain": explain_plan,
                 **lat_metrics,
             })
-            print(f"[MultiDoc Global={gc:5d} | Target=500] p50={lat_metrics['p50_ms']:5.2f}ms | p95={lat_metrics['p95_ms']:5.2f}ms | SQL exec={explain_plan['execution_time_ms']:5.2f}ms")
+            print(f"[MultiDoc Global={gc:5d} | Target=500] p50={lat_metrics['p50_ms']:5.2f}ms | p95={lat_metrics['p95_ms']:5.2f}ms | SQL exec={explain_plan['execution_time_ms']:5.2f}ms | Scan={strat}")
 
         # Step 4: Concurrency Sweep on 500-chunk target
         print("\n--- [Phase 4] Concurrency Sweep (C = 1, 2, 4, 8, 16) on 500 Chunks ---")
