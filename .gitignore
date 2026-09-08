@@ -1,0 +1,5 @@
+
+# Benchmark output artifacts
+benchmark-results/*.json
+benchmark-results/*.md
+!benchmark-results/.gitkeep
