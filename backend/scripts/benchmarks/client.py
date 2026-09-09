@@ -8,7 +8,7 @@ def create_benchmark_client(
     timeout: float = 30.0,
 ) -> httpx.AsyncClient:
     if transport_mode == "asgi":
-        from app.main import app
+        from main import app
 
         return httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),

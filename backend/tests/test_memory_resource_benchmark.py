@@ -135,10 +135,13 @@ async def test_sustained_streaming_scheduler():
     transport = httpx.MockTransport(mock_handler)
     sampler = ProcessResourceSampler(os.getpid(), is_in_process=True)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        samples, stats = await run_sustained_streaming_10m(client, {}, chat_id=1, sampler=sampler, duration_s=1)
+        samples, stats, duration_meta = await run_sustained_streaming_10m(
+            client, {}, chat_id=1, sampler=sampler, duration_s=1
+        )
         assert len(samples) >= 1
         assert stats["completed"] > 0
         assert stats["errors"] == 0
+        assert "actual_duration_seconds" in duration_meta
 
 
 @pytest.mark.asyncio
