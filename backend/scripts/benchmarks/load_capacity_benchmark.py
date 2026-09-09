@@ -7,6 +7,7 @@ Authoritative Architecture:
 - Contractual Ramps: C=1 -> 60s, C>1 -> 120s.
 - Dual throughput tracking: offered_rps vs successful_rps.
 - Empirical Knee and Breaking Point detection without synthetic fallback.
+- Capacity Boundary Table strictly reports detected knee metrics without substitution.
 - Soak test mapped to tier whose throughput is closest to measured safe capacity.
 - Evidence-driven resource delta and explicitly labeled telemetry statuses.
 - Full SLA verification across all workload classes.
@@ -872,13 +873,13 @@ def generate_markdown_report(report: Dict[str, Any]) -> str:
         f"Process CPU peak: `{report['resource_analysis']['cpu']['peak_percent']}%` (avg `{report['resource_analysis']['cpu']['avg_percent']}%`).",
         "",
         "## Memory Analysis",
-        f"Process RSS peak: `{report['resource_analysis']['rss']['peak_mib']} MiB` (net delta `{report['resource_analysis']['rss']['delta_mib']} MiB`, status: `{report['resource_analysis']['rss']['status']}`). VMS peak: `{report['resource_analysis']['vms']['peak_mib']} MiB` (status: `{report['resource_analysis']['vms']['status']}`).",
+        f"Process RSS peak: `{report['resource_analysis']['rss']['peak_mib']} MiB` (aggregate tier delta: `{report['resource_analysis']['rss']['aggregate_delta_mib']} MiB`, status: `{report['resource_analysis']['rss']['status']}`). VMS peak: `{report['resource_analysis']['vms']['peak_mib']} MiB` (aggregate tier delta: `{report['resource_analysis']['vms']['aggregate_delta_mib']} MiB`, status: `{report['resource_analysis']['vms']['status']}`).",
         "",
         "## File Descriptor Analysis",
-        f"Socket descriptor recycling: peak `{report['resource_analysis']['file_descriptors']['peak']}`, net delta `{report['resource_analysis']['file_descriptors']['delta']}` (status: `{report['resource_analysis']['file_descriptors']['status']}`).",
+        f"Socket descriptor recycling: peak `{report['resource_analysis']['file_descriptors']['peak']}`, aggregate tier delta: `{report['resource_analysis']['file_descriptors']['aggregate_delta']}` (status: `{report['resource_analysis']['file_descriptors']['status']}`).",
         "",
         "## Thread Analysis",
-        f"Thread pool scaling: peak `{report['resource_analysis']['threads']['peak']}`, net delta `{report['resource_analysis']['threads']['delta']}` (status: `{report['resource_analysis']['threads']['status']}`).",
+        f"Thread pool scaling: peak `{report['resource_analysis']['threads']['peak']}`, aggregate tier delta: `{report['resource_analysis']['threads']['aggregate_delta']}` (status: `{report['resource_analysis']['threads']['status']}`).",
         "",
         "## Saturation / Knee Analysis",
         f"- Knee Observed: `{knee_info.get('observed')}`",
@@ -904,7 +905,7 @@ def generate_markdown_report(report: Dict[str, Any]) -> str:
         "## Findings",
         "1. Workload-specific ramps characterized true arrival load progression consistently across L1-L6.",
         "2. Offered RPS tracked distinctly from delivered successful throughput.",
-        "3. Soak phase executed at tier matching measured safe capacity throughput.",
+        "3. Capacity Boundary Table strictly reports detected knee metrics without substitution.",
         "",
         "## Recommendations",
         "1. Maintain independent telemetry for policy 429 rejections versus 5xx outages.",
@@ -915,7 +916,7 @@ def generate_markdown_report(report: Dict[str, Any]) -> str:
         "- [x] Local isolated environment used",
         "- [x] Workload-specific ramp phases executed across all workloads",
         "- [x] Offered RPS separated from successful RPS",
-        "- [x] Empirical knee and breaking points without synthetic defaults",
+        "- [x] Empirical knee and breaking points without synthetic defaults or substitution",
         "- [x] Evidence-based resource delta metrics and non-instrumented labels",
         "- [x] Zero production application modifications",
         "",
@@ -935,7 +936,7 @@ def generate_markdown_report(report: Dict[str, Any]) -> str:
         [
             "",
             "## Resource Table",
-            "| Workload | C | RSS Peak (MiB) | RSS Delta (MiB) | CPU Peak (%) | FDs Peak | FDs Delta | Threads Peak | Threads Delta | Verdict |",
+            "| Workload | C | RSS Peak (MiB) | RSS Tier Delta (MiB) | CPU Peak (%) | FDs Peak | FDs Tier Delta | Threads Peak | Threads Tier Delta | Verdict |",
             "|---|---|---|---|---|---|---|---|---|---|",
         ]
     )
@@ -957,14 +958,25 @@ def generate_markdown_report(report: Dict[str, Any]) -> str:
         ]
     )
 
+    # Item 1: Strict capacity table knee reporting without substituting last healthy tier
     for wk_name, tiers in w.items():
         healthy_tiers = [t for t in tiers if t["sla"]["overall_pass"]]
         last_c = healthy_tiers[-1]["concurrency"] if healthy_tiers else "None"
-        k_c = (
-            knee_info.get("concurrency") if knee_info.get("observed") else "Unobserved"
-        )
-        k_rps = healthy_tiers[-1]["successful_rps"] if healthy_tiers else 0.0
-        safe_rps_wk = calculate_safe_capacity(k_rps) if healthy_tiers else 0.0
+
+        # Check if this specific workload was the one evaluated for knee (health_live)
+        if wk_name == "health_live" and knee_info.get("observed"):
+            k_c = str(knee_info.get("concurrency"))
+            k_rps_str = str(knee_info.get("rps"))
+            safe_rps_str = str(c_anal.get("safe_capacity", {}).get("rps", 0.0))
+        else:
+            k_c = "Unobserved"
+            k_rps_str = "Unobserved"
+            safe_rps_str = (
+                str(calculate_safe_capacity(healthy_tiers[-1]["successful_rps"]))
+                if healthy_tiers
+                else "0.0"
+            )
+
         constraint = (
             "Rate Limit Policy"
             if "chat_history" in wk_name or "pdf" in wk_name
@@ -975,7 +987,7 @@ def generate_markdown_report(report: Dict[str, Any]) -> str:
             )
         )
         lines.append(
-            f"| {wk_name} | {last_c} | {k_c} | {k_rps} | {safe_rps_wk} | None | {constraint} |"
+            f"| {wk_name} | {last_c} | {k_c} | {k_rps_str} | {safe_rps_str} | None | {constraint} |"
         )
 
     lines.extend(
@@ -1146,7 +1158,7 @@ async def run_benchmark(
             total_allowed += res["allowed"]
         workload_results["chat_history"] = ch_results
 
-        # W4: PDF Ingestion (10p, 50p, 100p) - Item 1: Contractual Ramps (60s baseline / 120s capacity)
+        # W4: PDF Ingestion (10p, 50p, 100p)
         pdf_pages_list = [10] if quick_mode else [10, 50, 100]
         pdf_tiers = [1] if quick_mode else [1, 2, 4]
         pdf_sla = WORKLOAD_SLAS["pdf_ingestion"]
@@ -1172,7 +1184,7 @@ async def run_benchmark(
                 total_allowed += res["allowed"]
             workload_results[f"pdf_ingestion_{pages}p"] = pdf_results
 
-        # W5: Streaming Non-RAG - Item 1: Contractual Ramps (60s baseline / 120s capacity)
+        # W5: Streaming Non-RAG
         sn_tiers = [1] if quick_mode else [1, 2, 4, 8]
         sn_results = []
         sn_sla = WORKLOAD_SLAS["streaming_non_rag"]
@@ -1195,7 +1207,7 @@ async def run_benchmark(
             total_allowed += res["allowed"]
         workload_results["streaming_non_rag"] = sn_results
 
-        # W6: Streaming RAG - Item 1: Contractual Ramps (60s baseline / 120s capacity)
+        # W6: Streaming RAG
         sr_tiers = [1] if quick_mode else [1, 2, 4, 8]
         sr_results = []
         sr_sla = WORKLOAD_SLAS["streaming_rag"]
@@ -1219,7 +1231,7 @@ async def run_benchmark(
             total_allowed += res["allowed"]
         workload_results["streaming_rag"] = sr_results
 
-        # --- Phase 4: Soak Test (Item 2: Pinned to Measured Safe Capacity RPS) ---
+        # --- Phase 4: Soak Test (Pinned to Measured Safe Capacity RPS) ---
         print("\n[3/4] Determining Measured Safe Operating Point for Soak Phase...")
         if detected_knee_tier:
             target_safe_rps = calculate_safe_capacity(detected_knee_tier["rps"])
@@ -1321,7 +1333,7 @@ async def run_benchmark(
         "policy_limited": total_429 > 0,
     }
 
-    # Item 3: Evidence-driven resource conclusions and non-instrumented labels
+    # Item 2: Explicit aggregate tier deltas terminology
     all_rss_peaks = [
         t["resource"]["rss_peak_mib"]
         for w_list in workload_results.values()
@@ -1366,10 +1378,10 @@ async def run_benchmark(
         for t in w_list
     ]
 
-    net_rss_delta = round(sum(all_rss_deltas), 2)
-    net_vms_delta = round(sum(all_vms_deltas), 2)
-    net_fd_delta = sum(all_fd_deltas)
-    net_thread_delta = sum(all_thread_deltas)
+    aggregate_rss_delta = round(sum(all_rss_deltas), 2)
+    aggregate_vms_delta = round(sum(all_vms_deltas), 2)
+    aggregate_fd_delta = sum(all_fd_deltas)
+    aggregate_thread_delta = sum(all_thread_deltas)
 
     total_server_errors = sum(
         t["http_5xx"] for w_list in workload_results.values() for t in w_list
@@ -1385,26 +1397,30 @@ async def run_benchmark(
         },
         "rss": {
             "peak_mib": max(all_rss_peaks),
-            "delta_mib": net_rss_delta,
-            "status": "bounded" if net_rss_delta < 500.0 else "growth-observed",
+            "aggregate_delta_mib": aggregate_rss_delta,
+            "status": "bounded" if aggregate_rss_delta < 500.0 else "growth-observed",
         },
         "vms": {
             "peak_mib": max(all_vms_peaks),
-            "delta_mib": net_vms_delta,
-            "status": "bounded" if net_vms_delta < 1000.0 else "growth-observed",
+            "aggregate_delta_mib": aggregate_vms_delta,
+            "status": "bounded" if aggregate_vms_delta < 1000.0 else "growth-observed",
         },
         "file_descriptors": {
             "peak": max(all_fd_peaks),
-            "delta": net_fd_delta,
+            "aggregate_delta": aggregate_fd_delta,
             "status": (
-                "cleanly-recycled" if abs(net_fd_delta) <= 15 else "potential-leak"
+                "cleanly-recycled"
+                if abs(aggregate_fd_delta) <= 15
+                else "potential-leak"
             ),
         },
         "threads": {
             "peak": max(all_thread_peaks),
-            "delta": net_thread_delta,
+            "aggregate_delta": aggregate_thread_delta,
             "status": (
-                "bounded" if abs(net_thread_delta) <= 10 else "proliferation-observed"
+                "bounded"
+                if abs(aggregate_thread_delta) <= 10
+                else "proliferation-observed"
             ),
         },
         "database_pool": {
