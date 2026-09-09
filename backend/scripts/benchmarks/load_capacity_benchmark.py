@@ -7,10 +7,10 @@ Authoritative Architecture:
 - Contractual Ramps: C=1 -> 60s, C>1 -> 120s.
 - Dual throughput tracking: offered_rps vs successful_rps.
 - Empirical Knee and Breaking Point detection without synthetic fallback.
-- Capacity Boundary Table strictly reports detected knee metrics without substitution.
+- Capacity Boundary Table strictly reports detected knee and safe capacity metrics (Unobserved when not observed).
 - Soak test mapped to tier whose throughput is closest to measured safe capacity.
 - Evidence-driven resource delta and explicitly labeled telemetry statuses.
-- Full SLA verification across all workload classes.
+- Strict SLA verification across all workload classes without exemptions.
 """
 
 import argparse
@@ -894,7 +894,7 @@ def generate_markdown_report(report: Dict[str, Any]) -> str:
         f"- Measured Production Safe Target (80% of Knee): `{c_anal.get('safe_capacity', {}).get('rps', 0.0)} successful RPS`",
         "",
         "## SLA Evaluation",
-        "Full SLA gate evaluation per workload across tail latencies and error thresholds.",
+        "Full SLA gate evaluation per workload across tail latencies and error thresholds without exemptions.",
         "",
         "## Bottleneck Attribution",
         f"Primary operational constraint: `{c_anal.get('saturation_reason')}`.",
@@ -958,7 +958,7 @@ def generate_markdown_report(report: Dict[str, Any]) -> str:
         ]
     )
 
-    # Item 1: Strict capacity table knee reporting without substituting last healthy tier
+    # Item 2: Strict capacity table knee & safe RPS reporting
     for wk_name, tiers in w.items():
         healthy_tiers = [t for t in tiers if t["sla"]["overall_pass"]]
         last_c = healthy_tiers[-1]["concurrency"] if healthy_tiers else "None"
@@ -971,11 +971,7 @@ def generate_markdown_report(report: Dict[str, Any]) -> str:
         else:
             k_c = "Unobserved"
             k_rps_str = "Unobserved"
-            safe_rps_str = (
-                str(calculate_safe_capacity(healthy_tiers[-1]["successful_rps"]))
-                if healthy_tiers
-                else "0.0"
-            )
+            safe_rps_str = "Unobserved"
 
         constraint = (
             "Rate Limit Policy"
@@ -1333,7 +1329,7 @@ async def run_benchmark(
         "policy_limited": total_429 > 0,
     }
 
-    # Item 2: Explicit aggregate tier deltas terminology
+    # Evidence-derived resource analysis with aggregate tier deltas
     all_rss_peaks = [
         t["resource"]["rss_peak_mib"]
         for w_list in workload_results.values()
@@ -1441,7 +1437,7 @@ async def run_benchmark(
         },
     }
 
-    # Full SLA Results Compilation across ALL workloads
+    # Item 1: Strict SLA Gating across ALL workloads without streaming exemption
     sla_results_dict = {}
     backend_passed = True
 
@@ -1459,9 +1455,8 @@ async def run_benchmark(
             "timeouts": sum(t["timeouts"] for t in tiers),
         }
 
-        if any_5xx_or_timeouts:
-            backend_passed = False
-        if not wk_name.startswith("streaming_") and not all_tiers_pass:
+        # Failure Gate: Every evaluated workload must pass all SLA thresholds
+        if any_5xx_or_timeouts or not all_tiers_pass:
             backend_passed = False
 
     verdict = "PASS" if backend_passed else "FAIL"
