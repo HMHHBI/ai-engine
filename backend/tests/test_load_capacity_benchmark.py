@@ -3,7 +3,7 @@ Tests for P2-08 Load Testing & Capacity Limits Benchmark.
 
 Verifies:
 - Percentile calculations using inclusive quantiles
-- RPS and error rate calculations
+- RPS (offered vs successful) and error rate calculations
 - HTTP and transport error classifications (2xx, 4xx, 5xx, 429, timeouts)
 - SLA gate evaluations (p50, p95, p99, error rate)
 - Capacity analytics: knee detection, safe capacity factor (0.8x), and breaking points (5xx >= 5%)
@@ -44,11 +44,11 @@ def test_percentiles_use_inclusive_method():
 
 def test_calculate_rps():
     """Assert RPS calculation given requests and duration."""
-    rps = calculate_rps(completed_requests=100, duration_seconds=20.0)
+    rps = calculate_rps(requests_count=100, duration_seconds=20.0)
     assert rps == 5.0
 
     # Zero duration guard
-    assert calculate_rps(completed_requests=100, duration_seconds=0.0) == 0.0
+    assert calculate_rps(requests_count=100, duration_seconds=0.0) == 0.0
 
 
 def test_calculate_error_rate():
@@ -101,6 +101,7 @@ def test_sla_passes_when_all_thresholds_are_met():
         "p95_ms": 250.0,
         "p99_ms": 500.0,
         "max_5xx_percent": 1.0,
+        "max_timeout_percent": 1.0,
     }
 
     sla = evaluate_sla(
@@ -125,6 +126,7 @@ def test_sla_fails_when_p99_exceeds_threshold():
         "p95_ms": 250.0,
         "p99_ms": 500.0,
         "max_5xx_percent": 1.0,
+        "max_timeout_percent": 1.0,
     }
 
     sla = evaluate_sla(
@@ -142,8 +144,16 @@ def test_sla_fails_when_p99_exceeds_threshold():
 
 def test_detect_knee_when_latency_doubles():
     """Assert knee detection triggers when p95 doubles from previous tier."""
-    prev_metrics = {"p95": 100.0, "p99": 200.0, "rps": 50.0, "error_rate": 0.0}
-    curr_metrics = {"p95": 210.0, "p99": 350.0, "rps": 60.0, "error_rate": 0.0}
+    prev_metrics = {
+        "latency_ms": {"p95": 100.0, "p99": 200.0},
+        "successful_rps": 50.0,
+        "rps": 50.0,
+    }
+    curr_metrics = {
+        "latency_ms": {"p95": 210.0, "p99": 350.0},
+        "successful_rps": 52.0,
+        "rps": 52.0,
+    }
 
     is_knee, reason = detect_knee(prev_tier=prev_metrics, current_tier=curr_metrics)
     assert is_knee is True
@@ -158,7 +168,7 @@ def test_calculate_safe_capacity_as_80_percent_of_knee():
 
 
 def test_detect_breaking_point_at_five_percent_server_errors():
-    """Assert breaking point triggers when 5xx errors reach or exceed 5%."""
+    """Assert breaking point triggers when 5xx errors or timeouts reach or exceed 5%."""
     assert detect_breaking_point(error_rate_5xx=5.0, timeout_rate=0.0) is True
     assert detect_breaking_point(error_rate_5xx=6.5, timeout_rate=0.0) is True
     assert detect_breaking_point(error_rate_5xx=4.9, timeout_rate=0.0) is False
@@ -166,7 +176,7 @@ def test_detect_breaking_point_at_five_percent_server_errors():
 
 
 def test_build_result_matches_p2_08_schema():
-    """Assert output data structures match the frozen P2-08 JSON schema contract."""
+    """Assert output data structures match the frozen P2-08 JSON schema contract with dual-RPS."""
     tier_res = build_tier_result(
         concurrency=1,
         ramp_seconds=60,
@@ -185,8 +195,15 @@ def test_build_result_matches_p2_08_schema():
             "rss_baseline_mib": 200.0,
             "rss_peak_mib": 210.0,
             "rss_post_mib": 201.0,
+            "rss_delta_mib": 1.0,
+            "fd_baseline": 20,
             "fd_peak": 25,
+            "fd_post": 20,
+            "fd_delta": 0,
+            "threads_baseline": 12,
             "threads_peak": 12,
+            "threads_post": 12,
+            "threads_delta": 0,
             "cpu_avg_percent": 15.0,
             "cpu_peak_percent": 25.0,
         },
@@ -195,6 +212,7 @@ def test_build_result_matches_p2_08_schema():
             "p95_ms": 250.0,
             "p99_ms": 500.0,
             "max_5xx_percent": 1.0,
+            "max_timeout_percent": 1.0,
         },
     )
 
@@ -211,10 +229,13 @@ def test_build_result_matches_p2_08_schema():
         "timeouts",
         "errors",
         "rps",
+        "offered_rps",
+        "successful_rps",
         "latency_ms",
         "ttft_ms",
         "resource",
         "sla",
+        "bottleneck_attribution",
     }
     assert required_tier_keys.issubset(tier_res.keys())
 
@@ -223,19 +244,28 @@ def test_build_result_matches_p2_08_schema():
         config_dict={"concurrency_levels": [1, 2, 4]},
         workloads_dict={"health_live": [tier_res]},
         capacity_analysis_dict={
-            "knee": {},
-            "safe_capacity": {},
-            "breaking_point": {},
-            "saturation_reason": "",
+            "knee": {
+                "observed": False,
+                "concurrency": None,
+                "rps": None,
+                "reason": "No knee detected",
+            },
+            "safe_capacity": {"rps": 0.0, "factor": 0.8},
+            "breaking_point": {
+                "tier": None,
+                "rps": None,
+                "reason": "No breaking point observed",
+            },
+            "saturation_reason": "nominal",
         },
         resource_analysis_dict={
-            "cpu": {},
-            "rss": {},
-            "vms": {},
-            "file_descriptors": {},
-            "threads": {},
-            "database_pool": {},
-            "redis": {},
+            "cpu": {"avg_percent": 10.0, "peak_percent": 20.0},
+            "rss": {"peak_mib": 250.0, "delta_mib": 2.0, "status": "bounded"},
+            "vms": {"peak_mib": 500.0, "stable": True},
+            "file_descriptors": {"peak": 30, "delta": 0, "status": "cleanly-recycled"},
+            "threads": {"peak": 15, "delta": 0, "status": "bounded"},
+            "database_pool": {"exhaustion_timeouts": 0, "status": "healthy"},
+            "redis": {"connection_drops": 0, "status": "healthy"},
         },
         rate_limit_dict={"allowed": 100, "rejected_429": 0, "policy_limited": False},
         errors_list=[],
