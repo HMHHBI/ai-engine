@@ -8,6 +8,7 @@ from scripts.benchmarks.memory_resource_benchmark import (
     bytes_to_mib,
     calculate_retention,
     detect_growth,
+    discover_backend_pid,
 )
 
 
@@ -53,18 +54,17 @@ def test_retention_threshold_5_percent_vs_10_mib():
 
 
 def test_peak_is_not_leak():
-    # High peak that recovers below threshold must be acceptable
     res = calculate_retention(100.0, 102.0)
     assert res["acceptable"] is True
 
 
 def test_persistent_growth_detection():
-    # 3 consecutive increases indicate monotonic growth
+    # Strictly increasing sequence across cycles indicates monotonic growth
     assert detect_growth([100.0, 105.0, 111.0, 118.0, 126.0]) is True
 
 
 def test_recovered_repeated_cycles():
-    # Spikes that recover between cycles must not be flagged as monotonic growth
+    # Fluctuations that recover are not monotonic growth
     assert detect_growth([100.0, 120.0, 102.0, 125.0, 103.0]) is False
 
 
@@ -73,6 +73,12 @@ def test_unsupported_fd_platform(monkeypatch):
     monkeypatch.setattr(sampler.process, "num_fds", lambda: (_ for _ in ()).throw(AttributeError("unsupported")))
     snap = sampler.capture_snapshot()
     assert snap.fd_count is None
+
+
+def test_pid_discovery():
+    pid = discover_backend_pid()
+    assert isinstance(pid, int)
+    assert pid > 0
 
 
 @pytest.mark.asyncio
