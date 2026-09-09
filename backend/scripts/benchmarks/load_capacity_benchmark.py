@@ -3,11 +3,12 @@ P2-08: Load Testing & Capacity Limits Benchmark Harness.
 
 Authoritative Architecture:
 - HTTP Transport authoritative (against running FastAPI service).
-- Workload-specific Ramp, Sustain, and Cooldown phases.
+- Workload-specific Ramp, Sustain, and Cooldown phases across ALL workloads (L1-L6).
+- Contractual Ramps: C=1 -> 60s, C>1 -> 120s.
 - Dual throughput tracking: offered_rps vs successful_rps.
 - Empirical Knee and Breaking Point detection without synthetic fallback.
-- Dynamic soak test pinned to measured safe capacity tier.
-- Evidence-driven resource delta and stability analysis.
+- Soak test mapped to tier whose throughput is closest to measured safe capacity.
+- Evidence-driven resource delta and explicitly labeled telemetry statuses.
 - Full SLA verification across all workload classes.
 """
 
@@ -532,7 +533,7 @@ async def execute_tier(
 
     sampler_task = asyncio.create_task(sampler_loop())
 
-    # --- Phase 1: Workload-Specific Ramp Up (Item 1) ---
+    # --- Phase 1: Workload-Specific Ramp Up ---
     if ramp_seconds > 0:
         ramp_end = time.time() + ramp_seconds
         step_interval = ramp_seconds / max(concurrency, 1)
@@ -626,6 +627,9 @@ async def execute_tier(
     baseline_rss = baseline_sample.get("rss_mib", 0.0)
     peak_rss = max(rss_samples) if rss_samples else baseline_rss
     post_rss = post_sample.get("rss_mib", 0.0)
+    baseline_vms = baseline_sample.get("vms_mib", 0.0)
+    peak_vms = max(vms_samples) if vms_samples else baseline_vms
+    post_vms = post_sample.get("vms_mib", 0.0)
     baseline_fds = baseline_sample.get("fds", 0)
     peak_fds = max(fd_samples) if fd_samples else baseline_fds
     post_fds = post_sample.get("fds", 0)
@@ -638,7 +642,10 @@ async def execute_tier(
         "rss_peak_mib": peak_rss,
         "rss_post_mib": post_rss,
         "rss_delta_mib": round(post_rss - baseline_rss, 2),
-        "vms_peak_mib": max(vms_samples) if vms_samples else 0.0,
+        "vms_baseline_mib": baseline_vms,
+        "vms_peak_mib": peak_vms,
+        "vms_post_mib": post_vms,
+        "vms_delta_mib": round(post_vms - baseline_vms, 2),
         "fd_baseline": baseline_fds,
         "fd_peak": peak_fds,
         "fd_post": post_fds,
@@ -664,7 +671,6 @@ async def execute_tier(
     )
     sla_result = evaluate_sla(eval_latencies, err_5xx, timeout_rate, limits)
 
-    # Scoped attribution: "provider-consistent; not independently isolated" (Item 8)
     is_streaming = workload_type.startswith("streaming_")
     bottleneck_attribution = "nominal"
     if not sla_result["overall_pass"]:
@@ -813,7 +819,7 @@ def generate_markdown_report(report: Dict[str, Any]) -> str:
         f"- Redis: `{report['environment']['redis']}`",
         "",
         "## Methodology",
-        "Authoritative HTTP client characterization across graded concurrency sweeps. Workload-specific ramps executed for each workload class. 429 status codes separated from backend server capacity limits. Offered RPS tracked distinctly from successful 2xx RPS.",
+        "Authoritative HTTP client characterization across graded concurrency sweeps. Workload-specific ramps executed for each workload class (60s baseline / 120s capacity). 429 status codes separated from backend server capacity limits. Offered RPS tracked distinctly from successful 2xx RPS.",
         "",
         "## Workload Definitions",
         "- **L1 /health/live**: Pure FastAPI ASGI/HTTP loop capacity.",
@@ -833,13 +839,13 @@ def generate_markdown_report(report: Dict[str, Any]) -> str:
         "Authenticated control-plane queries respecting configured rate policies.",
         "",
         "## L4 — PDF Ingestion",
-        "Integrated pipeline characterization across 10, 50, and 100 page documents.",
+        "Integrated pipeline characterization across 10, 50, and 100 page documents with full ramp lifecycle.",
         "",
         "## L5 — Streaming Non-RAG",
-        "Provider token generation throughput and SSE transport stability.",
+        "Provider token generation throughput and SSE transport stability with full ramp lifecycle.",
         "",
         "## L6 — Streaming RAG",
-        "Integrated pgvector retrieval and context streaming under concurrency.",
+        "Integrated pgvector retrieval and context streaming under concurrency with full ramp lifecycle.",
         "",
         "## Concurrency Scaling",
         "Throughput and tail-latency response curves as concurrency scales.",
@@ -857,16 +863,16 @@ def generate_markdown_report(report: Dict[str, Any]) -> str:
         f"Total Policy 429 Rejections: `{report['rate_limit_analysis']['rejected_429']}` (Excluded from infrastructure capacity SLA).",
         "",
         "## Database Capacity",
-        f"PostgreSQL connection pool stability: `{report['resource_analysis']['database_pool']['status']}`.",
+        f"PostgreSQL connection pool observation: `{report['resource_analysis']['database_pool']['status']}`.",
         "",
         "## Redis Capacity",
-        f"Rate-limiting Redis storage commands stability: `{report['resource_analysis']['redis']['status']}`.",
+        f"Rate-limiting Redis storage observation: `{report['resource_analysis']['redis']['status']}`.",
         "",
         "## CPU Analysis",
         f"Process CPU peak: `{report['resource_analysis']['cpu']['peak_percent']}%` (avg `{report['resource_analysis']['cpu']['avg_percent']}%`).",
         "",
         "## Memory Analysis",
-        f"Process RSS peak: `{report['resource_analysis']['rss']['peak_mib']} MiB` (net delta `{report['resource_analysis']['rss']['delta_mib']} MiB`, status: `{report['resource_analysis']['rss']['status']}`).",
+        f"Process RSS peak: `{report['resource_analysis']['rss']['peak_mib']} MiB` (net delta `{report['resource_analysis']['rss']['delta_mib']} MiB`, status: `{report['resource_analysis']['rss']['status']}`). VMS peak: `{report['resource_analysis']['vms']['peak_mib']} MiB` (status: `{report['resource_analysis']['vms']['status']}`).",
         "",
         "## File Descriptor Analysis",
         f"Socket descriptor recycling: peak `{report['resource_analysis']['file_descriptors']['peak']}`, net delta `{report['resource_analysis']['file_descriptors']['delta']}` (status: `{report['resource_analysis']['file_descriptors']['status']}`).",
@@ -896,9 +902,9 @@ def generate_markdown_report(report: Dict[str, Any]) -> str:
         f"Total Unexpected Errors: `{len(report['errors'])}`",
         "",
         "## Findings",
-        "1. Workload-specific ramps characterized true arrival load progression.",
+        "1. Workload-specific ramps characterized true arrival load progression consistently across L1-L6.",
         "2. Offered RPS tracked distinctly from delivered successful throughput.",
-        "3. Provider queueing remains primary constraint on streaming tail latencies.",
+        "3. Soak phase executed at tier matching measured safe capacity throughput.",
         "",
         "## Recommendations",
         "1. Maintain independent telemetry for policy 429 rejections versus 5xx outages.",
@@ -907,10 +913,10 @@ def generate_markdown_report(report: Dict[str, Any]) -> str:
         "## Acceptance Criteria",
         "- [x] HTTP transport authoritative",
         "- [x] Local isolated environment used",
-        "- [x] Workload-specific ramp phases executed",
+        "- [x] Workload-specific ramp phases executed across all workloads",
         "- [x] Offered RPS separated from successful RPS",
         "- [x] Empirical knee and breaking points without synthetic defaults",
-        "- [x] Evidence-based resource delta metrics",
+        "- [x] Evidence-based resource delta metrics and non-instrumented labels",
         "- [x] Zero production application modifications",
         "",
         "## Capacity Table",
@@ -1019,7 +1025,7 @@ async def run_benchmark(
             f"Auth & Fixtures successfully ready: chat_id={chat_id}, document_id={doc_id}"
         )
 
-        print("\n[2/4] Executing Workload Sweeps with Workload-Specific Ramps...")
+        print("\n[2/4] Executing Workload Sweeps with Full Workload-Specific Ramps...")
 
         # W1: Health Live
         hl_tiers = [1, 2, 4] if quick_mode else [1, 2, 4, 8, 16, 32, 64]
@@ -1140,14 +1146,14 @@ async def run_benchmark(
             total_allowed += res["allowed"]
         workload_results["chat_history"] = ch_results
 
-        # W4: PDF Ingestion (10p, 50p, 100p)
+        # W4: PDF Ingestion (10p, 50p, 100p) - Item 1: Contractual Ramps (60s baseline / 120s capacity)
         pdf_pages_list = [10] if quick_mode else [10, 50, 100]
         pdf_tiers = [1] if quick_mode else [1, 2, 4]
         pdf_sla = WORKLOAD_SLAS["pdf_ingestion"]
         for pages in pdf_pages_list:
             pdf_results = []
             for c in pdf_tiers:
-                ramp = 0 if quick_mode else 10
+                ramp = baseline_ramp if c == 1 else capacity_ramp
                 sustain = baseline_sustain if not quick_mode else 5
                 res = await execute_tier(
                     client,
@@ -1166,12 +1172,12 @@ async def run_benchmark(
                 total_allowed += res["allowed"]
             workload_results[f"pdf_ingestion_{pages}p"] = pdf_results
 
-        # W5: Streaming Non-RAG
+        # W5: Streaming Non-RAG - Item 1: Contractual Ramps (60s baseline / 120s capacity)
         sn_tiers = [1] if quick_mode else [1, 2, 4, 8]
         sn_results = []
         sn_sla = WORKLOAD_SLAS["streaming_non_rag"]
         for c in sn_tiers:
-            ramp = 0 if quick_mode else 10
+            ramp = baseline_ramp if c == 1 else capacity_ramp
             sustain = baseline_sustain if not quick_mode else 5
             res = await execute_tier(
                 client,
@@ -1189,12 +1195,12 @@ async def run_benchmark(
             total_allowed += res["allowed"]
         workload_results["streaming_non_rag"] = sn_results
 
-        # W6: Streaming RAG
+        # W6: Streaming RAG - Item 1: Contractual Ramps (60s baseline / 120s capacity)
         sr_tiers = [1] if quick_mode else [1, 2, 4, 8]
         sr_results = []
         sr_sla = WORKLOAD_SLAS["streaming_rag"]
         for c in sr_tiers:
-            ramp = 0 if quick_mode else 10
+            ramp = baseline_ramp if c == 1 else capacity_ramp
             sustain = baseline_sustain if not quick_mode else 5
             res = await execute_tier(
                 client,
@@ -1213,15 +1219,29 @@ async def run_benchmark(
             total_allowed += res["allowed"]
         workload_results["streaming_rag"] = sr_results
 
-        # --- Phase 4: Dynamic Soak Test at Measured Safe Capacity (Item 4) ---
+        # --- Phase 4: Soak Test (Item 2: Pinned to Measured Safe Capacity RPS) ---
         print("\n[3/4] Determining Measured Safe Operating Point for Soak Phase...")
         if detected_knee_tier:
-            soak_c = max(1, round(detected_knee_tier["concurrency"] * 0.8))
-            soak_reason = f"Measured 80% knee concurrency (Knee C={detected_knee_tier['concurrency']})"
+            target_safe_rps = calculate_safe_capacity(detected_knee_tier["rps"])
+            closest_tier = min(
+                hl_results, key=lambda t: abs(t["successful_rps"] - target_safe_rps)
+            )
+            soak_c = closest_tier["concurrency"]
+            soak_reason = f"Closest measured tier (C={soak_c}, {closest_tier['successful_rps']} RPS) to target safe capacity ({target_safe_rps} RPS)"
         else:
             healthy_hl = [t for t in hl_results if t["sla"]["overall_pass"]]
-            soak_c = healthy_hl[-1]["concurrency"] if healthy_hl else 1
-            soak_reason = f"Last SLA-healthy concurrency (C={soak_c})"
+            if healthy_hl:
+                target_safe_rps = calculate_safe_capacity(
+                    healthy_hl[-1]["successful_rps"]
+                )
+                closest_tier = min(
+                    healthy_hl, key=lambda t: abs(t["successful_rps"] - target_safe_rps)
+                )
+                soak_c = closest_tier["concurrency"]
+                soak_reason = f"Closest healthy tier (C={soak_c}, {closest_tier['successful_rps']} RPS) to safe capacity ({target_safe_rps} RPS)"
+            else:
+                soak_c = 1
+                soak_reason = "Fallback C=1 (no healthy tiers observed)"
 
         print(
             f"Executing Soak Phase at C={soak_c} ({soak_reason}) for {soak_sustain}s..."
@@ -1239,7 +1259,7 @@ async def run_benchmark(
         total_429 += soak_res["rejected_429"]
         total_allowed += soak_res["allowed"]
 
-    # Knee & Capacity Analytics (Zero False Fabrication per Item 3)
+    # Knee & Capacity Analytics (Zero False Fabrication)
     print("\n[4/4] Compiling Empirical Capacity Analysis...")
     if detected_knee_tier:
         knee_dict = {
@@ -1301,7 +1321,7 @@ async def run_benchmark(
         "policy_limited": total_429 > 0,
     }
 
-    # Evidence-driven resource conclusions (Item 5)
+    # Item 3: Evidence-driven resource conclusions and non-instrumented labels
     all_rss_peaks = [
         t["resource"]["rss_peak_mib"]
         for w_list in workload_results.values()
@@ -1314,6 +1334,11 @@ async def run_benchmark(
     ]
     all_vms_peaks = [
         t["resource"].get("vms_peak_mib", 0.0)
+        for w_list in workload_results.values()
+        for t in w_list
+    ]
+    all_vms_deltas = [
+        t["resource"].get("vms_delta_mib", 0.0)
         for w_list in workload_results.values()
         for t in w_list
     ]
@@ -1342,8 +1367,16 @@ async def run_benchmark(
     ]
 
     net_rss_delta = round(sum(all_rss_deltas), 2)
+    net_vms_delta = round(sum(all_vms_deltas), 2)
     net_fd_delta = sum(all_fd_deltas)
     net_thread_delta = sum(all_thread_deltas)
+
+    total_server_errors = sum(
+        t["http_5xx"] for w_list in workload_results.values() for t in w_list
+    )
+    total_timeouts = sum(
+        t["timeouts"] for w_list in workload_results.values() for t in w_list
+    )
 
     resource_analysis = {
         "cpu": {
@@ -1355,7 +1388,11 @@ async def run_benchmark(
             "delta_mib": net_rss_delta,
             "status": "bounded" if net_rss_delta < 500.0 else "growth-observed",
         },
-        "vms": {"peak_mib": max(all_vms_peaks), "stable": True},
+        "vms": {
+            "peak_mib": max(all_vms_peaks),
+            "delta_mib": net_vms_delta,
+            "status": "bounded" if net_vms_delta < 1000.0 else "growth-observed",
+        },
         "file_descriptors": {
             "peak": max(all_fd_peaks),
             "delta": net_fd_delta,
@@ -1370,11 +1407,25 @@ async def run_benchmark(
                 "bounded" if abs(net_thread_delta) <= 10 else "proliferation-observed"
             ),
         },
-        "database_pool": {"exhaustion_timeouts": 0, "status": "healthy"},
-        "redis": {"connection_drops": 0, "status": "healthy"},
+        "database_pool": {
+            "exhaustion_timeouts": 0,
+            "status": (
+                "not directly instrumented; 0 connection errors observed"
+                if total_server_errors == 0
+                else "errors observed"
+            ),
+        },
+        "redis": {
+            "connection_drops": 0,
+            "status": (
+                "not directly instrumented; 0 connection errors observed"
+                if total_server_errors == 0 and total_timeouts == 0
+                else "errors observed"
+            ),
+        },
     }
 
-    # Full SLA Results Compilation across ALL workloads (Item 7)
+    # Full SLA Results Compilation across ALL workloads
     sla_results_dict = {}
     backend_passed = True
 
@@ -1392,7 +1443,6 @@ async def run_benchmark(
             "timeouts": sum(t["timeouts"] for t in tiers),
         }
 
-        # Failure Gate (Item 6): Infrastructure errors or non-provider latency failures break verdict
         if any_5xx_or_timeouts:
             backend_passed = False
         if not wk_name.startswith("streaming_") and not all_tiers_pass:
