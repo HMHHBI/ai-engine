@@ -32,3 +32,7 @@ async def test_layer4_failure_semantics_http_500():
     assert res["direct_storage_raised"] is True
     assert res["http_status_code"] == 500
     assert "fail-closed" in res["behavior"]
+    assert isinstance(res["http_response_body"], dict)
+    assert res["http_response_body"].get("success") is False
+    assert res["http_response_body"].get("error_code") == "unhandled_exception"
+    assert res["http_response_body"].get("error") == "Internal Server Error"

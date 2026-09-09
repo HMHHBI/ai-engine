@@ -10,7 +10,7 @@ Characterizes:
    - Exact saturation boundary on 5/min tier (requests 1..5 vs 6..10)
 4. Layer 4: Infrastructure Failure Semantics at HTTP Middleware Boundary:
    - Redis storage ConnectionError propagation
-   - Verification of HTTP 500 response via global_exception_handler under Redis outage
+   - Verification of HTTP 500 response via production global_exception_handler under Redis outage
 """
 
 import asyncio
@@ -26,9 +26,9 @@ from typing import Any, Dict, List
 import httpx
 import redis
 from app.core.config import settings
+from app.core.exceptions import global_exception_handler, rate_limit_exceeded_handler
 from app.core.rate_limiter import limiter
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
 from limits import parse
 from limits.storage.redis import RedisStorage
 from limits.strategies import MovingWindowRateLimiter
@@ -266,7 +266,7 @@ async def benchmark_layer4_failure_semantics() -> Dict[str, Any]:
         direct_storage_raised = True
         exc_type = type(e).__name__
 
-    # 2. Complete HTTP Middleware + Exception Handler integration test
+    # 2. Complete HTTP Middleware + Exception Handler integration test using PRODUCTION handlers
     test_app = FastAPI()
     test_limiter = Limiter(
         key_func=get_remote_address,
@@ -276,13 +276,9 @@ async def benchmark_layer4_failure_semantics() -> Dict[str, Any]:
     test_app.state.limiter = test_limiter
     test_app.add_middleware(SlowAPIMiddleware)
 
-    @test_app.exception_handler(RateLimitExceeded)
-    async def custom_rate_limit_handler(request: Request, exc: RateLimitExceeded):
-        return JSONResponse(status_code=429, content={"error": "Rate limit exceeded"})
-
-    @test_app.exception_handler(Exception)
-    async def global_handler(request: Request, exc: Exception):
-        return JSONResponse(status_code=500, content={"error": "Internal Server Error", "exception": type(exc).__name__})
+    # Attach PRODUCTION exception handlers from app.core.exceptions
+    test_app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+    test_app.add_exception_handler(Exception, global_exception_handler)
 
     @test_app.get("/ping")
     @test_limiter.limit("5/minute")
@@ -291,7 +287,6 @@ async def benchmark_layer4_failure_semantics() -> Dict[str, Any]:
 
     http_status_code = None
     http_body = None
-    # Use raise_app_exceptions=False to simulate how ASGI server (uvicorn) intercepts unhandled errors and maps to 500
     transport = httpx.ASGITransport(app=test_app, raise_app_exceptions=False)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         resp = await client.get("/ping")
@@ -302,15 +297,17 @@ async def benchmark_layer4_failure_semantics() -> Dict[str, Any]:
             http_body = resp.text
 
     print(f"  Storage level: Raised={direct_storage_raised} ({exc_type})")
-    print(f"  HTTP Middleware level: Status={http_status_code}, Body={http_body}")
-    assert http_status_code == 500, f"Expected HTTP 500 from global handler under Redis outage, got {http_status_code}"
+    print(f"  HTTP Middleware level (via production global_exception_handler): Status={http_status_code}, Body={http_body}")
+    assert http_status_code == 500, f"Expected HTTP 500 from production handler, got {http_status_code}"
+    assert isinstance(http_body, dict) and http_body.get("success") is False, "Expected production schema with success=False"
+    assert http_body.get("error_code") == "unhandled_exception", "Expected error_code=INTERNAL_ERROR"
 
     return {
         "direct_storage_raised": direct_storage_raised,
         "storage_exception": exc_type,
         "http_status_code": http_status_code,
         "http_response_body": http_body,
-        "behavior": "fail-closed (HTTP 500 via global_exception_handler)",
+        "behavior": "fail-closed (HTTP 500 via production global_exception_handler)",
     }
 
 
@@ -392,8 +389,9 @@ def main():
 
 - **Direct Storage Exception:** `{l4['storage_exception']}`
 - **HTTP Endpoint Status:** `{l4['http_status_code']}`
+- **Response Payload:** `{l4['http_response_body']}`
 - **Operational Mode:** `{l4['behavior']}`
-- **Architectural Semantics:** When Redis drops or times out, SlowAPIMiddleware raises an unhandled `ConnectionError` which routes through the global exception handler as `HTTP 500`. The application operates strictly fail-closed.
+- **Architectural Semantics:** When Redis drops or times out, SlowAPIMiddleware raises an unhandled `ConnectionError` which routes through the production `global_exception_handler` as `HTTP 500`. The application operates strictly fail-closed.
 """
 
     with open(md_path, "w") as f:
