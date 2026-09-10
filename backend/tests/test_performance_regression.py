@@ -178,6 +178,15 @@ def streaming_sla(
     }
 
 
+def evaluate_throughput(metric: str, measured_throughput: float) -> bool:
+    floor = THROUGHPUT_THRESHOLDS[metric]
+    return measured_throughput >= floor
+
+
+def evaluate_memory_delta(observed_delta_mib: float) -> bool:
+    return observed_delta_mib <= MAX_POST_GC_MEMORY_DELTA_MIB
+
+
 def test_latency_contract_matrix_is_frozen():
     assert WORKLOAD_THRESHOLDS == {
         "health_live": {
@@ -253,7 +262,6 @@ def test_standard_workload_passes_with_healthy_synthetic_measurements(
 
 
 def test_health_live_p95_regression_fails():
-    # 6 values over threshold guarantees the 95th percentile strictly exceeds 250ms
     values = [50.0] * 94 + [251.0] * 6
 
     result = standard_sla("health_live", values)
@@ -263,7 +271,6 @@ def test_health_live_p95_regression_fails():
 
 
 def test_health_live_p99_regression_fails():
-    # 2 values over threshold guarantees the 99th percentile strictly exceeds 500ms
     values = [50.0] * 98 + [501.0] * 2
 
     result = standard_sla("health_live", values)
@@ -328,7 +335,6 @@ def test_streaming_contract_passes_when_duration_and_ttft_pass(
 
 
 def test_streaming_contract_fails_when_ttft_regresses():
-    # 2 values over threshold guarantees p99 strictly exceeds 5000ms
     result = streaming_sla(
         "streaming_non_rag",
         duration=[2000.0] * 100,
@@ -341,7 +347,6 @@ def test_streaming_contract_fails_when_ttft_regresses():
 
 
 def test_streaming_contract_fails_when_duration_regresses():
-    # 2 values over threshold guarantees p99 strictly exceeds 10000ms
     result = streaming_sla(
         "streaming_rag",
         duration=[2000.0] * 98 + [10001.0] * 2,
@@ -353,46 +358,44 @@ def test_streaming_contract_fails_when_duration_regresses():
     assert result["overall_pass"] is False
 
 
-def test_embedding_throughput_floor():
-    assert THROUGHPUT_THRESHOLDS["embedding_vectors_per_second"] == 16.0
+def test_embedding_throughput_regression_evaluation():
+    # Healthy (at/above floor)
+    assert evaluate_throughput("embedding_vectors_per_second", 20.12) is True
+    assert evaluate_throughput("embedding_vectors_per_second", 16.0) is True
 
-    healthy_measurement = 20.12
-
-    assert healthy_measurement >= (
-        THROUGHPUT_THRESHOLDS["embedding_vectors_per_second"]
-    )
-
-
-def test_rag_retrieval_throughput_floor():
-    measured_capacity = 247.66
-    regression_floor = THROUGHPUT_THRESHOLDS["rag_retrieval_qps"]
-
-    assert regression_floor == pytest.approx(
-        measured_capacity * 0.80,
-        abs=0.01,
-    )
+    # Regressed (below floor)
+    assert evaluate_throughput("embedding_vectors_per_second", 15.99) is False
+    assert evaluate_throughput("embedding_vectors_per_second", 8.0) is False
 
 
-def test_redis_throughput_floor():
-    measured_capacity = 2438.0
-    regression_floor = THROUGHPUT_THRESHOLDS["redis_qps"]
+def test_rag_retrieval_throughput_regression_evaluation():
+    # Healthy (at/above floor)
+    assert evaluate_throughput("rag_retrieval_qps", 247.66) is True
+    assert evaluate_throughput("rag_retrieval_qps", 198.13) is True
 
-    assert regression_floor == pytest.approx(
-        measured_capacity * 0.80,
-        abs=1.0,
-    )
-
-
-def test_memory_delta_contract():
-    healthy_post_gc_delta = 0.637
-
-    assert healthy_post_gc_delta <= MAX_POST_GC_MEMORY_DELTA_MIB
+    # Regressed (below floor)
+    assert evaluate_throughput("rag_retrieval_qps", 198.12) is False
+    assert evaluate_throughput("rag_retrieval_qps", 100.0) is False
 
 
-def test_memory_delta_regression_is_detectable():
-    regression_delta = MAX_POST_GC_MEMORY_DELTA_MIB + 0.001
+def test_redis_throughput_regression_evaluation():
+    # Healthy (at/above floor)
+    assert evaluate_throughput("redis_qps", 2438.0) is True
+    assert evaluate_throughput("redis_qps", 1950.0) is True
 
-    assert regression_delta > MAX_POST_GC_MEMORY_DELTA_MIB
+    # Regressed (below floor)
+    assert evaluate_throughput("redis_qps", 1949.9) is False
+    assert evaluate_throughput("redis_qps", 500.0) is False
+
+
+def test_memory_delta_regression_evaluation():
+    # Healthy (at/below retention threshold)
+    assert evaluate_memory_delta(0.637) is True
+    assert evaluate_memory_delta(11.775) is True
+
+    # Regressed (above retention threshold)
+    assert evaluate_memory_delta(11.776) is False
+    assert evaluate_memory_delta(25.0) is False
 
 
 def test_p2_09_is_provider_independent():
