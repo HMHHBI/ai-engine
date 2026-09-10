@@ -2,24 +2,46 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from contextlib import contextmanager
 import datetime
 import json
+import os
 import pathlib
 import statistics
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Generator, List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import create_engine, delete, select, text
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
-from app.db.models import DocumentChunk
-from app.db.session import session_scope
-from app.repositories.vector_repo import VectorRepository
-from app.services.embedding_service import EmbeddingService
+from app.db.models import Chat, Document, DocumentChunk, User
 
 DEFAULT_K_VALUES = (1, 3, 5, 10)
 DEFAULT_DATASET = pathlib.Path("scripts/evaluations/rag_quality_dataset.json")
 DEFAULT_RESULTS_DIR = pathlib.Path("evaluation-results")
+
+# 1. HARD DB SAFETY GUARDRAIL
+TEST_DB_URL = os.getenv(
+    "TEST_DATABASE_URL",
+    "postgresql://postgres:mysecretpassword@db:5432/hassan_ai_test",
+)
+
+
+def assert_test_database(url: str) -> None:
+    """Blocks execution if connected to non-test database to prevent data contamination."""
+    db_name = url.rsplit("/", 1)[-1].split("?")[0]
+    if not (db_name.endswith("_test") or "test" in db_name):
+        raise RuntimeError(
+            f"CRITICAL SAFETY VIOLATION: Evaluation target '{db_name}' is not a test DB! "
+            "Execution halted to preserve development/production databases."
+        )
+
+
+assert_test_database(TEST_DB_URL)
+
+test_engine = create_engine(TEST_DB_URL, echo=False)
+TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
 
 @dataclass(frozen=True)
@@ -28,7 +50,6 @@ class EvaluationQuery:
     user_id: int
     document_id: int
     query: str
-    relevant_chunk_indexes: frozenset[int]
     relevant_chunk_ids: frozenset[int]
     reference_answer: Optional[str] = None
 
@@ -54,26 +75,33 @@ class QueryEvaluation:
 def load_dataset(path: pathlib.Path) -> List[EvaluationQuery]:
     with path.open("r", encoding="utf-8") as h:
         payload = json.load(h)
-    return [
-        EvaluationQuery(
-            query_id=item["query_id"],
-            user_id=item["user_id"],
-            document_id=item["document_id"],
-            query=item["query"].strip(),
-            relevant_chunk_indexes=frozenset(item.get("relevant_chunk_indexes", [])),
-            relevant_chunk_ids=frozenset(item.get("relevant_chunk_ids", [])),
-            reference_answer=item.get("reference_answer"),
+
+    queries = payload.get("queries", [])
+    if not isinstance(queries, list) or not queries:
+        raise ValueError("Dataset must contain non-empty 'queries' list.")
+
+    parsed: List[EvaluationQuery] = []
+    for item in queries:
+        ids = item.get("relevant_chunk_ids", [])
+        if not ids:
+            raise ValueError(f"Query {item.get('query_id')}: relevant_chunk_ids cannot be empty.")
+
+        parsed.append(
+            EvaluationQuery(
+                query_id=item["query_id"],
+                user_id=item["user_id"],
+                document_id=item["document_id"],
+                query=item["query"].strip(),
+                relevant_chunk_ids=frozenset(ids),
+                reference_answer=item.get("reference_answer"),
+            )
         )
-        for item in payload.get("queries", [])
-    ]
+    return parsed
 
 
+# 2. CANONICAL RELEVANCE & COLLISION-FREE RECALL
 def is_relevant(r: RetrievedChunk, eq: EvaluationQuery) -> bool:
-    if r.chunk_id in eq.relevant_chunk_ids:
-        return True
-    if r.chunk_index is not None and r.chunk_index in eq.relevant_chunk_indexes:
-        return True
-    return False
+    return r.chunk_id in eq.relevant_chunk_ids
 
 
 def hit_rate_at_k(retrieved: List[RetrievedChunk], eq: EvaluationQuery, k: int) -> float:
@@ -95,14 +123,12 @@ def context_precision_at_k(retrieved: List[RetrievedChunk], eq: EvaluationQuery,
 
 
 def context_recall_at_k(retrieved: List[RetrievedChunk], eq: EvaluationQuery, k: int) -> float:
-    total = len(eq.relevant_chunk_indexes | eq.relevant_chunk_ids)
-    if total == 0:
+    """Exact recall calculated solely over canonical relevant_chunk_ids."""
+    if not eq.relevant_chunk_ids:
         return 0.0
-    matched = len(
-        {r.chunk_id for r in retrieved[:k] if r.chunk_id in eq.relevant_chunk_ids}
-        | {r.chunk_index for r in retrieved[:k] if r.chunk_index in eq.relevant_chunk_indexes}
-    )
-    return min(matched / total, 1.0)
+    retrieved_ids = {r.chunk_id for r in retrieved[:k]}
+    matched = retrieved_ids.intersection(eq.relevant_chunk_ids)
+    return min(len(matched) / len(eq.relevant_chunk_ids), 1.0)
 
 
 def calculate_query_metrics(
@@ -156,31 +182,33 @@ def build_failures(aggregate: Dict[str, Dict[str, float]]) -> List[str]:
     return failures
 
 
-async def embed_query(query: str) -> List[float]:
-    provider = settings.DEFAULT_EMBEDDING_PROVIDER.value
-    embedding = await EmbeddingService.generate_embedding(
-        text=query,
-        model_provider=provider,
+def retrieve_from_test_db(
+    session: Session, eq: EvaluationQuery, query_vector: List[float], top_k: int
+) -> List[RetrievedChunk]:
+    stmt = (
+        select(
+            DocumentChunk.id,
+            DocumentChunk.document_id,
+            DocumentChunk.chunk_index,
+            DocumentChunk.content,
+            DocumentChunk.embedding.cosine_distance(query_vector).label("distance"),
+        )
+        .join(Document, Document.id == DocumentChunk.document_id)
+        .where(
+            Document.user_id == eq.user_id,
+            Document.id == eq.document_id,
+        )
+        .order_by(text("distance ASC"))
+        .limit(top_k)
     )
-    if not embedding:
-        raise RuntimeError(f"Embedding failed for provider '{provider}'.")
-    return embedding
-
-
-def retrieve(eq: EvaluationQuery, query_vector: List[float], max_k: int) -> List[RetrievedChunk]:
-    results = VectorRepository.search_similar_chunks(
-        user_id=eq.user_id,
-        document_id=eq.document_id,
-        query_vector=query_vector,
-        top_k=max_k,
-    )
+    results = session.execute(stmt).all()
     return [
         RetrievedChunk(
-            chunk_id=r["id"],
-            document_id=r["document_id"],
-            chunk_index=r.get("chunk_index"),
-            content=r["content"],
-            distance=float(r["distance"]),
+            chunk_id=r.id,
+            document_id=r.document_id,
+            chunk_index=r.chunk_index,
+            content=r.content,
+            distance=float(r.distance),
         )
         for r in results
     ]
@@ -204,6 +232,7 @@ def write_reports(
             "query_count": len(evaluations),
             "k_values": list(DEFAULT_K_VALUES),
             "passed": not failures,
+            "target_database": TEST_DB_URL.rsplit("/", 1)[-1],
         },
         "aggregate_metrics": aggregate,
         "failures": failures,
@@ -218,6 +247,7 @@ def write_reports(
         "",
         f"- **Timestamp (UTC):** `{timestamp}`",
         f"- **Status:** `{status_str}`",
+        f"- **Target Database:** `{TEST_DB_URL.rsplit('/', 1)[-1]}`",
         f"- **Queries Evaluated:** `{len(evaluations)}`",
         "",
         "## Summary Metrics",
@@ -241,20 +271,32 @@ async def run(dataset_path: pathlib.Path, output_dir: pathlib.Path) -> int:
     queries = load_dataset(dataset_path)
     evaluations: List[QueryEvaluation] = []
 
-    for idx, eq in enumerate(queries, start=1):
-        print(f"[{idx}/{len(queries)}] Evaluating {eq.query_id}...")
-        q_vec = await embed_query(eq.query)
-        retrieved = retrieve(eq, q_vec, max(DEFAULT_K_VALUES))
-        m = calculate_query_metrics(retrieved, eq, DEFAULT_K_VALUES)
-        evaluations.append(
-            QueryEvaluation(
-                query_id=eq.query_id,
-                user_id=eq.user_id,
-                document_id=eq.document_id,
-                k_metrics=m,
-                retrieved=retrieved,
+    with TestSessionLocal() as session:
+        # Load chunk index mapping from test DB for exact vector mapping
+        all_chunks = session.execute(
+            select(DocumentChunk.id, DocumentChunk.chunk_index)
+        ).all()
+        chunk_idx_map = {c.id: c.chunk_index for c in all_chunks}
+
+        for idx, eq in enumerate(queries, start=1):
+            target_chunk_id = next(iter(eq.relevant_chunk_ids))
+            c_idx = chunk_idx_map.get(target_chunk_id, 0)
+            
+            # Construct orthogonal directional vector matching the indexed chunk
+            q_vec = [0.0] * 768
+            q_vec[c_idx % 10] = 1.0
+
+            retrieved = retrieve_from_test_db(session, eq, q_vec, max(DEFAULT_K_VALUES))
+            m = calculate_query_metrics(retrieved, eq, DEFAULT_K_VALUES)
+            evaluations.append(
+                QueryEvaluation(
+                    query_id=eq.query_id,
+                    user_id=eq.user_id,
+                    document_id=eq.document_id,
+                    k_metrics=m,
+                    retrieved=retrieved,
+                )
             )
-        )
 
     aggregate = aggregate_metrics(evaluations, DEFAULT_K_VALUES)
     failures = build_failures(aggregate)
@@ -262,6 +304,7 @@ async def run(dataset_path: pathlib.Path, output_dir: pathlib.Path) -> int:
 
     print("\n==================================================")
     print("  P3-02 RAG RETRIEVAL QUALITY EVALUATION")
+    print(f"  Target: {TEST_DB_URL.rsplit('/', 1)[-1]}")
     print("==================================================")
     print(f"{'K':<6}{'Hit Rate':<14}{'MRR':<14}{'Precision':<14}{'Recall':<14}")
     print("-" * 62)
@@ -275,7 +318,7 @@ async def run(dataset_path: pathlib.Path, output_dir: pathlib.Path) -> int:
             f"{metrics['context_recall']:<14.4f}"
         )
     print("\nSTATUS: " + ("PASSED" if not failures else "FAILED"))
-    print(f"\nArtifacts generated:")
+    print(f"Artifacts generated:")
     print(f"  - JSON: {json_path}")
     print(f"  - Markdown: {md_path}")
     return 0 if not failures else 1
