@@ -225,8 +225,10 @@ def detect_knee(
     return False, ""
 
 
-def calculate_safe_capacity(knee_rps: float) -> float:
-    """80% of knee throughput."""
+def calculate_safe_capacity(knee_rps: Optional[float]) -> Optional[float]:
+    """Return 80% of an empirically observed knee throughput, or None if unobserved."""
+    if knee_rps is None:
+        return None
     return round(knee_rps * 0.8, 2)
 
 
@@ -807,7 +809,7 @@ def generate_markdown_report(report: Dict[str, Any]) -> str:
         "## Executive Summary",
         f"**Final Verdict: {verdict}**",
         "",
-        f"- Safe Operating Capacity: `{c_anal.get('safe_capacity', {}).get('rps', 0.0)} successful RPS`",
+        f"- Safe Operating Capacity: `{c_anal.get('safe_capacity', {}).get('rps') if c_anal.get('safe_capacity', {}).get('rps') is not None else 'Unobserved'} successful RPS`",
         f"- Saturation Knee: {knee_str}",
         f"- Breaking Point: `{c_anal.get('breaking_point', {}).get('reason', 'None observed')}`",
         f"- Primary Bottleneck: `{c_anal.get('saturation_reason', 'Provider Bound')}`",
@@ -891,7 +893,7 @@ def generate_markdown_report(report: Dict[str, Any]) -> str:
         f"- Reason: `{c_anal.get('breaking_point', {}).get('reason')}`",
         "",
         "## Safe Operating Capacity",
-        f"- Measured Production Safe Target (80% of Knee): `{c_anal.get('safe_capacity', {}).get('rps', 0.0)} successful RPS`",
+        f"- Measured Production Safe Target (80% of Knee): `{c_anal.get('safe_capacity', {}).get('rps') if c_anal.get('safe_capacity', {}).get('rps') is not None else 'Unobserved'} successful RPS`",
         "",
         "## SLA Evaluation",
         "Full SLA gate evaluation per workload across tail latencies and error thresholds without exemptions.",
@@ -1237,35 +1239,28 @@ async def run_benchmark(
             soak_c = closest_tier["concurrency"]
             soak_reason = f"Closest measured tier (C={soak_c}, {closest_tier['successful_rps']} RPS) to target safe capacity ({target_safe_rps} RPS)"
         else:
-            healthy_hl = [t for t in hl_results if t["sla"]["overall_pass"]]
-            if healthy_hl:
-                target_safe_rps = calculate_safe_capacity(
-                    healthy_hl[-1]["successful_rps"]
-                )
-                closest_tier = min(
-                    healthy_hl, key=lambda t: abs(t["successful_rps"] - target_safe_rps)
-                )
-                soak_c = closest_tier["concurrency"]
-                soak_reason = f"Closest healthy tier (C={soak_c}, {closest_tier['successful_rps']} RPS) to safe capacity ({target_safe_rps} RPS)"
-            else:
-                soak_c = 1
-                soak_reason = "Fallback C=1 (no healthy tiers observed)"
+            target_safe_rps = None
+            soak_c = None
+            soak_reason = (
+                "Skipped: no empirical knee observed, so safe capacity is unobserved"
+            )
 
-        print(
-            f"Executing Soak Phase at C={soak_c} ({soak_reason}) for {soak_sustain}s..."
-        )
-        soak_res = await execute_tier(
-            client,
-            "health_live",
-            soak_c,
-            0,
-            soak_sustain,
-            sampler=sampler,
-            sla_limits=hl_sla,
-        )
-        workload_results["soak_test"] = [soak_res]
-        total_429 += soak_res["rejected_429"]
-        total_allowed += soak_res["allowed"]
+        if soak_c is not None:
+            print(
+                f"Executing Soak Phase at C={soak_c} ({soak_reason}) for {soak_sustain}s..."
+            )
+            soak_res = await execute_tier(
+                client,
+                "health_live",
+                soak_c,
+                0,
+                soak_sustain,
+                sampler=sampler,
+                sla_limits=hl_sla,
+            )
+            workload_results["soak_test"] = [soak_res]
+            total_429 += soak_res["rejected_429"]
+            total_allowed += soak_res["allowed"]
 
     # Knee & Capacity Analytics (Zero False Fabrication)
     print("\n[4/4] Compiling Empirical Capacity Analysis...")
@@ -1284,12 +1279,7 @@ async def run_benchmark(
             "rps": None,
             "reason": "No knee detected in tested range",
         }
-        hl_max_healthy = [t for t in hl_results if t["sla"]["overall_pass"]]
-        safe_rps = (
-            calculate_safe_capacity(hl_max_healthy[-1]["successful_rps"])
-            if hl_max_healthy
-            else 0.0
-        )
+        safe_rps = None
 
     capacity_analysis = {
         "knee": knee_dict,

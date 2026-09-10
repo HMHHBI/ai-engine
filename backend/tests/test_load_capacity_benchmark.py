@@ -157,6 +157,7 @@ def test_calculate_safe_capacity_as_80_percent_of_knee():
     knee_rps = 100.0
     safe_rps = calculate_safe_capacity(knee_rps=knee_rps)
     assert safe_rps == 80.0
+    assert calculate_safe_capacity(knee_rps=None) is None
 
 
 def test_detect_breaking_point_at_five_percent_server_errors():
@@ -246,7 +247,7 @@ def test_build_result_matches_p2_08_schema():
                 "rps": None,
                 "reason": "No knee detected in tested range",
             },
-            "safe_capacity": {"rps": 0.0, "factor": 0.8},
+            "safe_capacity": {"rps": None, "factor": 0.8},
             "breaking_point": {
                 "tier": None,
                 "rps": None,
