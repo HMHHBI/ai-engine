@@ -5,8 +5,8 @@ Verifies:
 - Percentile calculations using inclusive quantiles
 - RPS (offered vs successful) and error rate calculations
 - HTTP and transport error classifications (2xx, 4xx, 5xx, 429, timeouts)
-- SLA gate evaluations (p50, p95, p99, error rate)
-- Capacity analytics: knee detection, safe capacity factor (0.8x), and breaking points (5xx >= 5%)
+- SLA gate evaluations (p50, p95, p99, error rate, independent TTFT + total duration)
+- Capacity analytics: knee detection, safe capacity factor (0.8x), None handling, and breaking points (5xx >= 5%)
 - Frozen JSON result schema compliance with evidence-derived resource statuses
 """
 
@@ -134,6 +134,35 @@ def test_sla_fails_when_p99_exceeds_threshold():
     assert sla["overall_pass"] is False
 
 
+def test_streaming_sla_requires_both_ttft_and_duration_pass():
+    """Assert streaming SLA fails if TTFT passes but total stream duration exceeds threshold."""
+    # Good TTFT (within 1000ms limit), but bad total stream duration (p95=8000ms > 7000ms limit)
+    duration_latencies = {"p50": 3500.0, "p95": 8000.0, "p99": 9500.0}
+    ttft_latencies = {"p50": 500.0, "p95": 1200.0, "p99": 2000.0}
+    sla_limits = {
+        "ttft_p50_ms": 1000.0,
+        "ttft_p95_ms": 3000.0,
+        "ttft_p99_ms": 5000.0,
+        "p50_ms": 3000.0,
+        "p95_ms": 7000.0,
+        "p99_ms": 10000.0,
+        "max_5xx_percent": 1.0,
+        "max_timeout_percent": 1.0,
+    }
+
+    sla = evaluate_sla(
+        latencies=duration_latencies,
+        error_rate_5xx=0.0,
+        timeout_rate=0.0,
+        limits=sla_limits,
+        ttft_latencies=ttft_latencies,
+    )
+
+    assert sla["ttft_pass"] is True
+    assert sla["p95_pass"] is False  # Duration exceeded
+    assert sla["overall_pass"] is False
+
+
 def test_detect_knee_when_latency_doubles():
     """Assert knee detection triggers when p95 doubles from previous tier."""
     prev_metrics = {
@@ -153,7 +182,7 @@ def test_detect_knee_when_latency_doubles():
 
 
 def test_calculate_safe_capacity_as_80_percent_of_knee():
-    """Assert safe capacity is calculated strictly as 80% of knee throughput."""
+    """Assert safe capacity is calculated strictly as 80% of knee throughput, or None if unobserved."""
     knee_rps = 100.0
     safe_rps = calculate_safe_capacity(knee_rps=knee_rps)
     assert safe_rps == 80.0
@@ -253,7 +282,7 @@ def test_build_result_matches_p2_08_schema():
                 "rps": None,
                 "reason": "No breaking point observed",
             },
-            "saturation_reason": "nominal",
+            "saturation_reason": "provider-consistent; not independently isolated",
         },
         resource_analysis_dict={
             "cpu": {"avg_percent": 10.0, "peak_percent": 20.0},
@@ -296,7 +325,6 @@ def test_build_result_matches_p2_08_schema():
     assert required_top_keys.issubset(report.keys())
     assert report["conclusion"]["verdict"] == "PASS"
 
-    # Assert revised evidence-derived resource contract
     res_analysis = report["resource_analysis"]
     assert res_analysis["vms"]["status"] in ("bounded", "growth-observed")
     assert "aggregate_delta_mib" in res_analysis["vms"]

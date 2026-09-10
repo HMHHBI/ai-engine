@@ -6,8 +6,9 @@ Authoritative Architecture:
 - Workload-specific Ramp, Sustain, and Cooldown phases across ALL workloads (L1-L6).
 - Contractual Ramps: C=1 -> 60s, C>1 -> 120s.
 - Dual throughput tracking: offered_rps vs successful_rps.
+- 429 policy rejections strictly excluded from infrastructure latency percentiles.
+- Streaming SLA independently gates BOTH TTFT and total stream duration.
 - Empirical Knee and Breaking Point detection without synthetic fallback.
-- Capacity Boundary Table strictly reports detected knee and safe capacity metrics (Unobserved when not observed).
 - Soak test mapped to tier whose throughput is closest to measured safe capacity.
 - Evidence-driven resource delta and explicitly labeled telemetry statuses.
 - Strict SLA verification across all workload classes without exemptions.
@@ -78,16 +79,22 @@ WORKLOAD_SLAS = {
         "max_timeout_percent": 1.0,
     },
     "streaming_non_rag": {
-        "p50_ms": 1000.0,
-        "p95_ms": 3000.0,
-        "p99_ms": 5000.0,
+        "ttft_p50_ms": 1000.0,
+        "ttft_p95_ms": 3000.0,
+        "ttft_p99_ms": 5000.0,
+        "p50_ms": 3000.0,
+        "p95_ms": 7000.0,
+        "p99_ms": 10000.0,
         "max_5xx_percent": 1.0,
         "max_timeout_percent": 1.0,
     },
     "streaming_rag": {
-        "p50_ms": 1000.0,
-        "p95_ms": 3000.0,
-        "p99_ms": 5000.0,
+        "ttft_p50_ms": 1000.0,
+        "ttft_p95_ms": 3000.0,
+        "ttft_p99_ms": 5000.0,
+        "p50_ms": 3000.0,
+        "p95_ms": 7000.0,
+        "p99_ms": 10000.0,
         "max_5xx_percent": 1.0,
         "max_timeout_percent": 1.0,
     },
@@ -180,8 +187,9 @@ def evaluate_sla(
     error_rate_5xx: float,
     timeout_rate: float,
     limits: Dict[str, float],
+    ttft_latencies: Optional[Dict[str, float]] = None,
 ) -> Dict[str, bool]:
-    """Evaluate SLA gates strictly on tail latency and error thresholds."""
+    """Evaluate SLA gates strictly on tail latency, streaming TTFT, and error thresholds."""
     p50_pass = latencies["p50"] <= limits.get("p50_ms", 1000.0)
     p95_pass = latencies["p95"] <= limits.get("p95_ms", 2500.0)
     p99_pass = latencies["p99"] <= limits.get("p99_ms", 5000.0)
@@ -189,12 +197,20 @@ def evaluate_sla(
         timeout_rate < limits.get("max_timeout_percent", 1.0)
     )
 
-    overall_pass = p50_pass and p95_pass and p99_pass and error_rate_pass
+    ttft_pass = True
+    if ttft_latencies and ttft_latencies.get("p50") is not None:
+        ttft_p50 = ttft_latencies["p50"] <= limits.get("ttft_p50_ms", 1000.0)
+        ttft_p95 = ttft_latencies["p95"] <= limits.get("ttft_p95_ms", 3000.0)
+        ttft_p99 = ttft_latencies["p99"] <= limits.get("ttft_p99_ms", 5000.0)
+        ttft_pass = ttft_p50 and ttft_p95 and ttft_p99
+
+    overall_pass = p50_pass and p95_pass and p99_pass and error_rate_pass and ttft_pass
 
     return {
         "p50_pass": p50_pass,
         "p95_pass": p95_pass,
         "p99_pass": p99_pass,
+        "ttft_pass": ttft_pass,
         "error_rate_pass": error_rate_pass,
         "overall_pass": overall_pass,
     }
@@ -226,7 +242,7 @@ def detect_knee(
 
 
 def calculate_safe_capacity(knee_rps: Optional[float]) -> Optional[float]:
-    """Return 80% of an empirically observed knee throughput, or None if unobserved."""
+    """80% of knee throughput. Returns None if knee_rps is None."""
     if knee_rps is None:
         return None
     return round(knee_rps * 0.8, 2)
@@ -564,11 +580,13 @@ async def execute_tier(
     # --- Phase 2: Sustain (Measured) ---
     sustain_end = time.time() + sustain_seconds
     semaphore = asyncio.Semaphore(concurrency)
-    latencies: List[float] = []
+    infrastructure_latencies: List[float] = []
     ttfts: List[float] = []
+    total_requests_count = 0
     status_counts = {"completed": 0, "429": 0, "4xx": 0, "5xx": 0, "timeouts": 0}
 
     async def sustain_worker():
+        nonlocal total_requests_count
         while time.time() < sustain_end:
             async with semaphore:
                 res = await dispatch_workload_request(
@@ -580,10 +598,7 @@ async def execute_tier(
                     pdf_bytes,
                     pdf_pages,
                 )
-
-                latencies.append(res["latency_ms"])
-                if res.get("ttft_ms") is not None:
-                    ttfts.append(res["ttft_ms"])
+                total_requests_count += 1
 
                 if res["timeout"]:
                     status_counts["timeouts"] += 1
@@ -591,8 +606,12 @@ async def execute_tier(
                     category = classify_http_status(res["status_code"])
                     if category == "successful" and res.get("completed", True):
                         status_counts["completed"] += 1
+                        infrastructure_latencies.append(res["latency_ms"])
+                        if res.get("ttft_ms") is not None:
+                            ttfts.append(res["ttft_ms"])
                     elif category == "rate_limited":
                         status_counts["429"] += 1
+                        # 429 policy rejections strictly excluded from infrastructure latency percentiles
                     elif category == "client_error":
                         status_counts["4xx"] += 1
                     elif category == "server_error":
@@ -611,13 +630,16 @@ async def execute_tier(
     await sampler_task
     post_sample = sampler.sample() if sampler else {}
 
-    total_reqs = len(latencies)
-    offered_rps = calculate_rps(total_reqs, sustain_seconds)
+    offered_rps = calculate_rps(total_requests_count, sustain_seconds)
     successful_rps = calculate_rps(status_counts["completed"], sustain_seconds)
-    err_5xx = calculate_error_rate(total_reqs, status_counts["5xx"])
-    timeout_rate = calculate_error_rate(total_reqs, status_counts["timeouts"])
+    err_5xx = calculate_error_rate(total_requests_count, status_counts["5xx"])
+    timeout_rate = calculate_error_rate(total_requests_count, status_counts["timeouts"])
 
-    clean_latencies = latencies[1:] if len(latencies) > 5 else latencies
+    clean_latencies = (
+        infrastructure_latencies[1:]
+        if len(infrastructure_latencies) > 5
+        else infrastructure_latencies
+    )
     clean_ttfts = ttfts[1:] if len(ttfts) > 5 else ttfts
 
     lat_pct = calculate_percentiles(clean_latencies)
@@ -667,12 +689,14 @@ async def execute_tier(
         workload_type, {"p50_ms": 1000.0, "p95_ms": 2500.0, "p99_ms": 5000.0}
     )
 
-    eval_latencies = (
-        ttft_pct
-        if (workload_type.startswith("streaming_") and clean_ttfts)
-        else lat_pct
+    # Independent gating: TTFT + total duration
+    sla_result = evaluate_sla(
+        latencies=lat_pct,
+        error_rate_5xx=err_5xx,
+        timeout_rate=timeout_rate,
+        limits=limits,
+        ttft_latencies=ttft_pct if workload_type.startswith("streaming_") else None,
     )
-    sla_result = evaluate_sla(eval_latencies, err_5xx, timeout_rate, limits)
 
     is_streaming = workload_type.startswith("streaming_")
     bottleneck_attribution = "nominal"
@@ -693,7 +717,7 @@ async def execute_tier(
         "ramp_seconds": ramp_seconds,
         "sustain_seconds": sustain_seconds,
         "cooldown_seconds": cooldown_seconds,
-        "requests": total_reqs,
+        "requests": total_requests_count,
         "completed": status_counts["completed"],
         "allowed": status_counts["completed"],
         "rejected_429": status_counts["429"],
@@ -738,7 +762,13 @@ def build_tier_result(
     )
     err_5xx = calculate_error_rate(requests, http_5xx)
     timeout_rate = calculate_error_rate(requests, timeouts)
-    sla = evaluate_sla(lat_pct, err_5xx, timeout_rate, sla_limits)
+    sla = evaluate_sla(
+        latencies=lat_pct,
+        error_rate_5xx=err_5xx,
+        timeout_rate=timeout_rate,
+        limits=sla_limits,
+        ttft_latencies=ttft_pct if ttft_values else None,
+    )
 
     return {
         "concurrency": concurrency,
@@ -803,13 +833,20 @@ def generate_markdown_report(report: Dict[str, Any]) -> str:
         else f"`Unobserved in tested range` ({knee_info.get('reason')})"
     )
 
+    safe_cap_val = c_anal.get("safe_capacity", {}).get("rps")
+    safe_cap_str = (
+        f"`{safe_cap_val} successful RPS`"
+        if safe_cap_val is not None
+        else "`Unobserved (no empirical knee detected)`"
+    )
+
     lines = [
         "# P2-08 Load Testing & Capacity Limits",
         "",
         "## Executive Summary",
         f"**Final Verdict: {verdict}**",
         "",
-        f"- Safe Operating Capacity: `{c_anal.get('safe_capacity', {}).get('rps') if c_anal.get('safe_capacity', {}).get('rps') is not None else 'Unobserved'} successful RPS`",
+        f"- Safe Operating Capacity: {safe_cap_str}",
         f"- Saturation Knee: {knee_str}",
         f"- Breaking Point: `{c_anal.get('breaking_point', {}).get('reason', 'None observed')}`",
         f"- Primary Bottleneck: `{c_anal.get('saturation_reason', 'Provider Bound')}`",
@@ -893,10 +930,10 @@ def generate_markdown_report(report: Dict[str, Any]) -> str:
         f"- Reason: `{c_anal.get('breaking_point', {}).get('reason')}`",
         "",
         "## Safe Operating Capacity",
-        f"- Measured Production Safe Target (80% of Knee): `{c_anal.get('safe_capacity', {}).get('rps') if c_anal.get('safe_capacity', {}).get('rps') is not None else 'Unobserved'} successful RPS`",
+        f"- Measured Production Safe Target (80% of Knee): {safe_cap_str}",
         "",
         "## SLA Evaluation",
-        "Full SLA gate evaluation per workload across tail latencies and error thresholds without exemptions.",
+        "Full SLA gate evaluation per workload across tail latencies, TTFT, and error thresholds without exemptions.",
         "",
         "## Bottleneck Attribution",
         f"Primary operational constraint: `{c_anal.get('saturation_reason')}`.",
@@ -907,7 +944,7 @@ def generate_markdown_report(report: Dict[str, Any]) -> str:
         "## Findings",
         "1. Workload-specific ramps characterized true arrival load progression consistently across L1-L6.",
         "2. Offered RPS tracked distinctly from delivered successful throughput.",
-        "3. Capacity Boundary Table strictly reports detected knee metrics without substitution.",
+        "3. Capacity Boundary Table strictly reports detected knee metrics without substitution; unobserved workloads display Unobserved.",
         "",
         "## Recommendations",
         "1. Maintain independent telemetry for policy 429 rejections versus 5xx outages.",
@@ -960,16 +997,17 @@ def generate_markdown_report(report: Dict[str, Any]) -> str:
         ]
     )
 
-    # Item 2: Strict capacity table knee & safe RPS reporting
     for wk_name, tiers in w.items():
         healthy_tiers = [t for t in tiers if t["sla"]["overall_pass"]]
         last_c = healthy_tiers[-1]["concurrency"] if healthy_tiers else "None"
 
-        # Check if this specific workload was the one evaluated for knee (health_live)
         if wk_name == "health_live" and knee_info.get("observed"):
             k_c = str(knee_info.get("concurrency"))
             k_rps_str = str(knee_info.get("rps"))
-            safe_rps_str = str(c_anal.get("safe_capacity", {}).get("rps", 0.0))
+            safe_rps_val = c_anal.get("safe_capacity", {}).get("rps")
+            safe_rps_str = (
+                str(safe_rps_val) if safe_rps_val is not None else "Unobserved"
+            )
         else:
             k_c = "Unobserved"
             k_rps_str = "Unobserved"
@@ -1229,7 +1267,7 @@ async def run_benchmark(
             total_allowed += res["allowed"]
         workload_results["streaming_rag"] = sr_results
 
-        # --- Phase 4: Soak Test (Pinned to Measured Safe Capacity RPS) ---
+        # --- Phase 4: Soak Test ---
         print("\n[3/4] Determining Measured Safe Operating Point for Soak Phase...")
         if detected_knee_tier:
             target_safe_rps = calculate_safe_capacity(detected_knee_tier["rps"])
@@ -1238,14 +1276,6 @@ async def run_benchmark(
             )
             soak_c = closest_tier["concurrency"]
             soak_reason = f"Closest measured tier (C={soak_c}, {closest_tier['successful_rps']} RPS) to target safe capacity ({target_safe_rps} RPS)"
-        else:
-            target_safe_rps = None
-            soak_c = None
-            soak_reason = (
-                "Skipped: no empirical knee observed, so safe capacity is unobserved"
-            )
-
-        if soak_c is not None:
             print(
                 f"Executing Soak Phase at C={soak_c} ({soak_reason}) for {soak_sustain}s..."
             )
@@ -1261,8 +1291,12 @@ async def run_benchmark(
             workload_results["soak_test"] = [soak_res]
             total_429 += soak_res["rejected_429"]
             total_allowed += soak_res["allowed"]
+        else:
+            print(
+                "No empirical knee detected; soak phase skipped (no manufactured capacity point)."
+            )
 
-    # Knee & Capacity Analytics (Zero False Fabrication)
+    # Knee & Capacity Analytics
     print("\n[4/4] Compiling Empirical Capacity Analysis...")
     if detected_knee_tier:
         knee_dict = {
@@ -1290,7 +1324,7 @@ async def run_benchmark(
             "rps": None,
             "reason": "No breaking point observed (0% 5xx, 0% timeouts)",
         },
-        "saturation_reason": "AI Provider Queueing & Event Loop saturation at peak load",
+        "saturation_reason": "provider-consistent; not independently isolated",
     }
 
     env_data = {
@@ -1427,7 +1461,7 @@ async def run_benchmark(
         },
     }
 
-    # Item 1: Strict SLA Gating across ALL workloads without streaming exemption
+    # Strict SLA Gating across ALL workloads without exemptions
     sla_results_dict = {}
     backend_passed = True
 
@@ -1445,7 +1479,6 @@ async def run_benchmark(
             "timeouts": sum(t["timeouts"] for t in tiers),
         }
 
-        # Failure Gate: Every evaluated workload must pass all SLA thresholds
         if any_5xx_or_timeouts or not all_tiers_pass:
             backend_passed = False
 
