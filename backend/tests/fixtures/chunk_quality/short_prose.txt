@@ -1,0 +1,1 @@
+Artificial intelligence systems rely on data processing pipelines. A robust pipeline ensures clean inputs and consistent embeddings. Without clean normalization, semantic search degrades significantly.

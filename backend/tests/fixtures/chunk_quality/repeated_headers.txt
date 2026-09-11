@@ -1,0 +1,9 @@
+Company Confidential - Internal Use Only
+Document Processing System Guide v1.0
+Chapter 1 introduces basic core components and architectural layers.
+Company Confidential - Internal Use Only
+
+Company Confidential - Internal Use Only
+Document Processing System Guide v1.0
+Chapter 2 explains operational parameters and deployment procedures.
+Company Confidential - Internal Use Only

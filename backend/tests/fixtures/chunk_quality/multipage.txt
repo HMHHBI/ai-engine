@@ -1,0 +1,8 @@
+--- PAGE 1 ---
+Introduction to high-concurrency systems. Concurrency models dictate how tasks share system resources.
+
+--- PAGE 2 ---
+Thread pools and event loops represent two distinct approaches to handling I/O operations efficiently.
+
+--- PAGE 3 ---
+Benchmarking under heavy load reveals memory bottlenecks and garbage collection latency spikes.

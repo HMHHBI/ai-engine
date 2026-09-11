@@ -1,0 +1,6 @@
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| chunk_size | integer | 500 | Target chunk character count |
+| overlap | integer | 50 | Overlap window in characters |
+| concurrency | integer | 4 | Max concurrent API workers |
+| timeout | float | 30.0 | Request timeout in seconds |

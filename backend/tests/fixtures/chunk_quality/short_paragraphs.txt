@@ -1,0 +1,7 @@
+First short paragraph describing the initial setup.
+
+Second short paragraph detailing configuration steps.
+
+Third short paragraph covering verification procedures.
+
+Fourth short paragraph concluding the operational guide.
