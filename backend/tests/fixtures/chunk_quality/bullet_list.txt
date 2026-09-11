@@ -1,0 +1,6 @@
+* Ensure all environment variables are properly initialized prior to service startup.
+* Validate database connection pooling parameters to prevent connection starvation.
+* Enable SSL encryption for all inter-service communication across the internal network.
+* Configure structured logging to output JSON-formatted logs to standard output.
+* Monitor vector similarity query latencies using Prometheus metric collectors.
+* Implement circuit breakers around external embedding provider API invocations.

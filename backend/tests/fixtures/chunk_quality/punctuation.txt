@@ -1,0 +1,3 @@
+Dr. Smith arrived at 5:30 p.m. to inspect the lab equipment! Was it ready? Yes, absolutely.
+The value was approx. $45.50 per unit (see Appendix A.1). However, e.g. section 2.3 states otherwise...
+Wait... is this sentence splitting correctly?! Yes, it should!

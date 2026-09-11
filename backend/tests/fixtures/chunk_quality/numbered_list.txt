@@ -1,0 +1,7 @@
+1. Authenticate the incoming client request using the bearer token header.
+2. Validate the PDF file signature and ensure the file size is under ten megabytes.
+3. Extract text content page by page using the PDF parser library.
+4. Normalize whitespace while preserving essential structural boundaries.
+5. Chunk text using the configured window size and overlap parameters.
+6. Generate vector embeddings for all generated chunks concurrently.
+7. Persist document metadata and chunk embeddings in an atomic transaction.

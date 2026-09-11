@@ -1,0 +1,15 @@
+# System Architecture Overview
+
+The system architecture consists of several decoupled services communicating over HTTP and message queues.
+
+## Authentication Service
+
+Authentication is handled via JSON Web Tokens signed with HMAC-SHA256. Tokens expire after thirty minutes of inactivity.
+
+### Refresh Tokens
+
+Refresh tokens are stored in Redis with an absolute expiration time of seven days. Replay attacks are mitigated by token rotation.
+
+## Storage Layer
+
+PostgreSQL provides relational persistence while the pgvector extension stores chunk embeddings for similarity search.
