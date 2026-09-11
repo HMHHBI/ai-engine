@@ -719,3 +719,48 @@ async def test_execute_evaluation_orchestration(
     generated_md = list(out_dir.glob("rag-quality-*.md"))
     assert len(generated_json) == 1
     assert len(generated_md) == 1
+
+
+@pytest.mark.asyncio
+async def test_execute_evaluation_enforces_min_queries(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Verify that execute_evaluation respects and enforces the min_queries contract."""
+    # Create a dataset with 5 queries
+    dataset_payload = {
+        "version": "1.0",
+        "corpus": "test_spec.pdf",
+        "queries": [
+            {
+                "query_id": f"rag-{i+1:03d}",
+                "user_id": 1,
+                "document_id": 10,
+                "query": f"Query text {i+1}",
+                "relevant_chunk_ids": [102],
+            }
+            for i in range(5)
+        ],
+    }
+    dataset_file = tmp_path / "test_min_dataset.json"
+    dataset_file.write_text(
+        __import__("json").dumps(dataset_payload),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(
+        "TEST_DATABASE_URL",
+        "postgresql://postgres:pass@localhost:5432/hassan_ai_test",
+    )
+
+    # Calling with min_queries=10 must raise ValueError
+    with pytest.raises(
+        ValueError,
+        match="At least 10 queries are required",
+    ):
+        await evaluator.execute_evaluation(
+            dataset_path=dataset_file,
+            output_dir=tmp_path / "out",
+            k_values=(1, 3),
+            min_queries=10,
+        )

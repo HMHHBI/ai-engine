@@ -738,6 +738,7 @@ async def execute_evaluation(
     dataset_path: Path,
     output_dir: Path,
     k_values: tuple[int, ...] = DEFAULT_K_VALUES,
+    min_queries: int = MIN_DATASET_QUERIES,
 ) -> dict[str, Any]:
     """Execute the complete isolated RAG retrieval evaluation."""
     k_values = validate_k_values(k_values)
@@ -745,7 +746,10 @@ async def execute_evaluation(
     test_database_url = os.getenv("TEST_DATABASE_URL")
     assert_test_database(test_database_url)
 
-    queries = load_dataset(dataset_path)
+    queries = load_dataset(
+        dataset_path,
+        min_queries=min_queries,
+    )
 
     evaluation_engine = create_engine(
         test_database_url,
@@ -1004,6 +1008,7 @@ def main() -> None:
                 dataset_path=args.dataset,
                 output_dir=args.output_dir,
                 k_values=tuple(args.k),
+                min_queries=args.min_queries,
             )
         )
 
