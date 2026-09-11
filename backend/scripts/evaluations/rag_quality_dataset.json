@@ -7,100 +7,240 @@
       "user_id": 1,
       "document_id": 1,
       "query": "What is the maximum allowed file upload size?",
-      "relevant_chunk_ids": [
-        1
-      ],
+      "relevant_chunk_ids": [1],
       "reference_answer": "The Hassan AI Engine supports a maximum document file upload size of 25 megabytes."
     },
     {
       "query_id": "rag-002",
       "user_id": 1,
       "document_id": 1,
-      "query": "Which file formats are supported for document upload?",
-      "relevant_chunk_ids": [
-        2
-      ],
-      "reference_answer": "Supported file formats for ingestion include standard PDF, plain text TXT, and Markdown docs."
+      "query": "How large can an uploaded document be?",
+      "relevant_chunk_ids": [1],
+      "reference_answer": "The maximum permitted document upload size is 25 megabytes."
     },
     {
       "query_id": "rag-003",
       "user_id": 1,
       "document_id": 1,
-      "query": "What is the dimensionality of vector embeddings?",
-      "relevant_chunk_ids": [
-        3
-      ],
-      "reference_answer": "Dense vector representations use 768-dimensional text embeddings generated for fast similarity search."
+      "query": "What file size limit applies when users upload documents?",
+      "relevant_chunk_ids": [1],
+      "reference_answer": "Document uploads are limited to 25 megabytes."
     },
     {
       "query_id": "rag-004",
       "user_id": 1,
       "document_id": 1,
-      "query": "How does user authentication work with tokens?",
-      "relevant_chunk_ids": [
-        4
-      ],
-      "reference_answer": "User authentication employs stateless JSON Web Tokens signed with the HS256 cryptographic algorithm."
+      "query": "Which file formats are supported for document upload?",
+      "relevant_chunk_ids": [2],
+      "reference_answer": "Supported file formats include PDF, TXT, and Markdown."
     },
     {
       "query_id": "rag-005",
       "user_id": 1,
       "document_id": 1,
-      "query": "What index structure does pgvector use for similarity search?",
-      "relevant_chunk_ids": [
-        5
-      ],
-      "reference_answer": "The primary vector index utilizes PostgreSQL pgvector with HNSW indexing for sub-millisecond retrieval."
+      "query": "Can the system ingest PDF, text, and Markdown documents?",
+      "relevant_chunk_ids": [2],
+      "reference_answer": "The document ingestion pipeline supports PDF, plain text TXT, and Markdown files."
     },
     {
       "query_id": "rag-006",
       "user_id": 1,
       "document_id": 1,
-      "query": "What is the rate limit quota per user?",
-      "relevant_chunk_ids": [
-        6
-      ],
-      "reference_answer": "Redis rate limiting enforces a fixed window quota of 100 HTTP requests per minute per tenant."
+      "query": "What document types can users upload to the engine?",
+      "relevant_chunk_ids": [2],
+      "reference_answer": "Users can upload PDF, TXT, and Markdown documents."
     },
     {
       "query_id": "rag-007",
       "user_id": 1,
       "document_id": 1,
-      "query": "How are background tasks and document jobs processed asynchronously?",
-      "relevant_chunk_ids": [
-        7
-      ],
-      "reference_answer": "Asynchronous document background processing is dispatched through Celery task workers with Redis brokers."
+      "query": "What is the dimensionality of vector embeddings?",
+      "relevant_chunk_ids": [3],
+      "reference_answer": "The system uses 768-dimensional text embeddings."
     },
     {
       "query_id": "rag-008",
       "user_id": 1,
       "document_id": 1,
-      "query": "Where is chat conversation history cached for streaming?",
-      "relevant_chunk_ids": [
-        8
-      ],
-      "reference_answer": "Chat session context is cached in Redis memory buffers to provide low-latency token streaming."
+      "query": "How many dimensions does each generated embedding contain?",
+      "relevant_chunk_ids": [3],
+      "reference_answer": "Each text embedding contains 768 dimensions."
     },
     {
       "query_id": "rag-009",
       "user_id": 1,
       "document_id": 1,
-      "query": "How is CORS configured for client origins?",
-      "relevant_chunk_ids": [
-        9
-      ],
-      "reference_answer": "Cross-Origin Resource Sharing CORS allows access exclusively from configured trusted client domain origins."
+      "query": "What vector size is used for semantic document search?",
+      "relevant_chunk_ids": [3],
+      "reference_answer": "Semantic search uses 768-dimensional vector embeddings."
     },
     {
       "query_id": "rag-010",
       "user_id": 1,
       "document_id": 1,
+      "query": "How does user authentication work with tokens?",
+      "relevant_chunk_ids": [4],
+      "reference_answer": "User authentication uses stateless JSON Web Tokens signed with HS256."
+    },
+    {
+      "query_id": "rag-011",
+      "user_id": 1,
+      "document_id": 1,
+      "query": "Which signing algorithm is used for authentication JWTs?",
+      "relevant_chunk_ids": [4],
+      "reference_answer": "Authentication tokens use the HS256 cryptographic signing algorithm."
+    },
+    {
+      "query_id": "rag-012",
+      "user_id": 1,
+      "document_id": 1,
+      "query": "What token mechanism protects authenticated users?",
+      "relevant_chunk_ids": [4],
+      "reference_answer": "Authenticated users are protected using stateless JSON Web Tokens signed with HS256."
+    },
+    {
+      "query_id": "rag-013",
+      "user_id": 1,
+      "document_id": 1,
+      "query": "What index structure does pgvector use for similarity search?",
+      "relevant_chunk_ids": [5],
+      "reference_answer": "The vector search index uses pgvector with HNSW indexing."
+    },
+    {
+      "query_id": "rag-014",
+      "user_id": 1,
+      "document_id": 1,
+      "query": "Which PostgreSQL vector index is used for fast similarity retrieval?",
+      "relevant_chunk_ids": [5],
+      "reference_answer": "PostgreSQL vector retrieval uses an HNSW index through pgvector."
+    },
+    {
+      "query_id": "rag-015",
+      "user_id": 1,
+      "document_id": 1,
+      "query": "How are embedding vectors indexed for similarity search?",
+      "relevant_chunk_ids": [5],
+      "reference_answer": "Embedding vectors are indexed using pgvector HNSW indexing."
+    },
+    {
+      "query_id": "rag-016",
+      "user_id": 1,
+      "document_id": 1,
+      "query": "What is the rate limit quota per user?",
+      "relevant_chunk_ids": [6],
+      "reference_answer": "The rate limit is 100 HTTP requests per minute per tenant."
+    },
+    {
+      "query_id": "rag-017",
+      "user_id": 1,
+      "document_id": 1,
+      "query": "How many requests can a tenant make per minute?",
+      "relevant_chunk_ids": [6],
+      "reference_answer": "Each tenant is limited to 100 HTTP requests per minute."
+    },
+    {
+      "query_id": "rag-018",
+      "user_id": 1,
+      "document_id": 1,
+      "query": "What request quota does Redis rate limiting enforce?",
+      "relevant_chunk_ids": [6],
+      "reference_answer": "Redis rate limiting enforces a fixed-window quota of 100 requests per minute per tenant."
+    },
+    {
+      "query_id": "rag-019",
+      "user_id": 1,
+      "document_id": 1,
+      "query": "How are background tasks and document jobs processed asynchronously?",
+      "relevant_chunk_ids": [7],
+      "reference_answer": "Asynchronous document jobs are dispatched through Celery workers using Redis as the broker."
+    },
+    {
+      "query_id": "rag-020",
+      "user_id": 1,
+      "document_id": 1,
+      "query": "Which technology handles asynchronous document processing?",
+      "relevant_chunk_ids": [7],
+      "reference_answer": "Celery task workers handle asynchronous document processing with Redis as the broker."
+    },
+    {
+      "query_id": "rag-021",
+      "user_id": 1,
+      "document_id": 1,
+      "query": "What queue and worker system processes background document jobs?",
+      "relevant_chunk_ids": [7],
+      "reference_answer": "Background document jobs are processed by Celery workers with Redis providing the broker."
+    },
+    {
+      "query_id": "rag-022",
+      "user_id": 1,
+      "document_id": 1,
+      "query": "Where is chat conversation history cached for streaming?",
+      "relevant_chunk_ids": [8],
+      "reference_answer": "Chat session context is cached in Redis memory buffers for low-latency token streaming."
+    },
+    {
+      "query_id": "rag-023",
+      "user_id": 1,
+      "document_id": 1,
+      "query": "Which storage system caches chat context during streaming?",
+      "relevant_chunk_ids": [8],
+      "reference_answer": "Redis is used to cache chat session context during token streaming."
+    },
+    {
+      "query_id": "rag-024",
+      "user_id": 1,
+      "document_id": 1,
+      "query": "How is conversation context kept available for fast streaming responses?",
+      "relevant_chunk_ids": [8],
+      "reference_answer": "Conversation context is stored in Redis memory buffers to support low-latency streaming."
+    },
+    {
+      "query_id": "rag-025",
+      "user_id": 1,
+      "document_id": 1,
+      "query": "How is CORS configured for client origins?",
+      "relevant_chunk_ids": [9],
+      "reference_answer": "CORS permits requests only from configured trusted client origins."
+    },
+    {
+      "query_id": "rag-026",
+      "user_id": 1,
+      "document_id": 1,
+      "query": "Which origins are allowed to access the API through CORS?",
+      "relevant_chunk_ids": [9],
+      "reference_answer": "Only configured trusted client domain origins are permitted by CORS."
+    },
+    {
+      "query_id": "rag-027",
+      "user_id": 1,
+      "document_id": 1,
+      "query": "What restriction is applied to cross-origin API requests?",
+      "relevant_chunk_ids": [9],
+      "reference_answer": "Cross-origin requests are restricted to configured trusted client domains."
+    },
+    {
+      "query_id": "rag-028",
+      "user_id": 1,
+      "document_id": 1,
       "query": "What preprocessing happens during document parsing and extraction?",
-      "relevant_chunk_ids": [
-        10
-      ],
-      "reference_answer": "Document parsing executes automated text pagination, layout extraction, and semantic chunk boundary deduplication."
+      "relevant_chunk_ids": [10],
+      "reference_answer": "Document preprocessing performs text pagination, layout extraction, and semantic chunk-boundary deduplication."
+    },
+    {
+      "query_id": "rag-029",
+      "user_id": 1,
+      "document_id": 1,
+      "query": "How is document text prepared before it is indexed?",
+      "relevant_chunk_ids": [10],
+      "reference_answer": "Document text undergoes pagination, layout extraction, and semantic chunk-boundary deduplication during preprocessing."
+    },
+    {
+      "query_id": "rag-030",
+      "user_id": 1,
+      "document_id": 1,
+      "query": "Which preprocessing steps are applied to extracted document content?",
+      "relevant_chunk_ids": [10],
+      "reference_answer": "Extracted content is processed with text pagination, layout extraction, and semantic chunk-boundary deduplication."
     }
   ]
 }
