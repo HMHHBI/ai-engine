@@ -25,7 +25,7 @@ import asyncio
 import json
 import os
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Optional, Sequence
@@ -48,8 +48,6 @@ DEFAULT_DATASET = Path(
     "scripts/evaluations/rag_quality_dataset.json"
 )
 DEFAULT_RESULTS_DIR = Path("evaluation-results")
-
-TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
 
 
 @dataclass(frozen=True)
@@ -83,7 +81,7 @@ class QueryEvaluation:
     reference_answer: Optional[str] = None
 
 
-def assert_test_database(url: str) -> None:
+def assert_test_database(url: Optional[str]) -> None:
     """Ensure evaluation runs only against an isolated test database."""
     if not url:
         raise RuntimeError(
@@ -556,8 +554,13 @@ def build_failures(
             actual = aggregate[k].get(metric_name, 0.0)
 
             if actual < threshold:
+                label = (
+                    metric_name.upper()
+                    if metric_name == "mrr"
+                    else metric_name.replace("_", " ").title()
+                )
                 failures.append(
-                    f"{metric_name.upper() if metric_name == 'mrr' else metric_name.replace('_', ' ').title()}@{k} "
+                    f"{label}@{k} "
                     f"({actual:.4f}) below required threshold "
                     f"{threshold:.2f}"
                 )
@@ -738,12 +741,14 @@ async def execute_evaluation(
 ) -> dict[str, Any]:
     """Execute the complete isolated RAG retrieval evaluation."""
     k_values = validate_k_values(k_values)
-    assert_test_database(TEST_DATABASE_URL)
+
+    test_database_url = os.getenv("TEST_DATABASE_URL")
+    assert_test_database(test_database_url)
 
     queries = load_dataset(dataset_path)
 
     evaluation_engine = create_engine(
-        TEST_DATABASE_URL,
+        test_database_url,
         connect_args={
             "options": "-c client_encoding=utf8",
         },
@@ -779,7 +784,7 @@ async def execute_evaluation(
         print("=" * 62)
         print("  P3-02 RAG RETRIEVAL QUALITY EVALUATION")
         print("=" * 62)
-        print(f"  Database: isolated test database")
+        print("  Database: isolated test database")
         print(f"  Provider: {provider}")
         print(f"  Queries:  {len(queries)}")
         print(

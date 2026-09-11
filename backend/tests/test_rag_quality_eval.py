@@ -608,3 +608,114 @@ def test_dataset_validation_rejects_foreign_chunk(
             session,
             [query],
         )
+
+
+@pytest.mark.asyncio
+async def test_execute_evaluation_orchestration(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Verify that execute_evaluation orchestrates dataset loading, validation,
+    provider embedding, repository retrieval, metric calculation, and report generation."""
+    # 1. Create a 30-query dummy dataset in tmp_path
+    dataset_payload = {
+        "version": "1.0",
+        "corpus": "test_spec.pdf",
+        "queries": [
+            {
+                "query_id": f"rag-{i+1:03d}",
+                "user_id": 1,
+                "document_id": 10,
+                "query": f"Sample query text number {i+1}",
+                "relevant_chunk_ids": [102],
+                "reference_answer": "Sample answer",
+            }
+            for i in range(30)
+        ],
+    }
+    dataset_file = tmp_path / "test_dataset.json"
+    dataset_file.write_text(
+        __import__("json").dumps(dataset_payload),
+        encoding="utf-8",
+    )
+
+    out_dir = tmp_path / "eval_out"
+
+    # 2. Environment safety variable
+    monkeypatch.setenv(
+        "TEST_DATABASE_URL",
+        "postgresql://postgres:pass@localhost:5432/hassan_ai_test",
+    )
+
+    # 3. Mock DB engine creation and validate_dataset_against_db
+    class MockEngine:
+        def dispose(self):
+            pass
+
+    monkeypatch.setattr(
+        evaluator,
+        "create_engine",
+        lambda *args, **kwargs: MockEngine(),
+    )
+    monkeypatch.setattr(
+        evaluator,
+        "validate_dataset_against_db",
+        lambda session, queries: None,
+    )
+
+    # 4. Mock EmbeddingService and VectorRepository
+    embedding_calls = []
+    async def mock_generate_embedding(text, model_provider):
+        embedding_calls.append((text, model_provider))
+        return [0.1, 0.2, 0.3]
+
+    retrieval_calls = []
+    def mock_search_similar_chunks(**kwargs):
+        retrieval_calls.append(kwargs)
+        return [
+            {
+                "id": 102,
+                "document_id": 10,
+                "chat_id": 1,
+                "chunk_index": 0,
+                "content": "relevant text",
+                "distance": 0.05,
+            }
+        ]
+
+    monkeypatch.setattr(
+        evaluator.EmbeddingService,
+        "generate_embedding",
+        mock_generate_embedding,
+    )
+    monkeypatch.setattr(
+        evaluator.VectorRepository,
+        "search_similar_chunks",
+        mock_search_similar_chunks,
+    )
+
+    # 5. Execute evaluation
+    result = await evaluator.execute_evaluation(
+        dataset_path=dataset_file,
+        output_dir=out_dir,
+        k_values=(1, 3, 5, 10),
+    )
+
+    # 6. Verify assertions
+    assert result["status"] == "PASSED"
+    assert result["total_queries"] == 30
+    assert len(embedding_calls) == 30
+    assert embedding_calls[0][0] == "Sample query text number 1"
+    # Ensure provider is dynamic from settings
+    assert embedding_calls[0][1] == evaluator.settings.DEFAULT_EMBEDDING_PROVIDER.value
+
+    assert len(retrieval_calls) == 30
+    assert retrieval_calls[0]["top_k"] == 10
+    assert "max_distance" not in retrieval_calls[0]
+    assert "adaptive_margin" not in retrieval_calls[0]
+
+    # Verify report artifacts were written
+    generated_json = list(out_dir.glob("rag-quality-*.json"))
+    generated_md = list(out_dir.glob("rag-quality-*.md"))
+    assert len(generated_json) == 1
+    assert len(generated_md) == 1
