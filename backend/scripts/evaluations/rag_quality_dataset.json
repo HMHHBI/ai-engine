@@ -4,101 +4,101 @@
   "queries": [
     {
       "query_id": "rag-001",
-      "user_id": 4,
-      "document_id": 3,
+      "user_id": 1,
+      "document_id": 1,
       "query": "What is the maximum allowed file upload size?",
       "relevant_chunk_ids": [
-        2
+        1
       ],
       "reference_answer": "The Hassan AI Engine supports a maximum document file upload size of 25 megabytes."
     },
     {
       "query_id": "rag-002",
-      "user_id": 4,
-      "document_id": 3,
+      "user_id": 1,
+      "document_id": 1,
       "query": "Which file formats are supported for document upload?",
       "relevant_chunk_ids": [
-        3
+        2
       ],
       "reference_answer": "Supported file formats for ingestion include standard PDF, plain text TXT, and Markdown docs."
     },
     {
       "query_id": "rag-003",
-      "user_id": 4,
-      "document_id": 3,
+      "user_id": 1,
+      "document_id": 1,
       "query": "What is the dimensionality of vector embeddings?",
       "relevant_chunk_ids": [
-        4
+        3
       ],
       "reference_answer": "Dense vector representations use 768-dimensional text embeddings generated for fast similarity search."
     },
     {
       "query_id": "rag-004",
-      "user_id": 4,
-      "document_id": 3,
+      "user_id": 1,
+      "document_id": 1,
       "query": "How does user authentication work with tokens?",
       "relevant_chunk_ids": [
-        5
+        4
       ],
       "reference_answer": "User authentication employs stateless JSON Web Tokens signed with the HS256 cryptographic algorithm."
     },
     {
       "query_id": "rag-005",
-      "user_id": 4,
-      "document_id": 3,
+      "user_id": 1,
+      "document_id": 1,
       "query": "What index structure does pgvector use for similarity search?",
       "relevant_chunk_ids": [
-        6
+        5
       ],
       "reference_answer": "The primary vector index utilizes PostgreSQL pgvector with HNSW indexing for sub-millisecond retrieval."
     },
     {
       "query_id": "rag-006",
-      "user_id": 4,
-      "document_id": 3,
+      "user_id": 1,
+      "document_id": 1,
       "query": "What is the rate limit quota per user?",
       "relevant_chunk_ids": [
-        7
+        6
       ],
       "reference_answer": "Redis rate limiting enforces a fixed window quota of 100 HTTP requests per minute per tenant."
     },
     {
       "query_id": "rag-007",
-      "user_id": 4,
-      "document_id": 3,
+      "user_id": 1,
+      "document_id": 1,
       "query": "How are background tasks and document jobs processed asynchronously?",
       "relevant_chunk_ids": [
-        8
+        7
       ],
       "reference_answer": "Asynchronous document background processing is dispatched through Celery task workers with Redis brokers."
     },
     {
       "query_id": "rag-008",
-      "user_id": 4,
-      "document_id": 3,
+      "user_id": 1,
+      "document_id": 1,
       "query": "Where is chat conversation history cached for streaming?",
       "relevant_chunk_ids": [
-        9
+        8
       ],
       "reference_answer": "Chat session context is cached in Redis memory buffers to provide low-latency token streaming."
     },
     {
       "query_id": "rag-009",
-      "user_id": 4,
-      "document_id": 3,
+      "user_id": 1,
+      "document_id": 1,
       "query": "How is CORS configured for client origins?",
       "relevant_chunk_ids": [
-        10
+        9
       ],
       "reference_answer": "Cross-Origin Resource Sharing CORS allows access exclusively from configured trusted client domain origins."
     },
     {
       "query_id": "rag-010",
-      "user_id": 4,
-      "document_id": 3,
+      "user_id": 1,
+      "document_id": 1,
       "query": "What preprocessing happens during document parsing and extraction?",
       "relevant_chunk_ids": [
-        11
+        10
       ],
       "reference_answer": "Document parsing executes automated text pagination, layout extraction, and semantic chunk boundary deduplication."
     }
