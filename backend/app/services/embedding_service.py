@@ -79,11 +79,34 @@ class EmbeddingService:
         def split_sentences(text: str) -> List[str]:
             import re
 
-            sentences = re.split(
-                r"(?<=[.!?])\s+(?=[A-Z0-9\"'])",
-                text.strip(),
+            PROTECTED_PERIOD = "\u0000PERIOD\u0000"
+            raw_text = text.strip()
+            if not raw_text:
+                return []
+
+            # Deterministic protection for honorifics, Latin abbreviations, and initials
+            protected = re.sub(
+                r"\b(Dr|Mr|Mrs|Ms|Prof|St|e\.g|i\.e)\.",
+                lambda m: f"{m.group(1)}{PROTECTED_PERIOD}",
+                raw_text,
+                flags=re.IGNORECASE,
             )
-            return [sentence.strip() for sentence in sentences if sentence.strip()]
+            # Protect single uppercase initials (e.g. John F. Kennedy)
+            protected = re.sub(
+                r"\b([A-Z])\.",
+                lambda m: f"{m.group(1)}{PROTECTED_PERIOD}",
+                protected,
+            )
+
+            # Split along real sentence boundaries
+            segments = re.split(r"(?<=[.!?])\s+(?=[A-Z0-9\"\'])", protected)
+
+            results = []
+            for s in segments:
+                restored = s.replace(PROTECTED_PERIOD, ".").strip()
+                if restored:
+                    results.append(restored)
+            return results
 
         def split_long_text(text: str) -> List[str]:
             raw_words = text.split()
