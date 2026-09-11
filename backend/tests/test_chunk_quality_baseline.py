@@ -1,7 +1,7 @@
-"""Characterization tests for EmbeddingService.chunk_text baseline behavior.
+"""Characterization and invariant tests for EmbeddingService.chunk_text behavior.
 
-Locks down existing production behavior (500-char target, 50-char overlap)
-prior to any algorithmic refactoring in P3-03.
+Locks down production chunking invariants (500-char target, 50-char overlap)
+and verifies defect resolutions (P3-03).
 """
 
 from __future__ import annotations
@@ -89,16 +89,20 @@ def test_multilingual_unicode_content_does_not_crash():
     assert "ہاسن اے آئی" in chunks[0].text
 
 
-def test_characterize_oversized_unbreakable_token_behavior():
-    """Characterization test: documents that single unbroken tokens exceeding chunk_size
-    are currently emitted without being split, producing a chunk > chunk_size.
+def test_oversized_unbreakable_token_is_split_within_chunk_limit():
+    """Invariant test: unbroken tokens exceeding chunk_size must be split
+    so no chunk exceeds chunk_size.
     """
     long_token = "A" * 600
     pages = [PDFPage(page_number=1, text=long_token)]
     chunks = EmbeddingService.chunk_text(pages, chunk_size=500, overlap=50)
 
-    assert len(chunks) == 1
-    assert len(chunks[0].text) == 600
+    # Must be split into chunks each <= 500 chars
+    assert len(chunks) >= 2
+    for chunk in chunks:
+        assert len(chunk.text) <= 500
+    # Complete text must be preserved
+    assert "".join(c.text for c in chunks) == long_token
 
 
 def test_string_input_compatibility():

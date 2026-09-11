@@ -86,7 +86,13 @@ class EmbeddingService:
             return [sentence.strip() for sentence in sentences if sentence.strip()]
 
         def split_long_text(text: str) -> List[str]:
-            words = text.split()
+            raw_words = text.split()
+            words = []
+            for w in raw_words:
+                if len(w) > chunk_size:
+                    words.extend([w[i : i + chunk_size] for i in range(0, len(w), chunk_size)])
+                else:
+                    words.append(w)
             pieces = []
             current_words = []
             current_length = 0
