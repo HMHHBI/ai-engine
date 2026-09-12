@@ -693,6 +693,11 @@ async def test_execute_evaluation_orchestration(
         "search_similar_chunks",
         mock_search_similar_chunks,
     )
+    monkeypatch.setattr(
+        evaluator.VectorRepository,
+        "search_hybrid_chunks",
+        lambda **kwargs: mock_search_similar_chunks(**kwargs),
+    )
 
     # 5. Execute evaluation
     result = await evaluator.execute_evaluation(
