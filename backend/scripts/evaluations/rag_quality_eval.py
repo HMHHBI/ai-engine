@@ -28,6 +28,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Iterable, Optional, Sequence
 from urllib.parse import urlparse
 
@@ -39,10 +40,22 @@ from app.core.config import settings
 from app.db.models import Chat, Document, DocumentChunk
 from app.repositories.vector_repo import VectorRepository
 from app.services.embedding_service import EmbeddingService
+from app.services.reranker_service import RerankCandidate, RerankerService
 
 
 DEFAULT_K_VALUES = (1, 3, 5, 10)
 MIN_DATASET_QUERIES = 30
+
+RERANK_INITIAL_K = 20
+RERANK_FINAL_K = 6
+
+RETRIEVAL_STRATEGIES = (
+    "dense",
+    "lexical",
+    "hybrid",
+    "dense_rerank",
+    "hybrid_rerank",
+)
 
 DEFAULT_DATASET = Path(
     "scripts/evaluations/rag_quality_dataset.json"
@@ -67,6 +80,8 @@ class RetrievedChunk:
     chunk_index: Optional[int]
     content: str
     distance: float
+    retrieval_score: Optional[float] = None
+    rerank_score: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -79,6 +94,11 @@ class QueryEvaluation:
     retrieved: tuple[RetrievedChunk, ...]
     metrics: dict[str, dict[str, float]]
     reference_answer: Optional[str] = None
+    strategy: str = "hybrid"
+    candidate_count: int = 0
+    candidate_latency_ms: float = 0.0
+    rerank_latency_ms: float = 0.0
+    total_latency_ms: float = 0.0
 
 
 def assert_test_database(url: Optional[str]) -> None:
@@ -111,6 +131,24 @@ def assert_test_database(url: Optional[str]) -> None:
             "Aborting to prevent data contamination."
         )
 
+
+
+def validate_strategies(
+    strategies: Iterable[str],
+) -> tuple[str, ...]:
+    """Validate and normalize P3-05 retrieval strategies."""
+    values = tuple(s.strip().lower() for s in strategies)
+    if not values:
+        raise ValueError("At least one retrieval strategy is required.")
+    invalid = sorted(set(values).difference(RETRIEVAL_STRATEGIES))
+    if invalid:
+        raise ValueError(
+            f"Unsupported retrieval strategy(s): {', '.join(invalid)}. "
+            f"Expected one of: {', '.join(RETRIEVAL_STRATEGIES)}."
+        )
+    if len(set(values)) != len(values):
+        raise ValueError("Retrieval strategies must be unique.")
+    return values
 
 def validate_k_values(k_values: Iterable[int]) -> tuple[int, ...]:
     """Validate and normalize evaluation K values."""
@@ -444,6 +482,74 @@ def context_recall_at_k(
     )
 
 
+
+def build_rerank_candidates(results: Sequence[dict[str, Any]]) -> list[RerankCandidate]:
+    candidates: list[RerankCandidate] = []
+    for r in results:
+        meta = {
+            "document_id": r["document_id"],
+            "chat_id": r.get("chat_id"),
+            "chunk_index": r.get("chunk_index"),
+            "page_number": r.get("page_number"),
+        }
+        candidates.append(
+            RerankCandidate(
+                chunk_id=int(r["id"]),
+                content=r.get("content", ""),
+                score=float(r.get("rrf_score", r.get("score", r.get("distance", 0.0)))),
+                metadata=meta,
+            )
+        )
+    return candidates
+
+def build_retrieved_chunks(results: Sequence[dict[str, Any]]) -> tuple[RetrievedChunk, ...]:
+    retrieved: list[RetrievedChunk] = []
+    for r in results:
+        sc = r.get("rrf_score", r.get("score"))
+        retrieved.append(
+            RetrievedChunk(
+                chunk_id=int(r["id"]),
+                document_id=int(r["document_id"]),
+                chunk_index=r.get("chunk_index"),
+                content=r.get("content", ""),
+                distance=float(r.get("distance", 0.0)),
+                retrieval_score=float(sc) if sc is not None else None,
+            )
+        )
+    return tuple(retrieved)
+
+def retrieve_strategy_candidates(query: EvaluationQuery, *, strategy: str, query_vector: list[float]) -> list[dict[str, Any]]:
+    if strategy == "dense":
+        return VectorRepository.retrieve_candidate_pool(user_id=query.user_id, document_id=query.document_id, strategy='dense', query_text=query.query, query_vector=query_vector, candidate_k=RERANK_FINAL_K)
+    if strategy == "lexical":
+        return VectorRepository.retrieve_candidate_pool(user_id=query.user_id, document_id=query.document_id, strategy='lexical', query_text=query.query, query_vector=query_vector, candidate_k=RERANK_FINAL_K)
+    if strategy == "hybrid":
+        return VectorRepository.retrieve_candidate_pool(user_id=query.user_id, document_id=query.document_id, strategy='hybrid', query_text=query.query, query_vector=query_vector, candidate_k=RERANK_FINAL_K)
+    if strategy == "dense_rerank":
+        return VectorRepository.retrieve_candidate_pool(user_id=query.user_id, document_id=query.document_id, strategy='dense', query_text=query.query, query_vector=query_vector, candidate_k=RERANK_INITIAL_K)
+    if strategy == "hybrid_rerank":
+        return VectorRepository.retrieve_candidate_pool(user_id=query.user_id, document_id=query.document_id, strategy='hybrid', query_text=query.query, query_vector=query_vector, candidate_k=RERANK_INITIAL_K)
+    raise ValueError(f"Unsupported evaluation strategy: {strategy!r}")
+
+def apply_reranking(query: EvaluationQuery, candidates: Sequence[dict[str, Any]], reranker: RerankerService) -> tuple[tuple[RetrievedChunk, ...], float]:
+    rerank_candidates = build_rerank_candidates(candidates)
+    started = perf_counter()
+    reranked = reranker.rerank(query=query.query, candidates=rerank_candidates, top_k=RERANK_FINAL_K)
+    rerank_ms = (perf_counter() - started) * 1000.0
+    retrieved = tuple(
+        RetrievedChunk(
+            chunk_id=c.chunk_id,
+            document_id=int(c.metadata["document_id"]),
+            chunk_index=c.metadata.get("chunk_index") if c.metadata else None,
+            content=c.content,
+            distance=0.0,
+            retrieval_score=c.score,
+            rerank_score=c.score,
+        )
+        for c in reranked
+    )
+    return retrieved, rerank_ms
+
 def calculate_query_metrics(
     retrieved: Sequence[RetrievedChunk],
     query: EvaluationQuery,
@@ -522,6 +628,16 @@ def aggregate_metrics(
 
     return aggregate
 
+
+
+def aggregate_by_strategy(evaluations: Sequence[QueryEvaluation], k_values: Iterable[int]) -> dict[str, dict[str, Any]]:
+    grouped: dict[str, list[QueryEvaluation]] = {}
+    for ev in evaluations:
+        grouped.setdefault(ev.strategy, []).append(ev)
+    return {strat: aggregate_metrics(evs, k_values) for strat, evs in grouped.items()}
+
+def build_strategy_failures(strat_aggs: dict[str, dict[str, Any]]) -> dict[str, list[str]]:
+    return {strat: build_failures(agg) for strat, agg in strat_aggs.items()}
 
 def build_failures(
     aggregate: dict[str, dict[str, float]],
@@ -987,6 +1103,8 @@ def main() -> None:
         help="K values to evaluate.",
     )
 
+    parser.add_argument("--strategy", choices=RETRIEVAL_STRATEGIES, default="hybrid", help="Run strategy.")
+    parser.add_argument("--all-strategies", action="store_true", help="Run all strategies.")
     args = parser.parse_args()
 
     try:
