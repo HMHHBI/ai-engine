@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_DATASET = (
-    Path(__file__).resolve().parent / "rag_quality_dataset.json"
+    Path(__file__).resolve().parent / "rag_quality_dataset_p3_04_v2.json"
 )
 DEFAULT_MANIFEST = (
     Path(__file__).resolve().parent
@@ -43,8 +43,7 @@ EXPECTED_TYPE_COUNTS = {
     "abbreviation": 15,
     "multi_hop": 20,
 }
-EXPECTED_CURRENT_DOCUMENT_COUNT = 4
-EXPECTED_FINAL_DOCUMENT_COUNT = 5
+EXPECTED_DOCUMENT_COUNT = 5
 
 
 class ValidationError(Exception):
@@ -140,8 +139,7 @@ def build_manifest_index(manifest: dict[str, Any]) -> dict[int, dict[str, Any]]:
 def validate_dataset(
     dataset: dict[str, Any],
     chunks_by_id: dict[int, dict[str, Any]],
-    require_five_docs: bool,
-) -> list[str]:
+    ) -> list[str]:
     errors: list[str] = []
 
     if dataset.get("version") != "2.0":
@@ -177,15 +175,9 @@ def validate_dataset(
             "Dataset corpus document keys must exactly match manifest document keys."
         )
 
-    if require_five_docs:
-        if len(manifest_document_keys) != EXPECTED_FINAL_DOCUMENT_COUNT:
-            errors.append(
-                "Final gate requires five manifest documents; "
-                f"found {len(manifest_document_keys)}."
-            )
-    elif len(manifest_document_keys) != EXPECTED_CURRENT_DOCUMENT_COUNT:
+    if len(manifest_document_keys) != EXPECTED_DOCUMENT_COUNT:
         errors.append(
-            "Current P3-04.2 dataset expects the currently seeded four-document corpus; "
+            f"Expected exactly {EXPECTED_DOCUMENT_COUNT} manifest documents; "
             f"found {len(manifest_document_keys)}."
         )
 
@@ -282,14 +274,13 @@ def validate_dataset(
             f"expected {EXPECTED_TYPE_COUNTS}, got {dict(type_counts)}."
         )
 
-    expected_document_total = 24 if len(manifest_document_keys) == 5 else 30
-    if not require_five_docs:
-        for document_key in sorted(manifest_document_keys):
-            if document_counts[document_key] != expected_document_total:
-                errors.append(
-                    f"{document_key}: expected {expected_document_total} queries; "
-                    f"got {document_counts[document_key]}."
-                )
+    expected_document_total = 24
+    for document_key in sorted(manifest_document_keys):
+        if document_counts[document_key] != expected_document_total:
+            errors.append(
+                f"{document_key}: expected {expected_document_total} queries; "
+                f"got {document_counts[document_key]}."
+            )
 
     return errors
 
@@ -298,11 +289,6 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=Path, default=DEFAULT_DATASET)
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
-    parser.add_argument(
-        "--require-five-docs",
-        action="store_true",
-        help="Apply the original five-document final acceptance gate.",
-    )
     args = parser.parse_args()
 
     try:
@@ -312,7 +298,7 @@ def main() -> int:
         errors = validate_dataset(
             dataset,
             chunks_by_id,
-            require_five_docs=args.require_five_docs,
+            
         )
     except ValidationError as exc:
         print(f"FAIL: {exc}")

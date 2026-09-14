@@ -357,7 +357,8 @@ class VectorRepository:
     @staticmethod
     def _build_sparse_tsquery(query_text: str) -> str:
         """
-        Build an OR-based tsquery string excluding common English question stopwords.
+        Build an OR-based tsquery string preserving identifiers, versions, and numbers,
+        while excluding common English stopwords.
         """
         stopwords = {
             "a", "about", "above", "after", "again", "against", "all", "am", "an",
@@ -378,14 +379,43 @@ class VectorRepository:
             "while", "who", "whom", "why", "with", "won't", "would", "wouldn't",
             "you", "your", "yours", "yourself", "yourselves"
         }
-        tokens = re.findall(r"[a-zA-Z0-9_\-\.]{2,}", query_text)
-        cleaned = [re.sub(r"[^a-zA-Z0-9]", "", t) for t in tokens]
-        meaningful = [t for t in cleaned if len(t) >= 2 and t.lower() not in stopwords]
-        
-        # Fallback to all cleaned tokens if all were stopwords
-        tokens_to_use = meaningful if meaningful else [t for t in cleaned if len(t) >= 2]
+
+        # Match decimal numbers (0.70) or alphanumeric compounds (INC-4821, X-Request-ID, v2)
+        token_pattern = r"\b\d+\.\d+\b|[a-zA-Z0-9]+(?:[-_][a-zA-Z0-9]+)*"
+        matches = re.findall(token_pattern, query_text)
+
+        tokens_to_use: list[str] = []
+
+        for match in matches:
+            # Preserve decimals as quoted literals for PostgreSQL tsquery compatibility
+            if re.match(r"^\d+\.\d+$", match):
+                quoted = f"'{match}'"
+                if quoted not in tokens_to_use:
+                    tokens_to_use.append(quoted)
+                continue
+
+            # Split compound identifiers without destructive squashing
+            if "-" in match or "_" in match:
+                parts = re.split(r"[-_]", match)
+                for part in parts:
+                    if part and part.lower() not in stopwords:
+                        if part not in tokens_to_use:
+                            tokens_to_use.append(part)
+                continue
+
+            # Standard alphanumeric token
+            clean = match.strip()
+            if clean and clean.lower() not in stopwords:
+                if clean not in tokens_to_use:
+                    tokens_to_use.append(clean)
+
+        if not tokens_to_use:
+            fallback = re.findall(r"[a-zA-Z0-9]+", query_text)
+            tokens_to_use = [t for t in fallback if t]
+
         if not tokens_to_use:
             return ""
+
         return " | ".join(tokens_to_use)
 
     @staticmethod

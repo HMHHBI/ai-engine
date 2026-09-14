@@ -313,11 +313,11 @@
       "document_id": 5,
       "document_key": "production_rag_spec",
       "query_type": "abbreviation",
-      "query": "What does RAG stand for in the production specification?",
+      "query": "What database vector search capability is abbreviated as pgvector?",
       "relevant_chunk_ids": [
         28
       ],
-      "reference_answer": "Retrieval Augmented Generation."
+      "reference_answer": "PostgreSQL pgvector extension for dense retrieval."
     },
     {
       "query_id": "rag-q-019",
@@ -326,9 +326,9 @@
       "document_id": 5,
       "document_key": "production_rag_spec",
       "query_type": "abbreviation",
-      "query": "What does MRR stand for in evaluation metrics?",
+      "query": "What evaluation metric represents Mean Reciprocal Rank?",
       "relevant_chunk_ids": [
-        33
+        32
       ],
       "reference_answer": "Mean Reciprocal Rank."
     },
@@ -339,11 +339,11 @@
       "document_id": 5,
       "document_key": "production_rag_spec",
       "query_type": "abbreviation",
-      "query": "What does LLM refer to in failure mode analysis?",
+      "query": "What downstream generation model is referred to as LLM in failure analysis?",
       "relevant_chunk_ids": [
-        34
+        33
       ],
-      "reference_answer": "Language Model or Large Language Model."
+      "reference_answer": "An LLM (downstream generation language model)."
     },
     {
       "query_id": "rag-q-021",
