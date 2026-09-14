@@ -704,9 +704,10 @@ async def ai_stream(
 
                     if query_vector:
                         context_chunks = await asyncio.to_thread(
-                            VectorRepository.search_similar_chunks,
+                            VectorRepository.search_hybrid_chunks,
                             user_id=current_user.id,
                             document_id=doc_id,
+                            query_text=req.prompt,
                             query_vector=query_vector,
                             top_k=6,
                             max_distance=0.70,

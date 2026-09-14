@@ -161,7 +161,10 @@ def load_dataset(
         raise ValueError("Dataset must contain a non-empty version.")
 
     corpus = payload.get("corpus")
-    if not isinstance(corpus, str) or not corpus.strip():
+    if isinstance(corpus, dict):
+        if not corpus:
+            raise ValueError("Dataset must contain a non-empty corpus dictionary.")
+    elif not isinstance(corpus, str) or not corpus.strip():
         raise ValueError("Dataset must contain a non-empty corpus.")
 
     raw_queries = payload.get("queries")
@@ -822,9 +825,10 @@ async def execute_evaluation(
                 )
 
             results = (
-                VectorRepository.search_similar_chunks(
+                VectorRepository.search_hybrid_chunks(
                     user_id=query.user_id,
                     document_id=query.document_id,
+                    query_text=query.query,
                     query_vector=query_vector,
                     top_k=max(k_values),
                 )

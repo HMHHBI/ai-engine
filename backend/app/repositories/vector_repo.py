@@ -1,8 +1,9 @@
 from __future__ import annotations
+import re
 
 from typing import Any, Sequence
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select, or_
 
 from app.db.models import Chat, Document, DocumentChunk
 from app.db.session import session_scope
@@ -352,6 +353,191 @@ class VectorRepository:
                 }
                 for chunk, distance_value in filtered_results
             ]
+
+    @staticmethod
+    def _build_sparse_tsquery(query_text: str) -> str:
+        """
+        Build an OR-based tsquery string preserving identifiers, versions, and numbers,
+        while excluding common English stopwords.
+        """
+        stopwords = {
+            "a", "about", "above", "after", "again", "against", "all", "am", "an",
+            "and", "any", "are", "aren't", "as", "at", "be", "because", "been",
+            "before", "being", "below", "between", "both", "but", "by", "can",
+            "cannot", "could", "couldn't", "did", "didn't", "do", "does", "doesn't",
+            "doing", "don't", "down", "during", "each", "few", "for", "from",
+            "further", "had", "hadn't", "has", "hasn't", "have", "haven't", "having",
+            "he", "her", "here", "hers", "herself", "him", "himself", "his", "how",
+            "i", "if", "in", "into", "is", "isn't", "it", "its", "itself", "let's",
+            "me", "more", "most", "mustn't", "my", "myself", "no", "nor", "not",
+            "of", "off", "on", "once", "only", "or", "other", "ought", "our", "ours",
+            "ourselves", "out", "over", "own", "same", "shan't", "she", "should",
+            "shouldn't", "so", "some", "such", "than", "that", "the", "their",
+            "theirs", "them", "themselves", "then", "there", "these", "they", "this",
+            "those", "through", "to", "too", "under", "until", "up", "very", "was",
+            "wasn't", "we", "were", "weren't", "what", "when", "where", "which",
+            "while", "who", "whom", "why", "with", "won't", "would", "wouldn't",
+            "you", "your", "yours", "yourself", "yourselves"
+        }
+
+        # Match decimal numbers (0.70) or alphanumeric compounds (INC-4821, X-Request-ID, v2)
+        token_pattern = r"\b\d+\.\d+\b|[a-zA-Z0-9]+(?:[-_][a-zA-Z0-9]+)*"
+        matches = re.findall(token_pattern, query_text)
+
+        tokens_to_use: list[str] = []
+
+        for match in matches:
+            # Preserve decimals as quoted literals for PostgreSQL tsquery compatibility
+            if re.match(r"^\d+\.\d+$", match):
+                quoted = f"'{match}'"
+                if quoted not in tokens_to_use:
+                    tokens_to_use.append(quoted)
+                continue
+
+            # Split compound identifiers without destructive squashing
+            if "-" in match or "_" in match:
+                parts = re.split(r"[-_]", match)
+                for part in parts:
+                    if part and part.lower() not in stopwords:
+                        if part not in tokens_to_use:
+                            tokens_to_use.append(part)
+                continue
+
+            # Standard alphanumeric token
+            clean = match.strip()
+            if clean and clean.lower() not in stopwords:
+                if clean not in tokens_to_use:
+                    tokens_to_use.append(clean)
+
+        if not tokens_to_use:
+            fallback = re.findall(r"[a-zA-Z0-9]+", query_text)
+            tokens_to_use = [t for t in fallback if t]
+
+        if not tokens_to_use:
+            return ""
+
+        return " | ".join(tokens_to_use)
+
+    @staticmethod
+    def search_sparse_chunks(
+        user_id: int,
+        document_id: int,
+        query_text: str,
+        top_k: int = 20,
+    ) -> list[dict[str, Any]]:
+        """
+        Full-Text Search (Sparse Lexical) scoped strictly to owned document.
+        Uses OR-based tsquery with ts_rank_cd normalized by document length.
+        """
+        VectorRepository._validate_ids(user_id=user_id, document_id=document_id)
+        cleaned_text = (query_text or "").strip()
+        if not cleaned_text:
+            return []
+
+        ts_query_str = VectorRepository._build_sparse_tsquery(cleaned_text)
+        if not ts_query_str:
+            return []
+
+        ts_vector = func.to_tsvector("english", DocumentChunk.content)
+        ts_query = func.to_tsquery("english", ts_query_str)
+        # 32 = rank divided by (length + 1)
+        rank_expr = func.ts_rank_cd(ts_vector, ts_query, 32).label("sparse_score")
+
+        with session_scope() as db:
+            results = db.execute(
+                select(DocumentChunk, rank_expr)
+                .join(Document, Document.id == DocumentChunk.document_id)
+                .join(Chat, Chat.id == Document.chat_id)
+                .where(
+                    DocumentChunk.document_id == document_id,
+                    Document.user_id == user_id,
+                    Chat.user_id == user_id,
+                    ts_vector.op("@@")(ts_query),
+                )
+                .order_by(rank_expr.desc())
+                .limit(top_k)
+            ).all()
+
+            return [
+                {
+                    "id": chunk.id,
+                    "document_id": chunk.document_id,
+                    "chat_id": chunk.chat_id,
+                    "content": chunk.content,
+                    "page_number": chunk.page_number,
+                    "chunk_index": chunk.chunk_index,
+                    "score": float(sparse_score),
+                }
+                for chunk, sparse_score in results
+            ]
+
+    @staticmethod
+    def search_hybrid_chunks(
+        user_id: int,
+        document_id: int,
+        query_text: str,
+        query_vector: list[float],
+        top_k: int = 6,
+        candidate_k: int = 20,
+        rrf_k: int = 60,
+        dense_weight: float = 1.0,
+        sparse_weight: float = 1.0,
+        max_distance: float = 0.70,
+        adaptive_margin: float = 0.15,
+    ) -> list[dict[str, Any]]:
+        """
+        Hybrid retrieval combining Dense Vector Search (pgvector) and Sparse
+        Full-Text Search via Reciprocal Rank Fusion (RRF).
+        """
+        VectorRepository._validate_ids(user_id=user_id, document_id=document_id)
+
+        # 1. Fetch dense candidates
+        dense_candidates = VectorRepository.search_similar_chunks(
+            user_id=user_id,
+            document_id=document_id,
+            query_vector=query_vector,
+            top_k=max(top_k, candidate_k),
+            max_distance=max_distance,
+            adaptive_margin=adaptive_margin,
+        )
+
+        # 2. Fetch sparse lexical candidates
+        sparse_candidates = VectorRepository.search_sparse_chunks(
+            user_id=user_id,
+            document_id=document_id,
+            query_text=query_text,
+            top_k=max(top_k, candidate_k),
+        )
+
+        # 3. Reciprocal Rank Fusion (RRF)
+        rrf_scores: dict[int, float] = {}
+        chunk_map: dict[int, dict[str, Any]] = {}
+
+        for rank, item in enumerate(dense_candidates, start=1):
+            cid = item["id"]
+            rrf_scores[cid] = rrf_scores.get(cid, 0.0) + (dense_weight / (rrf_k + rank))
+            chunk_map[cid] = item
+
+        for rank, item in enumerate(sparse_candidates, start=1):
+            cid = item["id"]
+            rrf_scores[cid] = rrf_scores.get(cid, 0.0) + (sparse_weight / (rrf_k + rank))
+            if cid not in chunk_map:
+                chunk_map[cid] = item
+
+        # 4. Sort by combined RRF score descending
+        sorted_chunk_ids = sorted(
+            rrf_scores.keys(),
+            key=lambda cid: rrf_scores[cid],
+            reverse=True,
+        )
+
+        final_chunks: list[dict[str, Any]] = []
+        for cid in sorted_chunk_ids[:top_k]:
+            data = dict(chunk_map[cid])
+            data["rrf_score"] = float(rrf_scores[cid])
+            final_chunks.append(data)
+
+        return final_chunks
 
     @staticmethod
     def delete_document_chunks(
