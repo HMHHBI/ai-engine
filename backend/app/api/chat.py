@@ -32,7 +32,7 @@ from app.schemas.chat_schema import (
 )
 from app.services.chat_service import ChatApplicationService
 from app.services.embedding_service import EmbeddingService
-from app.services.reranker_service import RerankCandidate, RerankerService
+from app.services.reranker_service import RerankCandidate, RerankerService, create_reranker_provider
 from app.services.providers.errors import (
     AIProviderError,
     AIProviderTimeout,
@@ -749,7 +749,7 @@ async def ai_stream(
 
                         if settings.ENABLE_RERANKING and context_chunks:
                             rerank_candidates = _build_rerank_candidates(context_chunks)
-                            reranker = RerankerService()
+                            reranker = RerankerService(provider=create_reranker_provider())
                             reranked_candidates = await asyncio.to_thread(
                                 reranker.rerank,
                                 req.prompt,

@@ -6,13 +6,12 @@ from contextlib import contextmanager
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import NullPool
 
 from app.core.rate_limiter import limiter
 from app.db import session as db_session_module
-from app.db.models import Base
 from app.db.session import get_db
 
 try:
@@ -20,24 +19,16 @@ try:
 except ImportError:
     from app.main import app
 
-# 1. Directly read isolated test database URL from environment
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
 if not TEST_DATABASE_URL:
-    raise RuntimeError(
-        "CRITICAL: TEST_DATABASE_URL is not set in environment! "
-        "Define TEST_DATABASE_URL in .env or docker-compose to prevent tests from hitting dev DB."
-    )
+    raise RuntimeError("CRITICAL: TEST_DATABASE_URL is not set in environment!")
 
 if "/hassan_ai_db" in TEST_DATABASE_URL:
-    raise RuntimeError(
-        "CRITICAL: TEST_DATABASE_URL cannot point to primary development database (hassan_ai_db)!"
-    )
+    raise RuntimeError("CRITICAL: TEST_DATABASE_URL cannot point to primary development database!")
 
 test_engine = create_engine(
     TEST_DATABASE_URL,
-    connect_args={
-        "options": "-c client_encoding=utf8",
-    },
+    connect_args={"options": "-c client_encoding=utf8"},
     pool_pre_ping=True,
     poolclass=NullPool,
 )
@@ -49,7 +40,6 @@ TestingSessionLocal = sessionmaker(
     expire_on_commit=False,
 )
 
-# 2. Redirect app internals to test engine
 db_session_module.engine = test_engine
 db_session_module.SessionLocal = TestingSessionLocal
 
@@ -70,11 +60,28 @@ def _test_session_scope() -> Generator[Session, None, None]:
 db_session_module.session_scope = _test_session_scope
 
 
+def _clean_database():
+    """Dynamically truncate all application tables without touching schema or alembic_version."""
+    with test_engine.begin() as conn:
+        tables = conn.execute(
+            text(
+                """
+                SELECT tablename FROM pg_tables 
+                WHERE schemaname = 'public' 
+                  AND tablename NOT IN ('alembic_version', 'spatial_ref_sys');
+                """
+            )
+        ).fetchall()
+        if tables:
+            names = ", ".join(f'"{t[0]}"' for t in tables)
+            conn.execute(text(f"TRUNCATE TABLE {names} RESTART IDENTITY CASCADE;"))
+
+
 @pytest.fixture(scope="session", autouse=True)
-def prepare_database() -> Generator[None, None, None]:
-    Base.metadata.create_all(bind=test_engine)
+def prepare_database():
+    _clean_database()
     yield
-    Base.metadata.drop_all(bind=test_engine)
+    _clean_database()
 
 
 @pytest.fixture()
@@ -82,13 +89,14 @@ def db_session() -> Generator[Session, None, None]:
     session = TestingSessionLocal()
     try:
         yield session
+        session.commit()
     finally:
         session.close()
+        _clean_database()
 
 
 @pytest.fixture(autouse=True)
 def reset_rate_limits():
-    """Reset slowapi rate limits before and after every test."""
     try:
         limiter.reset()
     except Exception:
@@ -103,7 +111,12 @@ def reset_rate_limits():
 @pytest.fixture()
 def client(db_session: Session) -> Generator[TestClient, None, None]:
     def override_get_db() -> Generator[Session, None, None]:
-        yield db_session
+        session = TestingSessionLocal()
+        try:
+            yield session
+            session.commit()
+        finally:
+            session.close()
 
     app.dependency_overrides[get_db] = override_get_db
 

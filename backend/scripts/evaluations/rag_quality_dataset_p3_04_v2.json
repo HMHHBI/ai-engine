@@ -89,12 +89,12 @@
       "query_id": "rag-q-001",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 5,
+      "document_id": 1,
       "document_key": "production_rag_spec",
       "query_type": "semantic",
       "query": "How does pgvector search determine matching text chunks?",
       "relevant_chunk_ids": [
-        29
+        2
       ],
       "reference_answer": "Dense retrieval compares query and chunk embeddings using cosine distance in pgvector."
     },
@@ -102,12 +102,12 @@
       "query_id": "rag-q-002",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 5,
+      "document_id": 1,
       "document_key": "production_rag_spec",
       "query_type": "semantic",
       "query": "Why does the application prefer requesting small candidate counts?",
       "relevant_chunk_ids": [
-        30
+        3
       ],
       "reference_answer": "Retrieval quality must be balanced against context size and downstream LLM processing cost."
     },
@@ -115,12 +115,12 @@
       "query_id": "rag-q-003",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 5,
+      "document_id": 1,
       "document_key": "production_rag_spec",
       "query_type": "semantic",
       "query": "How does tenant isolation prevent cross-tenant data leakage during search?",
       "relevant_chunk_ids": [
-        31
+        4
       ],
       "reference_answer": "Retriever enforces document and owning user relationships inside the query rather than filtering post-retrieval."
     },
@@ -128,12 +128,12 @@
       "query_id": "rag-q-004",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 5,
+      "document_id": 1,
       "document_key": "production_rag_spec",
       "query_type": "semantic",
       "query": "How are retrieved chunks transformed before language model generation?",
       "relevant_chunk_ids": [
-        32
+        4
       ],
       "reference_answer": "Retrieved chunks are converted into prompt context while preserving chunk ordering and document identity."
     },
@@ -141,12 +141,12 @@
       "query_id": "rag-q-005",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 5,
+      "document_id": 1,
       "document_key": "production_rag_spec",
       "query_type": "semantic",
       "query": "Why shouldn't a low retrieval score be immediately blamed on the LLM?",
       "relevant_chunk_ids": [
-        34
+        6
       ],
       "reference_answer": "A retrieval failure occurs when relevant chunks are missing, ranked too low, or rejected by distance thresholds."
     },
@@ -154,12 +154,12 @@
       "query_id": "rag-q-006",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 5,
+      "document_id": 1,
       "document_key": "production_rag_spec",
       "query_type": "semantic",
       "query": "What criteria should guide production retrieval architecture selection?",
       "relevant_chunk_ids": [
-        36
+        8
       ],
       "reference_answer": "Decisions require quality, latency, reliability, and security evidence rather than a single metric."
     },
@@ -167,12 +167,12 @@
       "query_id": "rag-q-007",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 5,
+      "document_id": 1,
       "document_key": "production_rag_spec",
       "query_type": "exact_term",
       "query": "What is the cosine distance threshold for dense retrieval?",
       "relevant_chunk_ids": [
-        29
+        2
       ],
       "reference_answer": "The production retriever applies a best distance threshold of 0.70 and an adaptive margin of 0.15."
     },
@@ -180,12 +180,12 @@
       "query_id": "rag-q-008",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 5,
+      "document_id": 1,
       "document_key": "production_rag_spec",
       "query_type": "exact_term",
       "query": "What does adaptive distance filtering do to candidate lists?",
       "relevant_chunk_ids": [
-        30
+        3
       ],
       "reference_answer": "Adaptive distance filtering removes weak matches, allowing result count to be lower than top-K."
     },
@@ -193,12 +193,12 @@
       "query_id": "rag-q-009",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 5,
+      "document_id": 1,
       "document_key": "production_rag_spec",
       "query_type": "exact_term",
       "query": "What role does hybrid retrieval play in evaluation?",
       "relevant_chunk_ids": [
-        35
+        7
       ],
       "reference_answer": "Hybrid retrieval combines lexical and dense signals to test complementary evidence."
     },
@@ -206,12 +206,12 @@
       "query_id": "rag-q-010",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 5,
+      "document_id": 1,
       "document_key": "production_rag_spec",
       "query_type": "exact_term",
       "query": "What evaluation metrics track ranking and recall characterization?",
       "relevant_chunk_ids": [
-        33
+        5
       ],
       "reference_answer": "Evaluation metrics include Hit Rate at K, Mean Reciprocal Rank, Context Precision at K, and Context Recall at K."
     },
@@ -219,12 +219,12 @@
       "query_id": "rag-q-011",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 5,
+      "document_id": 1,
       "document_key": "production_rag_spec",
       "query_type": "identifier",
       "query": "Which PostgreSQL extension executes vector similarity searches?",
       "relevant_chunk_ids": [
-        28
+        1
       ],
       "reference_answer": "The extension used is pgvector."
     },
@@ -232,12 +232,12 @@
       "query_id": "rag-q-012",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 5,
+      "document_id": 1,
       "document_key": "production_rag_spec",
       "query_type": "identifier",
       "query": "What specific parameters does the retriever function accept?",
       "relevant_chunk_ids": [
-        28
+        1
       ],
       "reference_answer": "The retriever receives user ID, document ID, query vector, and top-K."
     },
@@ -245,12 +245,12 @@
       "query_id": "rag-q-013",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 5,
+      "document_id": 1,
       "document_key": "production_rag_spec",
       "query_type": "identifier",
       "query": "What is the primary K value evaluated in retrieval metrics?",
       "relevant_chunk_ids": [
-        33
+        5
       ],
       "reference_answer": "Primary evaluation uses K equal to 5."
     },
@@ -258,12 +258,12 @@
       "query_id": "rag-q-014",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 5,
+      "document_id": 1,
       "document_key": "production_rag_spec",
       "query_type": "identifier",
       "query": "Which K values provide recall characterization?",
       "relevant_chunk_ids": [
-        33
+        5
       ],
       "reference_answer": "K values of 1, 3, 5, and 10 provide ranking and recall characterization."
     },
@@ -271,12 +271,12 @@
       "query_id": "rag-q-015",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 5,
+      "document_id": 1,
       "document_key": "production_rag_spec",
       "query_type": "numeric",
       "query": "What is the maximum permitted top-K candidate limit?",
       "relevant_chunk_ids": [
-        30
+        2
       ],
       "reference_answer": "The retriever accepts a top-K value from 1 through 50."
     },
@@ -284,12 +284,12 @@
       "query_id": "rag-q-016",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 5,
+      "document_id": 1,
       "document_key": "production_rag_spec",
       "query_type": "numeric",
       "query": "What is the exact best distance threshold in dense retrieval?",
       "relevant_chunk_ids": [
-        29
+        2
       ],
       "reference_answer": "The best distance threshold is 0.70."
     },
@@ -297,12 +297,12 @@
       "query_id": "rag-q-017",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 5,
+      "document_id": 1,
       "document_key": "production_rag_spec",
       "query_type": "numeric",
       "query": "What is the adaptive margin added to observed distance?",
       "relevant_chunk_ids": [
-        29
+        2
       ],
       "reference_answer": "The adaptive margin is 0.15."
     },
@@ -310,12 +310,12 @@
       "query_id": "rag-q-018",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 5,
+      "document_id": 1,
       "document_key": "production_rag_spec",
       "query_type": "abbreviation",
       "query": "What database vector search capability is abbreviated as pgvector?",
       "relevant_chunk_ids": [
-        28
+        1
       ],
       "reference_answer": "PostgreSQL pgvector extension for dense retrieval."
     },
@@ -323,12 +323,12 @@
       "query_id": "rag-q-019",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 5,
+      "document_id": 1,
       "document_key": "production_rag_spec",
       "query_type": "abbreviation",
       "query": "What evaluation metric represents Mean Reciprocal Rank?",
       "relevant_chunk_ids": [
-        32
+        5
       ],
       "reference_answer": "Mean Reciprocal Rank."
     },
@@ -336,12 +336,12 @@
       "query_id": "rag-q-020",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 5,
+      "document_id": 1,
       "document_key": "production_rag_spec",
       "query_type": "abbreviation",
       "query": "What downstream generation model is referred to as LLM in failure analysis?",
       "relevant_chunk_ids": [
-        33
+        6
       ],
       "reference_answer": "An LLM (downstream generation language model)."
     },
@@ -349,13 +349,13 @@
       "query_id": "rag-q-021",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 5,
+      "document_id": 1,
       "document_key": "production_rag_spec",
       "query_type": "multi_hop",
       "query": "How do authentication steps link to document isolation during candidate retrieval?",
       "relevant_chunk_ids": [
-        28,
-        31
+        4,
+        3
       ],
       "reference_answer": "Authentication validates identity before retrieval enforces document ownership boundaries in candidate queries."
     },
@@ -363,13 +363,13 @@
       "query_id": "rag-q-022",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 5,
+      "document_id": 1,
       "document_key": "production_rag_spec",
       "query_type": "multi_hop",
       "query": "How does the distance threshold relate to final candidate counts returned under top-K?",
       "relevant_chunk_ids": [
-        29,
-        30
+        2,
+        3
       ],
       "reference_answer": "The 0.70 threshold with 0.15 margin dynamically filters candidates below requested top-K."
     },
@@ -377,13 +377,13 @@
       "query_id": "rag-q-023",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 5,
+      "document_id": 1,
       "document_key": "production_rag_spec",
       "query_type": "multi_hop",
       "query": "How do hybrid retrieval and reranking work together without violating security?",
       "relevant_chunk_ids": [
-        35,
-        36
+        7,
+        8
       ],
       "reference_answer": "Hybrid retrieval combines lexical and dense signals, while reranking reorders candidates without weakening isolation."
     },
@@ -391,13 +391,13 @@
       "query_id": "rag-q-024",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 5,
+      "document_id": 1,
       "document_key": "production_rag_spec",
       "query_type": "multi_hop",
       "query": "How do retrieval failure modes impact evaluation metrics like Hit Rate and Context Recall?",
       "relevant_chunk_ids": [
-        33,
-        34
+        5,
+        9
       ],
       "reference_answer": "Chunks omitted or rejected by thresholds directly lower Hit Rate, Precision, and Recall."
     },
@@ -405,12 +405,12 @@
       "query_id": "rag-q-025",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 6,
+      "document_id": 2,
       "document_key": "api_platform_reference",
       "query_type": "semantic",
       "query": "How does the platform verify client permissions before executing handlers?",
       "relevant_chunk_ids": [
-        37
+        10
       ],
       "reference_answer": "Bearer access tokens are validated in headers to establish identity and authorization before handlers run."
     },
@@ -418,12 +418,12 @@
       "query_id": "rag-q-026",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 6,
+      "document_id": 2,
       "document_key": "api_platform_reference",
       "query_type": "semantic",
       "query": "Why should API clients retain the request identifier when reporting errors?",
       "relevant_chunk_ids": [
-        39
+        12
       ],
       "reference_answer": "It allows operators to correlate failures with backend logs and upstream events."
     },
@@ -431,12 +431,12 @@
       "query_id": "rag-q-027",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 6,
+      "document_id": 2,
       "document_key": "api_platform_reference",
       "query_type": "semantic",
       "query": "How should an API consumer interpret cursor pagination when a page is empty?",
       "relevant_chunk_ids": [
-        40
+        13
       ],
       "reference_answer": "Clients should not assume the collection is exhausted unless next_cursor is absent."
     },
@@ -444,12 +444,12 @@
       "query_id": "rag-q-028",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 6,
+      "document_id": 2,
       "document_key": "api_platform_reference",
       "query_type": "semantic",
       "query": "How should clients handle unexpected transport disconnects during streaming?",
       "relevant_chunk_ids": [
-        41
+        14
       ],
       "reference_answer": "Treat transport disconnects as recoverable stream failures when requests are safe to retry."
     },
@@ -457,12 +457,12 @@
       "query_id": "rag-q-029",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 6,
+      "document_id": 2,
       "document_key": "api_platform_reference",
       "query_type": "semantic",
       "query": "What role does Redis play in the API platform architecture?",
       "relevant_chunk_ids": [
-        41
+        14
       ],
       "reference_answer": "Redis is used for short-lived control-plane state, rate limiting, and request coordination."
     },
@@ -470,12 +470,12 @@
       "query_id": "rag-q-030",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 6,
+      "document_id": 2,
       "document_key": "api_platform_reference",
       "query_type": "semantic",
       "query": "What distinction exists between HTTP 401 and HTTP 403 responses?",
       "relevant_chunk_ids": [
-        43
+        16
       ],
       "reference_answer": "401 indicates missing or invalid credentials, while 403 indicates valid credentials lacking permission."
     },
@@ -483,12 +483,12 @@
       "query_id": "rag-q-031",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 6,
+      "document_id": 2,
       "document_key": "api_platform_reference",
       "query_type": "exact_term",
       "query": "What HTTP header contains the access token?",
       "relevant_chunk_ids": [
-        37
+        10
       ],
       "reference_answer": "The Authorization header."
     },
@@ -496,12 +496,12 @@
       "query_id": "rag-q-032",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 6,
+      "document_id": 2,
       "document_key": "api_platform_reference",
       "query_type": "exact_term",
       "query": "What response header returns the unique request identifier?",
       "relevant_chunk_ids": [
-        38
+        11
       ],
       "reference_answer": "The X-Request-ID response header."
     },
@@ -509,12 +509,12 @@
       "query_id": "rag-q-033",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 6,
+      "document_id": 2,
       "document_key": "api_platform_reference",
       "query_type": "exact_term",
       "query": "What field indicates additional pages are available in pagination responses?",
       "relevant_chunk_ids": [
-        40
+        13
       ],
       "reference_answer": "The next_cursor field."
     },
@@ -522,12 +522,12 @@
       "query_id": "rag-q-034",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 6,
+      "document_id": 2,
       "document_key": "api_platform_reference",
       "query_type": "exact_term",
       "query": "What is the stable path prefix for the current versioned API?",
       "relevant_chunk_ids": [
-        38
+        11
       ],
       "reference_answer": "The /api/v2/ path prefix."
     },
@@ -535,12 +535,12 @@
       "query_id": "rag-q-035",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 6,
+      "document_id": 2,
       "document_key": "api_platform_reference",
       "query_type": "identifier",
       "query": "What is the current stable API version identifier?",
       "relevant_chunk_ids": [
-        37
+        10
       ],
       "reference_answer": "The current stable API version is v2."
     },
@@ -548,12 +548,12 @@
       "query_id": "rag-q-036",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 6,
+      "document_id": 2,
       "document_key": "api_platform_reference",
       "query_type": "identifier",
       "query": "What status code indicates an invalid client request?",
       "relevant_chunk_ids": [
-        43
+        16
       ],
       "reference_answer": "HTTP 400 indicates an invalid client request."
     },
@@ -561,12 +561,12 @@
       "query_id": "rag-q-037",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 6,
+      "document_id": 2,
       "document_key": "api_platform_reference",
       "query_type": "identifier",
       "query": "What status code is returned when a requested resource does not exist?",
       "relevant_chunk_ids": [
-        43
+        16
       ],
       "reference_answer": "HTTP 404 indicates the resource does not exist or is hidden."
     },
@@ -574,12 +574,12 @@
       "query_id": "rag-q-038",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 6,
+      "document_id": 2,
       "document_key": "api_platform_reference",
       "query_type": "identifier",
       "query": "Which header preserves the request ID in application responses?",
       "relevant_chunk_ids": [
-        38
+        11
       ],
       "reference_answer": "X-Request-ID."
     },
@@ -587,12 +587,12 @@
       "query_id": "rag-q-039",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 6,
+      "document_id": 2,
       "document_key": "api_platform_reference",
       "query_type": "numeric",
       "query": "What is the default page size for cursor-based pagination?",
       "relevant_chunk_ids": [
-        40
+        13
       ],
       "reference_answer": "The default page size is 50 records."
     },
@@ -600,12 +600,12 @@
       "query_id": "rag-q-040",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 6,
+      "document_id": 2,
       "document_key": "api_platform_reference",
       "query_type": "numeric",
       "query": "What is the maximum allowed page size for collection queries?",
       "relevant_chunk_ids": [
-        40
+        13
       ],
       "reference_answer": "The maximum permitted page size is 200 records."
     },
@@ -613,12 +613,12 @@
       "query_id": "rag-q-041",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 6,
+      "document_id": 2,
       "document_key": "api_platform_reference",
       "query_type": "numeric",
       "query": "What is the timeout limit for external API gateway operations?",
       "relevant_chunk_ids": [
-        39
+        12
       ],
       "reference_answer": "The API gateway uses a 60 second external API timeout."
     },
@@ -626,12 +626,12 @@
       "query_id": "rag-q-042",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 6,
+      "document_id": 2,
       "document_key": "api_platform_reference",
       "query_type": "abbreviation",
       "query": "What does SSE stand for in real-time response delivery?",
       "relevant_chunk_ids": [
-        40
+        13
       ],
       "reference_answer": "Server-Sent Events."
     },
@@ -639,12 +639,12 @@
       "query_id": "rag-q-043",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 6,
+      "document_id": 2,
       "document_key": "api_platform_reference",
       "query_type": "abbreviation",
       "query": "What transport protocol carries SSE event streams?",
       "relevant_chunk_ids": [
-        40
+        13
       ],
       "reference_answer": "HTTP."
     },
@@ -652,12 +652,12 @@
       "query_id": "rag-q-044",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 6,
+      "document_id": 2,
       "document_key": "api_platform_reference",
       "query_type": "abbreviation",
       "query": "What database timeout applies to PostgreSQL queries?",
       "relevant_chunk_ids": [
-        39
+        12
       ],
       "reference_answer": "The PostgreSQL query timeout is 30 seconds."
     },
@@ -665,13 +665,13 @@
       "query_id": "rag-q-045",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 6,
+      "document_id": 2,
       "document_key": "api_platform_reference",
       "query_type": "multi_hop",
       "query": "How do version prefixes and request IDs assist in diagnosing legacy integration issues?",
       "relevant_chunk_ids": [
-        38,
-        39
+        11,
+        10
       ],
       "reference_answer": "Requests specify /api/v2/ and return X-Request-ID headers that correlate backend logs with caller versions."
     },
@@ -679,13 +679,13 @@
       "query_id": "rag-q-046",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 6,
+      "document_id": 2,
       "document_key": "api_platform_reference",
       "query_type": "multi_hop",
       "query": "Why do Redis operations have different timeouts than PostgreSQL queries?",
       "relevant_chunk_ids": [
-        39,
-        41
+        12,
+        14
       ],
       "reference_answer": "PostgreSQL has a 30s query timeout as authoritative store, while Redis uses 5s for ephemeral cache."
     },
@@ -693,13 +693,13 @@
       "query_id": "rag-q-047",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 6,
+      "document_id": 2,
       "document_key": "api_platform_reference",
       "query_type": "multi_hop",
       "query": "How does token validation connect to status code generation on authorization failure?",
       "relevant_chunk_ids": [
-        37,
-        43
+        10,
+        16
       ],
       "reference_answer": "Authorization headers are parsed before handlers; invalid tokens yield 401 and unauthorized access yields 403."
     },
@@ -707,13 +707,13 @@
       "query_id": "rag-q-048",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 6,
+      "document_id": 2,
       "document_key": "api_platform_reference",
       "query_type": "multi_hop",
       "query": "How does pagination cursor state interact with database tenant boundaries?",
       "relevant_chunk_ids": [
-        40,
-        42
+        15,
+        12
       ],
       "reference_answer": "Cursor pagination returns next_cursor while PostgreSQL queries strictly filter by authenticated user boundaries."
     },
@@ -721,12 +721,12 @@
       "query_id": "rag-q-049",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 7,
+      "document_id": 3,
       "document_key": "operations_runbook",
       "query_type": "semantic",
       "query": "Why should engineers verify database migrations before deploying new code?",
       "relevant_chunk_ids": [
-        44
+        17
       ],
       "reference_answer": "Ensures target revisions are compatible and required dependencies exist before accepting traffic."
     },
@@ -734,12 +734,12 @@
       "query_id": "rag-q-050",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 7,
+      "document_id": 3,
       "document_key": "operations_runbook",
       "query_type": "semantic",
       "query": "Why does a readiness probe provide a stronger routing signal than a liveness probe?",
       "relevant_chunk_ids": [
-        45
+        18
       ],
       "reference_answer": "Readiness verifies supporting infrastructure is available, whereas liveness only confirms the process is alive."
     },
@@ -747,12 +747,12 @@
       "query_id": "rag-q-051",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 7,
+      "document_id": 3,
       "document_key": "operations_runbook",
       "query_type": "semantic",
       "query": "Why is increasing throughput not always indicative of genuine system capacity gains?",
       "relevant_chunk_ids": [
-        47
+        20
       ],
       "reference_answer": "Downstream dependencies or event-loop saturation may throttle overall system health despite high request rates."
     },
@@ -760,12 +760,12 @@
       "query_id": "rag-q-052",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 7,
+      "document_id": 3,
       "document_key": "operations_runbook",
       "query_type": "semantic",
       "query": "What initial containment actions must operators take during an active incident?",
       "relevant_chunk_ids": [
-        48
+        21
       ],
       "reference_answer": "Establish affected service boundary, preserve request IDs, deployment version, and relevant metrics."
     },
@@ -773,12 +773,12 @@
       "query_id": "rag-q-053",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 7,
+      "document_id": 3,
       "document_key": "operations_runbook",
       "query_type": "semantic",
       "query": "Why is atomic vector replacement critical during document ingestion updates?",
       "relevant_chunk_ids": [
-        49
+        22
       ],
       "reference_answer": "Prevents existing indexed documents from being replaced by an incomplete chunk set on failure."
     },
@@ -786,12 +786,12 @@
       "query_id": "rag-q-054",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 7,
+      "document_id": 3,
       "document_key": "operations_runbook",
       "query_type": "semantic",
       "query": "Why is database rollback treated separately from application revision rollback?",
       "relevant_chunk_ids": [
-        50
+        23
       ],
       "reference_answer": "Database schema changes can persist data and must not be assumed safe to roll back merely because code was reverted."
     },
@@ -799,12 +799,12 @@
       "query_id": "rag-q-055",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 7,
+      "document_id": 3,
       "document_key": "operations_runbook",
       "query_type": "exact_term",
       "query": "What component holds distributed rate-limit counters?",
       "relevant_chunk_ids": [
-        45
+        18
       ],
       "reference_answer": "Redis-backed counters."
     },
@@ -812,12 +812,12 @@
       "query_id": "rag-q-056",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 7,
+      "document_id": 3,
       "document_key": "operations_runbook",
       "query_type": "exact_term",
       "query": "What check verifies if the application process is running?",
       "relevant_chunk_ids": [
-        45
+        17
       ],
       "reference_answer": "The liveness check."
     },
@@ -825,12 +825,12 @@
       "query_id": "rag-q-057",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 7,
+      "document_id": 3,
       "document_key": "operations_runbook",
       "query_type": "exact_term",
       "query": "What does operational monitoring track for vector indexing health?",
       "relevant_chunk_ids": [
-        47
+        20
       ],
       "reference_answer": "Operational monitoring tracks embedding failures and downstream AI failures."
     },
@@ -838,12 +838,12 @@
       "query_id": "rag-q-058",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 7,
+      "document_id": 3,
       "document_key": "operations_runbook",
       "query_type": "exact_term",
       "query": "What check verifies required infrastructure is available before accepting traffic?",
       "relevant_chunk_ids": [
-        45
+        18
       ],
       "reference_answer": "The readiness check."
     },
@@ -851,12 +851,12 @@
       "query_id": "rag-q-059",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 7,
+      "document_id": 3,
       "document_key": "operations_runbook",
       "query_type": "identifier",
       "query": "Which operational check is used to guide load-balancer traffic routing?",
       "relevant_chunk_ids": [
-        45
+        18
       ],
       "reference_answer": "Readiness check."
     },
@@ -864,12 +864,12 @@
       "query_id": "rag-q-060",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 7,
+      "document_id": 3,
       "document_key": "operations_runbook",
       "query_type": "identifier",
       "query": "What identifier should operators preserve when isolating incident boundaries?",
       "relevant_chunk_ids": [
-        48
+        21
       ],
       "reference_answer": "Request IDs."
     },
@@ -877,12 +877,12 @@
       "query_id": "rag-q-061",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 7,
+      "document_id": 3,
       "document_key": "operations_runbook",
       "query_type": "identifier",
       "query": "What baseline record captures latency, throughput, and error rates?",
       "relevant_chunk_ids": [
-        47
+        20
       ],
       "reference_answer": "Capacity Baseline."
     },
@@ -890,12 +890,12 @@
       "query_id": "rag-q-062",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 7,
+      "document_id": 3,
       "document_key": "operations_runbook",
       "query_type": "identifier",
       "query": "What datastore stores distributed rate limit state?",
       "relevant_chunk_ids": [
-        45
+        18
       ],
       "reference_answer": "Redis."
     },
@@ -903,12 +903,12 @@
       "query_id": "rag-q-063",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 7,
+      "document_id": 3,
       "document_key": "operations_runbook",
       "query_type": "numeric",
       "query": "When should rate-limit checks be enforced to protect downstream capacity?",
       "relevant_chunk_ids": [
-        45
+        18
       ],
       "reference_answer": "Before expensive downstream work whenever possible."
     },
@@ -916,12 +916,12 @@
       "query_id": "rag-q-064",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 7,
+      "document_id": 3,
       "document_key": "operations_runbook",
       "query_type": "numeric",
       "query": "How do timeouts and retries affect system load during downstream degradation?",
       "relevant_chunk_ids": [
-        46
+        19
       ],
       "reference_answer": "Repeating requests after timeouts can amplify load if original operations continue running."
     },
@@ -929,12 +929,12 @@
       "query_id": "rag-q-065",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 7,
+      "document_id": 3,
       "document_key": "operations_runbook",
       "query_type": "numeric",
       "query": "What parameters form the operational capacity baseline?",
       "relevant_chunk_ids": [
-        47
+        20
       ],
       "reference_answer": "Throughput, latency, error rate, concurrency, and resource saturation."
     },
@@ -942,12 +942,12 @@
       "query_id": "rag-q-066",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 7,
+      "document_id": 3,
       "document_key": "operations_runbook",
       "query_type": "abbreviation",
       "query": "What HTTP metrics are collected in operational monitoring?",
       "relevant_chunk_ids": [
-        47
+        20
       ],
       "reference_answer": "HTTP error rates and request latency."
     },
@@ -955,12 +955,12 @@
       "query_id": "rag-q-067",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 7,
+      "document_id": 3,
       "document_key": "operations_runbook",
       "query_type": "abbreviation",
       "query": "What upstream service component errors are tracked in monitoring dashboards?",
       "relevant_chunk_ids": [
-        47
+        20
       ],
       "reference_answer": "AI upstream failures and embedding failures."
     },
@@ -968,12 +968,12 @@
       "query_id": "rag-q-068",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 7,
+      "document_id": 3,
       "document_key": "operations_runbook",
       "query_type": "abbreviation",
       "query": "What ID should be correlated with deployment revisions during incidents?",
       "relevant_chunk_ids": [
-        48
+        21
       ],
       "reference_answer": "Request ID."
     },
@@ -981,13 +981,13 @@
       "query_id": "rag-q-069",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 7,
+      "document_id": 3,
       "document_key": "operations_runbook",
       "query_type": "multi_hop",
       "query": "How do rate limit rejections prevent resource exhaustion in document processing?",
       "relevant_chunk_ids": [
-        45,
-        46
+        18,
+        20
       ],
       "reference_answer": "Early rate-limit rejections prevent requests from consuming downstream AI or document ingestion worker capacity."
     },
@@ -995,13 +995,13 @@
       "query_id": "rag-q-070",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 7,
+      "document_id": 3,
       "document_key": "operations_runbook",
       "query_type": "multi_hop",
       "query": "Why does an embedding failure during document ingestion trigger an ingestion abort?",
       "relevant_chunk_ids": [
-        47,
-        49
+        22,
+        21
       ],
       "reference_answer": "Embedding failures are treated as ingestion failures to avoid leaving partially indexed documents ready."
     },
@@ -1009,13 +1009,13 @@
       "query_id": "rag-q-071",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 7,
+      "document_id": 3,
       "document_key": "operations_runbook",
       "query_type": "multi_hop",
       "query": "How do pre-deployment checks interact with post-deployment rollback decisions?",
       "relevant_chunk_ids": [
-        44,
-        50
+        17,
+        18
       ],
       "reference_answer": "Pre-deployment checks ensure migration safety, while application rollbacks decouple code from database state."
     },
@@ -1023,13 +1023,13 @@
       "query_id": "rag-q-072",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 7,
+      "document_id": 3,
       "document_key": "operations_runbook",
       "query_type": "multi_hop",
       "query": "How does operational metric tracking support incident response and root-cause analysis?",
       "relevant_chunk_ids": [
-        47,
-        48
+        20,
+        21
       ],
       "reference_answer": "Monitoring tracks latency spikes and pool saturation while incident response correlates these with request IDs."
     },
@@ -1037,12 +1037,12 @@
       "query_id": "rag-q-073",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 8,
+      "document_id": 4,
       "document_key": "security_architecture",
       "query_type": "semantic",
       "query": "Why is identity verification alone insufficient to permit document retrieval?",
       "relevant_chunk_ids": [
-        51
+        25
       ],
       "reference_answer": "A valid identity confirms caller identity but does not grant access to documents owned by another user."
     },
@@ -1050,12 +1050,12 @@
       "query_id": "rag-q-074",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 8,
+      "document_id": 4,
       "document_key": "security_architecture",
       "query_type": "semantic",
       "query": "How does tenant isolation protect documents when a caller knows another user's document ID?",
       "relevant_chunk_ids": [
-        52
+        25
       ],
       "reference_answer": "Document retrieval enforces user ownership boundaries; knowing an ID is not an authorization credential."
     },
@@ -1063,12 +1063,12 @@
       "query_id": "rag-q-075",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 8,
+      "document_id": 4,
       "document_key": "security_architecture",
       "query_type": "semantic",
       "query": "Why must document ownership validation traverse both the user and the chat relationship?",
       "relevant_chunk_ids": [
-        53
+        26
       ],
       "reference_answer": "The chat is part of the document ownership chain, requiring verification of document-user and chat-user relationships."
     },
@@ -1076,12 +1076,12 @@
       "query_id": "rag-q-076",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 8,
+      "document_id": 4,
       "document_key": "security_architecture",
       "query_type": "semantic",
       "query": "Why shouldn't active session state imply ownership of arbitrary resource IDs?",
       "relevant_chunk_ids": [
-        54
+        27
       ],
       "reference_answer": "Session state establishes caller authentication, whereas authorization checks must explicitly verify resource access."
     },
@@ -1089,12 +1089,12 @@
       "query_id": "rag-q-077",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 8,
+      "document_id": 4,
       "document_key": "security_architecture",
       "query_type": "semantic",
       "query": "What should be excluded from structured audit logs to prevent credential leakage?",
       "relevant_chunk_ids": [
-        55
+        28
       ],
       "reference_answer": "Audit logs must record request IDs and operations without storing secrets or access tokens."
     },
@@ -1102,12 +1102,12 @@
       "query_id": "rag-q-078",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 8,
+      "document_id": 4,
       "document_key": "security_architecture",
       "query_type": "semantic",
       "query": "Why should vector candidate generation enforce tenant boundaries during the search query?",
       "relevant_chunk_ids": [
-        56
+        29
       ],
       "reference_answer": "Filtering after broad retrieval exposes cross-tenant vectors and violates protected data boundaries."
     },
@@ -1115,12 +1115,12 @@
       "query_id": "rag-q-079",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 8,
+      "document_id": 4,
       "document_key": "security_architecture",
       "query_type": "exact_term",
       "query": "What vulnerability occurs when an attacker accesses objects by guessing identifiers?",
       "relevant_chunk_ids": [
-        53
+        26
       ],
       "reference_answer": "Insecure direct object reference, or IDOR."
     },
@@ -1128,12 +1128,12 @@
       "query_id": "rag-q-080",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 8,
+      "document_id": 4,
       "document_key": "security_architecture",
       "query_type": "exact_term",
       "query": "What principle mandates that database operations use minimum required privileges?",
       "relevant_chunk_ids": [
-        55
+        28
       ],
       "reference_answer": "Least Privilege."
     },
@@ -1141,12 +1141,12 @@
       "query_id": "rag-q-081",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 8,
+      "document_id": 4,
       "document_key": "security_architecture",
       "query_type": "exact_term",
       "query": "What boundary protects vector search candidate generation from cross-tenant leakage?",
       "relevant_chunk_ids": [
-        56
+        29
       ],
       "reference_answer": "Data Boundary or Tenant Isolation boundary."
     },
@@ -1154,12 +1154,12 @@
       "query_id": "rag-q-082",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 8,
+      "document_id": 4,
       "document_key": "security_architecture",
       "query_type": "exact_term",
       "query": "What mechanism establishes caller identity before protected resources are accessed?",
       "relevant_chunk_ids": [
-        51
+        24
       ],
       "reference_answer": "Identity Verification via access tokens."
     },
@@ -1167,12 +1167,12 @@
       "query_id": "rag-q-083",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 8,
+      "document_id": 4,
       "document_key": "security_architecture",
       "query_type": "identifier",
       "query": "Which authorization vulnerability is abbreviated as IDOR?",
       "relevant_chunk_ids": [
-        53
+        26
       ],
       "reference_answer": "Insecure direct object reference."
     },
@@ -1180,12 +1180,12 @@
       "query_id": "rag-q-084",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 8,
+      "document_id": 4,
       "document_key": "security_architecture",
       "query_type": "identifier",
       "query": "Which identifiers must always be resolved within authenticated ownership boundaries?",
       "relevant_chunk_ids": [
-        53
+        26
       ],
       "reference_answer": "Document IDs, chat IDs, and message IDs."
     },
@@ -1193,12 +1193,12 @@
       "query_id": "rag-q-085",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 8,
+      "document_id": 4,
       "document_key": "security_architecture",
       "query_type": "identifier",
       "query": "What environment should evaluation workloads run against instead of production?",
       "relevant_chunk_ids": [
-        55
+        28
       ],
       "reference_answer": "An isolated test database."
     },
@@ -1206,12 +1206,12 @@
       "query_id": "rag-q-086",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 8,
+      "document_id": 4,
       "document_key": "security_architecture",
       "query_type": "identifier",
       "query": "What credential is authenticated before resource-level authorization logic executes?",
       "relevant_chunk_ids": [
-        51
+        24
       ],
       "reference_answer": "Access tokens."
     },
@@ -1219,12 +1219,12 @@
       "query_id": "rag-q-087",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 8,
+      "document_id": 4,
       "document_key": "security_architecture",
       "query_type": "numeric",
       "query": "How many relationship chains are verified when checking document ownership?",
       "relevant_chunk_ids": [
-        53
+        26
       ],
       "reference_answer": "Two relationships: document-to-user and owning-chat-to-user."
     },
@@ -1232,12 +1232,12 @@
       "query_id": "rag-q-088",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 8,
+      "document_id": 4,
       "document_key": "security_architecture",
       "query_type": "numeric",
       "query": "Where in the retrieval pipeline are ownership boundaries enforced?",
       "relevant_chunk_ids": [
-        56
+        29
       ],
       "reference_answer": "Directly in vector search candidate generation rather than post-query filtering."
     },
@@ -1245,12 +1245,12 @@
       "query_id": "rag-q-089",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 8,
+      "document_id": 4,
       "document_key": "security_architecture",
       "query_type": "numeric",
       "query": "What access permissions should evaluation workloads possess?",
       "relevant_chunk_ids": [
-        55
+        28
       ],
       "reference_answer": "Minimum privileges necessary, isolated from production data."
     },
@@ -1258,12 +1258,12 @@
       "query_id": "rag-q-090",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 8,
+      "document_id": 4,
       "document_key": "security_architecture",
       "query_type": "abbreviation",
       "query": "What does IDOR stand for in resource authorization protection?",
       "relevant_chunk_ids": [
-        53
+        26
       ],
       "reference_answer": "Insecure Direct Object Reference."
     },
@@ -1271,12 +1271,12 @@
       "query_id": "rag-q-091",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 8,
+      "document_id": 4,
       "document_key": "security_architecture",
       "query_type": "abbreviation",
       "query": "What entity owns documents and associates them with chats?",
       "relevant_chunk_ids": [
-        53
+        24
       ],
       "reference_answer": "User."
     },
@@ -1284,12 +1284,12 @@
       "query_id": "rag-q-092",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 8,
+      "document_id": 4,
       "document_key": "security_architecture",
       "query_type": "abbreviation",
       "query": "What ID is logged with security-relevant events for audit tracing?",
       "relevant_chunk_ids": [
-        55
+        27
       ],
       "reference_answer": "Request ID."
     },
@@ -1297,13 +1297,13 @@
       "query_id": "rag-q-093",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 8,
+      "document_id": 4,
       "document_key": "security_architecture",
       "query_type": "multi_hop",
       "query": "How do authentication and authorization interact when handling invalid access tokens?",
       "relevant_chunk_ids": [
-        51,
-        54
+        24,
+        27
       ],
       "reference_answer": "Authentication validates the token; invalid credentials fail before resource authorization logic runs."
     },
@@ -1311,13 +1311,13 @@
       "query_id": "rag-q-094",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 8,
+      "document_id": 4,
       "document_key": "security_architecture",
       "query_type": "multi_hop",
       "query": "How does IDOR prevention depend on verifying both user and chat relationships?",
       "relevant_chunk_ids": [
-        52,
-        53
+        26,
+        25
       ],
       "reference_answer": "Validating document-user and chat-user chains prevents attackers from spoofing object IDs across boundaries."
     },
@@ -1325,13 +1325,13 @@
       "query_id": "rag-q-095",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 8,
+      "document_id": 4,
       "document_key": "security_architecture",
       "query_type": "multi_hop",
       "query": "How do least privilege principles apply to audit logging and test database execution?",
       "relevant_chunk_ids": [
-        55,
-        54
+        28,
+        27
       ],
       "reference_answer": "Workloads use minimal privileges in test databases while audit logs omit secrets and tokens."
     },
@@ -1339,13 +1339,13 @@
       "query_id": "rag-q-096",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 8,
+      "document_id": 4,
       "document_key": "security_architecture",
       "query_type": "multi_hop",
       "query": "How does tenant isolation constrain vector search queries within pgvector?",
       "relevant_chunk_ids": [
-        52,
-        56
+        25,
+        29
       ],
       "reference_answer": "Candidate retrieval directly filters by user ownership instead of querying cross-tenant candidates."
     },
@@ -1353,12 +1353,12 @@
       "query_id": "rag-q-097",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 9,
+      "document_id": 5,
       "document_key": "incident_postmortem",
       "query_type": "semantic",
       "query": "What caused elevated API response times during incident INC-4821?",
       "relevant_chunk_ids": [
-        58
+        31
       ],
       "reference_answer": "Event-loop contention caused by a synchronous operation executing in an asynchronous request path."
     },
@@ -1366,12 +1366,12 @@
       "query_id": "rag-q-098",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 9,
+      "document_id": 5,
       "document_key": "incident_postmortem",
       "query_type": "semantic",
       "query": "Why was CPU load misleading during the event-loop saturation incident INC-4821?",
       "relevant_chunk_ids": [
-        58
+        31
       ],
       "reference_answer": "Database CPU remained below 65% while the single-threaded event loop became blocked."
     },
@@ -1379,12 +1379,12 @@
       "query_id": "rag-q-099",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 9,
+      "document_id": 5,
       "document_key": "incident_postmortem",
       "query_type": "semantic",
       "query": "What immediate remediation restored normal latency during incident INC-4821?",
       "relevant_chunk_ids": [
-        59
+        32
       ],
       "reference_answer": "Reducing concurrent processing and rolling traffic back to the previous stable release."
     },
@@ -1392,12 +1392,12 @@
       "query_id": "rag-q-100",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 9,
+      "document_id": 5,
       "document_key": "incident_postmortem",
       "query_type": "semantic",
       "query": "Why did PDF ingestion jobs fail in incident INC-4812 despite healthy API routing?",
       "relevant_chunk_ids": [
-        60
+        32
       ],
       "reference_answer": "Upstream embedding provider timeouts occurred due to exceeding concurrency budgets."
     },
@@ -1405,12 +1405,12 @@
       "query_id": "rag-q-101",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 9,
+      "document_id": 5,
       "document_key": "incident_postmortem",
       "query_type": "semantic",
       "query": "How did the application avoid corrupting document search indices during INC-4812?",
       "relevant_chunk_ids": [
-        61
+        34
       ],
       "reference_answer": "It rejected incomplete embedding results rather than marking partially indexed documents as ready."
     },
@@ -1418,12 +1418,12 @@
       "query_id": "rag-q-102",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 9,
+      "document_id": 5,
       "document_key": "incident_postmortem",
       "query_type": "semantic",
       "query": "What caused legacy client integrations to encounter 404 errors during INC-4827?",
       "relevant_chunk_ids": [
-        63
+        35
       ],
       "reference_answer": "An incomplete client migration where clients continued sending requests to the retired v1 base path."
     },
@@ -1431,12 +1431,12 @@
       "query_id": "rag-q-103",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 9,
+      "document_id": 5,
       "document_key": "incident_postmortem",
       "query_type": "exact_term",
       "query": "What deployment revision triggered incident INC-4821?",
       "relevant_chunk_ids": [
-        57
+        30
       ],
       "reference_answer": "Revision rel-2026.08.18."
     },
@@ -1444,12 +1444,12 @@
       "query_id": "rag-q-104",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 9,
+      "document_id": 5,
       "document_key": "incident_postmortem",
       "query_type": "exact_term",
       "query": "What primary symptom was observed during incident INC-4821?",
       "relevant_chunk_ids": [
-        57
+        30
       ],
       "reference_answer": "Elevated API latency during concurrent document-processing traffic."
     },
@@ -1457,12 +1457,12 @@
       "query_id": "rag-q-105",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 9,
+      "document_id": 5,
       "document_key": "incident_postmortem",
       "query_type": "exact_term",
       "query": "What metric reached 18 percent during incident INC-4812?",
       "relevant_chunk_ids": [
-        60
+        33
       ],
       "reference_answer": "Embedding failure rate."
     },
@@ -1470,12 +1470,12 @@
       "query_id": "rag-q-106",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 9,
+      "document_id": 5,
       "document_key": "incident_postmortem",
       "query_type": "exact_term",
       "query": "What was the root cause of client failures during INC-4827?",
       "relevant_chunk_ids": [
-        63
+        35
       ],
       "reference_answer": "Incomplete client migration using retired v1 routes instead of published v2 contracts."
     },
@@ -1483,12 +1483,12 @@
       "query_id": "rag-q-107",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 9,
+      "document_id": 5,
       "document_key": "incident_postmortem",
       "query_type": "identifier",
       "query": "Which incident tracked latency degradation on 2026-08-18?",
       "relevant_chunk_ids": [
-        57
+        30
       ],
       "reference_answer": "Incident INC-4821."
     },
@@ -1496,12 +1496,12 @@
       "query_id": "rag-q-108",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 9,
+      "document_id": 5,
       "document_key": "incident_postmortem",
       "query_type": "identifier",
       "query": "Which incident tracked PDF embedding timeouts on 2026-08-11?",
       "relevant_chunk_ids": [
-        59
+        32
       ],
       "reference_answer": "Incident INC-4812."
     },
@@ -1509,12 +1509,12 @@
       "query_id": "rag-q-109",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 9,
+      "document_id": 5,
       "document_key": "incident_postmortem",
       "query_type": "identifier",
       "query": "Which incident involved 404 errors during API version migration?",
       "relevant_chunk_ids": [
-        62
+        35
       ],
       "reference_answer": "Incident INC-4827."
     },
@@ -1522,12 +1522,12 @@
       "query_id": "rag-q-110",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 9,
+      "document_id": 5,
       "document_key": "incident_postmortem",
       "query_type": "identifier",
       "query": "What deployment identifier was rolled back to mitigate INC-4821?",
       "relevant_chunk_ids": [
-        57
+        30
       ],
       "reference_answer": "Deployment revision rel-2026.08.18."
     },
@@ -1535,12 +1535,12 @@
       "query_id": "rag-q-111",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 9,
+      "document_id": 5,
       "document_key": "incident_postmortem",
       "query_type": "numeric",
       "query": "What was the p95 latency increase observed during incident INC-4821?",
       "relevant_chunk_ids": [
-        57
+        30
       ],
       "reference_answer": "p95 API latency increased from 420 milliseconds to 3.8 seconds."
     },
@@ -1548,12 +1548,12 @@
       "query_id": "rag-q-112",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 9,
+      "document_id": 5,
       "document_key": "incident_postmortem",
       "query_type": "numeric",
       "query": "What was the observed 404 error rate percentage during incident INC-4827?",
       "relevant_chunk_ids": [
-        62
+        35
       ],
       "reference_answer": "The 404 response rate increased to 11 percent."
     },
@@ -1561,12 +1561,12 @@
       "query_id": "rag-q-113",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 9,
+      "document_id": 5,
       "document_key": "incident_postmortem",
       "query_type": "numeric",
       "query": "What was the maximum database CPU percentage during incident INC-4821?",
       "relevant_chunk_ids": [
-        58
+        31
       ],
       "reference_answer": "Database CPU remained below 65 percent."
     },
@@ -1574,12 +1574,12 @@
       "query_id": "rag-q-114",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 9,
+      "document_id": 5,
       "document_key": "incident_postmortem",
       "query_type": "abbreviation",
       "query": "What time standard was used to log incident alert timestamps?",
       "relevant_chunk_ids": [
-        57
+        30
       ],
       "reference_answer": "UTC."
     },
@@ -1587,12 +1587,12 @@
       "query_id": "rag-q-115",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 9,
+      "document_id": 5,
       "document_key": "incident_postmortem",
       "query_type": "abbreviation",
       "query": "What latency percentile was tracked during the INC-4821 performance degradation?",
       "relevant_chunk_ids": [
-        57
+        30
       ],
       "reference_answer": "p95."
     },
@@ -1600,12 +1600,12 @@
       "query_id": "rag-q-116",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 9,
+      "document_id": 5,
       "document_key": "incident_postmortem",
       "query_type": "abbreviation",
       "query": "What document format was affected by upstream timeouts in incident INC-4812?",
       "relevant_chunk_ids": [
-        59
+        32
       ],
       "reference_answer": "PDF."
     },
@@ -1613,13 +1613,13 @@
       "query_id": "rag-q-117",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 9,
+      "document_id": 5,
       "document_key": "incident_postmortem",
       "query_type": "multi_hop",
       "query": "How did synchronous execution inside asynchronous handlers cause latency spikes in INC-4821?",
       "relevant_chunk_ids": [
-        57,
-        58
+        31,
+        30
       ],
       "reference_answer": "Synchronous code blocked the event loop under concurrency, increasing p95 latency from 420ms to 3.8s."
     },
@@ -1627,13 +1627,13 @@
       "query_id": "rag-q-118",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 9,
+      "document_id": 5,
       "document_key": "incident_postmortem",
       "query_type": "multi_hop",
       "query": "Why did PDF text extraction succeed while total ingestion failed in INC-4812?",
       "relevant_chunk_ids": [
-        60,
-        61
+        32,
+        33
       ],
       "reference_answer": "PDF extraction succeeded locally, but upstream embedding timeouts led to rejection of partial document indices."
     },
@@ -1641,13 +1641,13 @@
       "query_id": "rag-q-119",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 9,
+      "document_id": 5,
       "document_key": "incident_postmortem",
       "query_type": "multi_hop",
       "query": "How did API v2 routing contracts expose lagging client integrations during INC-4827?",
       "relevant_chunk_ids": [
-        62,
-        63
+        35,
+        36
       ],
       "reference_answer": "v2 routing was healthy while unmigrated clients calling retired v1 paths generated 11% 404 error rates."
     },
@@ -1655,13 +1655,13 @@
       "query_id": "rag-q-120",
       "user_id": 1,
       "chat_id": 1,
-      "document_id": 9,
+      "document_id": 5,
       "document_key": "incident_postmortem",
       "query_type": "multi_hop",
       "query": "How do mitigation rollbacks differ between code bugs (INC-4821) and upstream provider throttling (INC-4812)?",
       "relevant_chunk_ids": [
-        59,
-        61
+        32,
+        33
       ],
       "reference_answer": "INC-4821 required code rollback to prior revision, whereas INC-4812 required bounded embedding concurrency."
     }

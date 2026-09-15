@@ -457,3 +457,183 @@ def test_negative_provider_scores_are_supported() -> None:
     assert [candidate.chunk_id for candidate in result] == [2, 1]
     assert result[0].score == -0.1
     assert result[1].score == -0.5
+
+
+# ----------------------------------------------------------------------
+# Cross-Encoder Provider Tests (Mocked)
+# ----------------------------------------------------------------------
+from unittest.mock import MagicMock, patch
+import pytest
+from app.services.reranker_service import (
+    CrossEncoderRerankerProvider,
+    DeterministicRerankerProvider,
+    create_reranker_provider,
+)
+
+
+def test_cross_encoder_lazy_loading() -> None:
+    provider = CrossEncoderRerankerProvider(
+        model_name="test-model",
+        device="cpu",
+    )
+    assert provider._model is None
+
+    mock_model = MagicMock()
+    mock_model.predict.return_value = [0.85]
+    mock_cross_encoder_cls = MagicMock(return_value=mock_model)
+    mock_st_module = MagicMock(CrossEncoder=mock_cross_encoder_cls)
+
+    with patch.dict("sys.modules", {"sentence_transformers": mock_st_module}):
+        candidates = [_candidate(1, "chunk one")]
+        scores = provider.score("query", candidates)
+
+        assert scores == [0.85]
+        mock_cross_encoder_cls.assert_called_once_with("test-model", device="cpu")
+        assert provider._model is mock_model
+
+        # Second call should reuse instance without re-instantiating
+        provider.score("query 2", candidates)
+        assert mock_cross_encoder_cls.call_count == 1
+
+
+def test_cross_encoder_empty_candidates_skips_model_load() -> None:
+    provider = CrossEncoderRerankerProvider()
+    mock_cross_encoder_cls = MagicMock()
+    mock_st_module = MagicMock(CrossEncoder=mock_cross_encoder_cls)
+
+    with patch.dict("sys.modules", {"sentence_transformers": mock_st_module}):
+        scores = provider.score("query", [])
+        assert scores == []
+        mock_cross_encoder_cls.assert_not_called()
+    assert provider._model is None
+
+
+def test_cross_encoder_pair_construction_and_batch_size() -> None:
+    provider = CrossEncoderRerankerProvider(batch_size=16)
+    mock_model = MagicMock()
+    mock_model.predict.return_value = [0.1, 0.9, 0.5]
+    provider._model = mock_model
+
+    candidates = [
+        _candidate(1, "chunk A"),
+        _candidate(2, "chunk B"),
+        _candidate(3, "chunk C"),
+    ]
+
+    scores = provider.score("test query", candidates)
+
+    assert scores == [0.1, 0.9, 0.5]
+    mock_model.predict.assert_called_once_with(
+        [
+            ["test query", "chunk A"],
+            ["test query", "chunk B"],
+            ["test query", "chunk C"],
+        ],
+        batch_size=16,
+    )
+
+
+def test_cross_encoder_score_length_mismatch_raises_value_error() -> None:
+    provider = CrossEncoderRerankerProvider()
+    mock_model = MagicMock()
+    mock_model.predict.return_value = [0.5]  # 1 score for 2 candidates
+    provider._model = mock_model
+
+    candidates = [_candidate(1, "A"), _candidate(2, "B")]
+
+    with pytest.raises(ValueError, match="Model returned 1 scores for 2 candidates"):
+        provider.score("query", candidates)
+
+
+def test_cross_encoder_via_reranker_service_ordering_and_metadata() -> None:
+    provider = CrossEncoderRerankerProvider()
+    mock_model = MagicMock()
+    mock_model.predict.return_value = [0.10, 0.90, 0.50]
+    provider._model = mock_model
+
+    service = RerankerService(provider=provider)
+    candidates = [
+        _candidate(101, "Candidate 1", metadata={"page": 1}),
+        _candidate(102, "Candidate 2", metadata={"page": 2}),
+        _candidate(103, "Candidate 3", metadata={"page": 3}),
+    ]
+
+    ranked = service.rerank("my query", candidates, top_k=2)
+
+    assert len(ranked) == 2
+    assert ranked[0].chunk_id == 102
+    assert ranked[0].score == 0.90
+    assert ranked[0].metadata == {"page": 2}
+
+    assert ranked[1].chunk_id == 103
+    assert ranked[1].score == 0.50
+    assert ranked[1].metadata == {"page": 3}
+
+
+def test_create_reranker_provider_factory() -> None:
+    deterministic = create_reranker_provider("deterministic")
+    assert isinstance(deterministic, DeterministicRerankerProvider)
+
+    cross_encoder = create_reranker_provider("cross_encoder")
+    assert isinstance(cross_encoder, CrossEncoderRerankerProvider)
+
+    with pytest.raises(ValueError, match="Unknown reranker provider"):
+        create_reranker_provider("invalid_provider")
+
+
+def test_cross_encoder_concurrency_single_model_initialization(monkeypatch):
+    """Verify concurrent requests synchronize on model load and only instantiate CrossEncoder once."""
+    import concurrent.futures
+    import threading
+    import time
+    from unittest.mock import MagicMock
+    from app.services.reranker_service import CrossEncoderRerankerProvider, RerankCandidate
+
+    mock_model = MagicMock()
+    mock_model.predict.return_value = [0.88, 0.42]
+
+    init_counter = 0
+    init_lock = threading.Lock()
+
+    def mock_cross_encoder_init(*args, **kwargs):
+        nonlocal init_counter
+        with init_lock:
+            init_counter += 1
+        time.sleep(0.05)  # simulate slow model load
+        return mock_model
+
+    monkeypatch.setattr("sentence_transformers.CrossEncoder", mock_cross_encoder_init)
+
+    provider = CrossEncoderRerankerProvider()
+    candidates = [
+        RerankCandidate(chunk_id=1, content="Doc 1", score=0.1),
+        RerankCandidate(chunk_id=2, content="Doc 2", score=0.2),
+    ]
+
+    def worker_call():
+        return provider.score("test query", candidates)
+
+    # Launch 10 concurrent threads simultaneously
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        futures = [executor.submit(worker_call) for _ in range(10)]
+        results = [f.result() for f in futures]
+
+    assert len(results) == 10
+    for res in results:
+        assert res == [0.88, 0.42]
+
+    # Critical assertion: Model initialized exactly once despite 10 concurrent threads
+    assert init_counter == 1
+
+
+def test_get_reranker_provider_singleton_behavior():
+    """Verify get_reranker_provider returns process-level singleton instance."""
+    from app.services.reranker_service import get_reranker_provider
+
+    provider_1 = get_reranker_provider("deterministic")
+    provider_2 = get_reranker_provider("deterministic")
+    assert provider_1 is provider_2
+
+    ce_1 = get_reranker_provider("cross_encoder")
+    ce_2 = get_reranker_provider("cross_encoder")
+    assert ce_1 is ce_2
