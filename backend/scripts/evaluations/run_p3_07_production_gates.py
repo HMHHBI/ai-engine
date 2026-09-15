@@ -61,7 +61,6 @@ def resolve_paths(
 
 
 def find_detailed_run_file(benchmark_dir: Path) -> Path:
-    # Look for the run containing hybrid_cross_encoder_rerank queries
     search_dirs = [benchmark_dir, benchmark_dir.parent]
     candidates: List[Path] = []
     for d in search_dirs:
@@ -192,7 +191,6 @@ def evaluate_gates() -> int:
         app_default_flag = settings.ENABLE_RERANKING
         app_model = settings.RERANKER_MODEL
     except ImportError:
-        # Fallback to direct environment / settings read
         app_default_flag = os.getenv("ENABLE_RERANKING", "false").lower() in ("true", "1", "yes")
         app_model = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
 
@@ -200,19 +198,31 @@ def evaluate_gates() -> int:
     o1_passed = (app_default_flag is False) and (op_policy.get("default_enabled") is False)
     if not o1_passed:
         gate_failures += 1
-    print(f"  [{'PASS' if o1_passed else 'FAIL'}] Gate O1 (Safety Default)  ENABLE_RERANKING={app_default_flag} (Required: False)")
+    print(f"  [{'PASS' if o1_passed else 'FAIL'}] Gate O1 (Safety Default)    ENABLE_RERANKING={app_default_flag} (Required: False)")
 
-    # Enforce O2: Model Configuration Verification
+    # Enforce O2: Model Configuration Match
     o2_passed = (app_model == op_policy.get("model_name"))
     if not o2_passed:
         gate_failures += 1
-    print(f"  [{'PASS' if o2_passed else 'FAIL'}] Gate O2 (Model Name)      Configured: {app_model}")
+    print(f"  [{'PASS' if o2_passed else 'FAIL'}] Gate O2 (Model Name)        Configured: {app_model}")
 
-    # Enforce O3: Cold-Start Measurement Verification
+    # Enforce O3: Cold-Start Measurement Recorded
     o3_passed = (cold_start > 0.0)
     if not o3_passed:
         gate_failures += 1
-    print(f"  [{'PASS' if o3_passed else 'FAIL'}] Gate O3 (Cold-Start Trace) Initial Load: {cold_start:6.2f} ms (Recorded)")
+    print(f"  [{'PASS' if o3_passed else 'FAIL'}] Gate O3 (Cold-Start Trace)   Initial Load: {cold_start:6.2f} ms")
+
+    # Enforce O4: Cold-Start Disallowed in Real User Requests
+    o4_passed = (op_policy.get("cold_start_allowed_in_request") is False)
+    if not o4_passed:
+        gate_failures += 1
+    print(f"  [{'PASS' if o4_passed else 'FAIL'}] Gate O4 (Warm-Up Mandate)   cold_start_allowed_in_request={op_policy.get('cold_start_allowed_in_request')}")
+
+    # Enforce O5: Fallback Required
+    o5_passed = (op_policy.get("fallback_required") is True)
+    if not o5_passed:
+        gate_failures += 1
+    print(f"  [{'PASS' if o5_passed else 'FAIL'}] Gate O5 (Fallback Mandate)  fallback_required={op_policy.get('fallback_required')}")
 
     print("=" * 68)
     if gate_failures == 0:

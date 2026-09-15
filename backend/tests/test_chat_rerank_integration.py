@@ -1,16 +1,25 @@
 """Integration tests for chat endpoint reranker integration, safety flags, and fallback."""
 
-import asyncio
-from unittest.mock import MagicMock
+import json
+from unittest.mock import AsyncMock, MagicMock
 import pytest
+from fastapi.testclient import TestClient
 
 from app.core.config import settings
+from main import app
+from app.api.deps import get_current_user
+from app.repositories.chat_repo import ChatRepository
+from app.repositories.document_repo import DocumentRepository
+from app.repositories.vector_repo import VectorRepository
+from app.services.chat_service import ChatApplicationService
+from app.services.embedding_service import EmbeddingService
+from app.services.reranker_service import RerankCandidate, RerankerService
+from app.services.providers.factory import LLMProviderFactory
 from app.api.chat import (
     _build_rerank_candidates,
     RERANK_INITIAL_K,
     RERANK_FINAL_K,
 )
-from app.services.reranker_service import RerankCandidate, RerankerService
 
 
 def test_build_rerank_candidates_preserves_contract():
@@ -57,21 +66,44 @@ def test_create_reranker_provider_returns_deterministic(monkeypatch):
     assert isinstance(provider, DeterministicRerankerProvider)
 
 
-@pytest.mark.asyncio
-async def test_chat_reranker_fallback_on_inference_failure(monkeypatch):
+def test_chat_stream_reranker_fallback_on_inference_failure(monkeypatch):
     """
-    Exercise the actual chat fallback execution path:
-    When RerankerService.rerank raises an unexpected exception during request processing,
-    verify that:
-    1. No exception escapes to abort the request.
-    2. Context safely falls back to top RERANK_FINAL_K original hybrid chunks.
-    3. Original hybrid rank order is strictly preserved.
+    Exercise the real chat endpoint ai_stream() execution path:
+    Force RerankerService.rerank to raise an unexpected runtime exception.
+    Verify that:
+    1. The endpoint catches the exception and does NOT return an HTTP 500 error.
+    2. Sources event contains exactly RERANK_FINAL_K (6) items.
+    3. Source IDs preserve the original hybrid rank order (0 through 5).
     """
-    initial_chunks = [
+    mock_user = MagicMock()
+    mock_user.id = 1
+    app.dependency_overrides[get_current_user] = lambda: mock_user
+
+    mock_chat = MagicMock()
+    mock_chat.id = 100
+    mock_chat.user_id = 1
+    mock_chat.title = "Test Chat"
+    mock_chat.ai_provider = "ollama"
+    mock_chat.ai_model = "ollama-llama3.2"
+    mock_chat.embedding_provider = "ollama"
+    mock_chat.pdf_context = "Indexed File: test.pdf"
+    mock_chat.persona = "default"
+    mock_chat.custom_instructions = None
+
+    monkeypatch.setattr(ChatRepository, "get_by_id", lambda *args, **kwargs: mock_chat)
+    monkeypatch.setattr(ChatRepository, "add_message", lambda *args, **kwargs: MagicMock(id=999))
+    monkeypatch.setattr(ChatApplicationService, "prepare_chat_turn", AsyncMock(return_value=MagicMock()))
+    monkeypatch.setattr(EmbeddingService, "generate_embedding", AsyncMock(return_value=[0.1] * 768))
+
+    mock_doc = MagicMock()
+    mock_doc.id = 200
+    monkeypatch.setattr(DocumentRepository, "get_active_for_chat", lambda *args, **kwargs: mock_doc)
+
+    hybrid_candidates = [
         {
             "id": i,
-            "document_id": 100,
-            "content": f"Hybrid content passage {i}",
+            "document_id": 200,
+            "content": f"Hybrid candidate passage content {i}",
             "page_number": 1,
             "chunk_index": i,
             "distance": 0.05 * i,
@@ -80,37 +112,52 @@ async def test_chat_reranker_fallback_on_inference_failure(monkeypatch):
         }
         for i in range(20)
     ]
+    monkeypatch.setattr(VectorRepository, "search_hybrid_chunks", lambda *args, **kwargs: list(hybrid_candidates))
 
-    # Force RerankerService.rerank to raise a runtime failure
-    def mock_failing_rerank(*args, **kwargs):
-        raise RuntimeError("Simulated CrossEncoder CUDA/CPU OOM or inference failure")
+    def failing_rerank(*args, **kwargs):
+        raise RuntimeError("Simulated CrossEncoder fatal model/inference crash")
 
-    monkeypatch.setattr(RerankerService, "rerank", mock_failing_rerank)
+    monkeypatch.setattr(RerankerService, "rerank", failing_rerank)
     monkeypatch.setattr(settings, "ENABLE_RERANKING", True)
 
-    # Replicate chat endpoint rerank block execution
-    context_chunks = list(initial_chunks)
-    assert len(context_chunks) == 20
+    mock_provider = MagicMock()
+    async def mock_stream(*args, **kwargs):
+        yield "Test response grounded in fallback context"
+    mock_provider.generate_stream = mock_stream
+    monkeypatch.setattr(LLMProviderFactory, "get_provider", lambda *args, **kwargs: mock_provider)
 
-    if settings.ENABLE_RERANKING and context_chunks:
-        rerank_candidates = _build_rerank_candidates(context_chunks)
-        try:
-            reranker = RerankerService()
-            reranked_candidates = await asyncio.to_thread(
-                reranker.rerank,
-                "test query",
-                rerank_candidates,
-                RERANK_FINAL_K,
-            )
-            context_chunks = [
-                {"id": int(c.metadata["id"]), "content": c.content}
-                for c in reranked_candidates
-            ]
-        except Exception:
-            context_chunks = context_chunks[:RERANK_FINAL_K]
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/chat/stream",
+            json={"chat_id": 100, "prompt": "What is the policy?"},
+        )
 
-    # Critical assertions
-    assert len(context_chunks) == RERANK_FINAL_K
-    for rank, chunk in enumerate(context_chunks):
-        assert chunk["id"] == rank
-        assert chunk["content"] == f"Hybrid content passage {rank}"
+        assert response.status_code == 200
+
+        events: list[tuple[str, dict]] = []
+        for block in response.text.strip().split("\n\n"):
+            lines = block.strip().split("\n")
+            event_name = ""
+            event_data = {}
+            for line in lines:
+                if line.startswith("event: "):
+                    event_name = line.replace("event: ", "").strip()
+                elif line.startswith("data: "):
+                    event_data = json.loads(line.replace("data: ", "").strip())
+            if event_name:
+                events.append((event_name, event_data))
+
+        event_names = [e[0] for e in events]
+        assert "stream_error" not in event_names
+        assert "sources" in event_names
+
+        sources_event = next(e[1] for e in events if e[0] == "sources")
+        sources = sources_event.get("sources", [])
+
+        assert len(sources) == RERANK_FINAL_K
+        for idx, src in enumerate(sources):
+            assert src["id"] == idx
+
+    finally:
+        app.dependency_overrides.clear()
