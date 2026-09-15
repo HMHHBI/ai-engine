@@ -68,3 +68,38 @@ def test_apply_reranking_returns_top_k_retrieved():
     assert len(retrieved) == 2
     assert retrieved[0].chunk_id == 102
     assert latency >= 0.0
+
+
+def test_validate_strategies_accepts_hybrid_cross_encoder_rerank():
+    assert "hybrid_cross_encoder_rerank" in RETRIEVAL_STRATEGIES
+    assert validate_strategies(["hybrid_cross_encoder_rerank"]) == ("hybrid_cross_encoder_rerank",)
+
+
+def test_apply_reranking_with_cross_encoder_mock():
+    from app.services.reranker_service import BaseRerankerProvider
+
+    class MockCrossEncoderProvider(BaseRerankerProvider):
+        def score(self, query, candidates):
+            # Candidate 202 ko highest score do
+            return [0.10 if c.chunk_id == 201 else 0.95 for c in candidates]
+
+    query = EvaluationQuery(
+        query_id="q_ce_1",
+        user_id=1,
+        document_id=10,
+        query="Cross-Encoder ranking test",
+        relevant_chunk_ids=(202,),
+    )
+    candidates = [
+        {"id": 201, "document_id": 10, "content": "Low relevance chunk", "rrf_score": 0.05},
+        {"id": 202, "document_id": 10, "content": "High relevance chunk", "rrf_score": 0.01},
+    ]
+
+    service = RerankerService(provider=MockCrossEncoderProvider())
+    retrieved, latency_ms = apply_reranking(query, candidates, service)
+
+    assert len(retrieved) == 2
+    assert retrieved[0].chunk_id == 202
+    assert retrieved[0].rerank_score == 0.95
+    assert retrieved[1].chunk_id == 201
+    assert latency_ms >= 0.0

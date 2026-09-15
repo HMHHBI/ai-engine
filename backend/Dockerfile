@@ -12,6 +12,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # Upgrade pip for fast parallel binary wheels support
 RUN pip install --no-cache-dir --upgrade pip
 
+# Pre-install CPU-only PyTorch to avoid massive CUDA wheel downloads
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+
 # Install Python Dependencies (Using pre-built binary wheels)
 COPY requirements.txt .
 RUN pip install --no-cache-dir --prefer-binary -r requirements.txt

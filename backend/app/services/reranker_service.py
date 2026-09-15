@@ -16,6 +16,7 @@ import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
+from app.core.config import settings
 
 
 _TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_./:-]+")
@@ -255,3 +256,60 @@ class RerankerService:
             return ranked[:top_k]
 
         return ranked
+
+
+class CrossEncoderRerankerProvider(BaseRerankerProvider):
+    """Cross-encoder reranker provider using sentence-transformers.
+
+    Loads the underlying model lazily on first inference call to avoid
+    startup penalty when reranking is disabled or unused.
+    """
+
+    def __init__(
+        self,
+        model_name: str | None = None,
+        batch_size: int | None = None,
+        device: str | None = None,
+    ) -> None:
+        self.model_name = model_name or settings.RERANKER_MODEL
+        self.batch_size = batch_size or settings.RERANKER_BATCH_SIZE
+        self.device = device or settings.RERANKER_DEVICE
+        self._model: Any = None
+
+    def _get_model(self) -> Any:
+        if self._model is None:
+            from sentence_transformers import CrossEncoder
+
+            self._model = CrossEncoder(self.model_name, device=self.device)
+        return self._model
+
+    def score(
+        self,
+        query: str,
+        candidates: Sequence[RerankCandidate],
+    ) -> Sequence[float]:
+        if not candidates:
+            return []
+
+        model = self._get_model()
+        pairs = [[query, candidate.content] for candidate in candidates]
+        raw_scores = model.predict(pairs, batch_size=self.batch_size)
+
+        scores = [float(s) for s in raw_scores]
+        if len(scores) != len(candidates):
+            raise ValueError(
+                f"Model returned {len(scores)} scores for {len(candidates)} candidates"
+            )
+        return scores
+
+
+def create_reranker_provider(provider_type: str | None = None) -> BaseRerankerProvider:
+    """Factory to instantiate the configured reranker provider."""
+    target_provider = (provider_type or settings.RERANKER_PROVIDER).lower().strip()
+
+    if target_provider == "cross_encoder":
+        return CrossEncoderRerankerProvider()
+    elif target_provider == "deterministic":
+        return DeterministicRerankerProvider()
+    else:
+        raise ValueError(f"Unknown reranker provider: {target_provider}")

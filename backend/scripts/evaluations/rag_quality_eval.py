@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-RAG Retrieval Quality Evaluation Suite (P3-02).
+RAG Retrieval Quality Evaluation Suite (P3-02 / P3-06).
 
 Evaluates the production RAG retrieval path:
 
@@ -40,7 +40,7 @@ from app.core.config import settings
 from app.db.models import Chat, Document, DocumentChunk
 from app.repositories.vector_repo import VectorRepository
 from app.services.embedding_service import EmbeddingService
-from app.services.reranker_service import RerankCandidate, RerankerService
+from app.services.reranker_service import RerankCandidate, RerankerService, create_reranker_provider
 
 
 DEFAULT_K_VALUES = (1, 3, 5, 10)
@@ -55,10 +55,11 @@ RETRIEVAL_STRATEGIES = (
     "hybrid",
     "dense_rerank",
     "hybrid_rerank",
+    "hybrid_cross_encoder_rerank",
 )
 
 DEFAULT_DATASET = Path(
-    "scripts/evaluations/rag_quality_dataset.json"
+    "scripts/evaluations/rag_quality_dataset_p3_04_v2.json"
 )
 DEFAULT_RESULTS_DIR = Path("evaluation-results")
 
@@ -132,11 +133,10 @@ def assert_test_database(url: Optional[str]) -> None:
         )
 
 
-
 def validate_strategies(
     strategies: Iterable[str],
 ) -> tuple[str, ...]:
-    """Validate and normalize P3-05 retrieval strategies."""
+    """Validate and normalize retrieval strategies."""
     values = tuple(s.strip().lower() for s in strategies)
     if not values:
         raise ValueError("At least one retrieval strategy is required.")
@@ -149,6 +149,7 @@ def validate_strategies(
     if len(set(values)) != len(values):
         raise ValueError("Retrieval strategies must be unique.")
     return values
+
 
 def validate_k_values(k_values: Iterable[int]) -> tuple[int, ...]:
     """Validate and normalize evaluation K values."""
@@ -312,22 +313,6 @@ def validate_dataset_against_db(
     session: Session,
     queries: Sequence[EvaluationQuery],
 ) -> None:
-    """
-    Validate golden labels against the evaluation database.
-
-    Every query must satisfy:
-
-        user
-          ↓
-        document.user_id
-          ↓
-        document.chat_id
-          ↓
-        chat.user_id
-
-    Every relevant chunk must belong to the specified document and have
-    a stored embedding.
-    """
     document_cache: dict[tuple[int, int], Document] = {}
     chunk_cache: dict[int, DocumentChunk] = {}
 
@@ -392,7 +377,6 @@ def hit_rate_at_k(
     query: EvaluationQuery,
     k: int,
 ) -> float:
-    """Return binary hit rate for one query at K."""
     if k <= 0:
         return 0.0
 
@@ -411,7 +395,6 @@ def reciprocal_rank_at_k(
     query: EvaluationQuery,
     k: int,
 ) -> float:
-    """Return reciprocal rank of the first relevant result at K."""
     if k <= 0:
         return 0.0
 
@@ -429,13 +412,6 @@ def context_precision_at_k(
     query: EvaluationQuery,
     k: int,
 ) -> float:
-    """
-    Calculate precision over the chunks actually returned by retrieval.
-
-    This intentionally uses len(top_k), rather than requested K, because
-    production retrieval may return fewer than K results after adaptive
-    distance filtering.
-    """
     if k <= 0:
         return 0.0
 
@@ -460,7 +436,6 @@ def context_recall_at_k(
     query: EvaluationQuery,
     k: int,
 ) -> float:
-    """Calculate exact recall over canonical relevant chunk IDs."""
     if k <= 0:
         return 0.0
 
@@ -482,7 +457,6 @@ def context_recall_at_k(
     )
 
 
-
 def build_rerank_candidates(results: Sequence[dict[str, Any]]) -> list[RerankCandidate]:
     candidates: list[RerankCandidate] = []
     for r in results:
@@ -502,6 +476,7 @@ def build_rerank_candidates(results: Sequence[dict[str, Any]]) -> list[RerankCan
         )
     return candidates
 
+
 def build_retrieved_chunks(results: Sequence[dict[str, Any]]) -> tuple[RetrievedChunk, ...]:
     retrieved: list[RetrievedChunk] = []
     for r in results:
@@ -518,18 +493,20 @@ def build_retrieved_chunks(results: Sequence[dict[str, Any]]) -> tuple[Retrieved
         )
     return tuple(retrieved)
 
-def retrieve_strategy_candidates(query: EvaluationQuery, *, strategy: str, query_vector: list[float]) -> list[dict[str, Any]]:
+
+def retrieve_strategy_candidates(query: EvaluationQuery, *, strategy: str, query_vector: list[float], top_k: int = RERANK_FINAL_K) -> list[dict[str, Any]]:
     if strategy == "dense":
-        return VectorRepository.retrieve_candidate_pool(user_id=query.user_id, document_id=query.document_id, strategy='dense', query_text=query.query, query_vector=query_vector, candidate_k=RERANK_FINAL_K)
+        return VectorRepository.retrieve_candidate_pool(user_id=query.user_id, document_id=query.document_id, strategy='dense', query_text=query.query, query_vector=query_vector, candidate_k=top_k)
     if strategy == "lexical":
-        return VectorRepository.retrieve_candidate_pool(user_id=query.user_id, document_id=query.document_id, strategy='lexical', query_text=query.query, query_vector=query_vector, candidate_k=RERANK_FINAL_K)
+        return VectorRepository.retrieve_candidate_pool(user_id=query.user_id, document_id=query.document_id, strategy='lexical', query_text=query.query, query_vector=query_vector, candidate_k=top_k)
     if strategy == "hybrid":
-        return VectorRepository.retrieve_candidate_pool(user_id=query.user_id, document_id=query.document_id, strategy='hybrid', query_text=query.query, query_vector=query_vector, candidate_k=RERANK_FINAL_K)
+        return VectorRepository.retrieve_candidate_pool(user_id=query.user_id, document_id=query.document_id, strategy='hybrid', query_text=query.query, query_vector=query_vector, candidate_k=top_k)
     if strategy == "dense_rerank":
         return VectorRepository.retrieve_candidate_pool(user_id=query.user_id, document_id=query.document_id, strategy='dense', query_text=query.query, query_vector=query_vector, candidate_k=RERANK_INITIAL_K)
-    if strategy == "hybrid_rerank":
+    if strategy in ("hybrid_rerank", "hybrid_cross_encoder_rerank"):
         return VectorRepository.retrieve_candidate_pool(user_id=query.user_id, document_id=query.document_id, strategy='hybrid', query_text=query.query, query_vector=query_vector, candidate_k=RERANK_INITIAL_K)
     raise ValueError(f"Unsupported evaluation strategy: {strategy!r}")
+
 
 def apply_reranking(query: EvaluationQuery, candidates: Sequence[dict[str, Any]], reranker: RerankerService) -> tuple[tuple[RetrievedChunk, ...], float]:
     rerank_candidates = build_rerank_candidates(candidates)
@@ -550,12 +527,12 @@ def apply_reranking(query: EvaluationQuery, candidates: Sequence[dict[str, Any]]
     )
     return retrieved, rerank_ms
 
+
 def calculate_query_metrics(
     retrieved: Sequence[RetrievedChunk],
     query: EvaluationQuery,
     k_values: Iterable[int],
 ) -> dict[str, dict[str, float]]:
-    """Calculate all retrieval metrics for one query."""
     metrics: dict[str, dict[str, float]] = {}
 
     for k in k_values:
@@ -594,7 +571,6 @@ def aggregate_metrics(
     evaluations: Sequence[QueryEvaluation],
     k_values: Iterable[int],
 ) -> dict[str, dict[str, float]]:
-    """Aggregate per-query metrics using arithmetic means."""
     if not evaluations:
         raise ValueError("Cannot aggregate an empty evaluation set.")
 
@@ -629,24 +605,16 @@ def aggregate_metrics(
     return aggregate
 
 
-
 def aggregate_by_strategy(evaluations: Sequence[QueryEvaluation], k_values: Iterable[int]) -> dict[str, dict[str, Any]]:
     grouped: dict[str, list[QueryEvaluation]] = {}
     for ev in evaluations:
         grouped.setdefault(ev.strategy, []).append(ev)
     return {strat: aggregate_metrics(evs, k_values) for strat, evs in grouped.items()}
 
-def build_strategy_failures(strat_aggs: dict[str, dict[str, Any]]) -> dict[str, list[str]]:
-    return {strat: build_failures(agg) for strat, agg in strat_aggs.items()}
 
 def build_failures(
     aggregate: dict[str, dict[str, float]],
 ) -> list[str]:
-    """
-    Apply the P3-02 retrieval quality gate.
-
-    Precision and recall remain diagnostic metrics for this phase.
-    """
     failures: list[str] = []
 
     thresholds = {
@@ -690,7 +658,6 @@ def build_failures(
 def serialize_evaluation(
     evaluation: QueryEvaluation,
 ) -> dict[str, Any]:
-    """Serialize one query evaluation for JSON output."""
     return {
         "query_id": evaluation.query_id,
         "user_id": evaluation.user_id,
@@ -710,6 +677,11 @@ def serialize_evaluation(
         ],
         "metrics": evaluation.metrics,
         "reference_answer": evaluation.reference_answer,
+        "strategy": evaluation.strategy,
+        "candidate_count": evaluation.candidate_count,
+        "candidate_latency_ms": evaluation.candidate_latency_ms,
+        "rerank_latency_ms": evaluation.rerank_latency_ms,
+        "total_latency_ms": evaluation.total_latency_ms,
     }
 
 
@@ -723,7 +695,6 @@ def write_reports(
     aggregate: dict[str, dict[str, float]],
     failures: Sequence[str],
 ) -> tuple[Path, Path]:
-    """Write machine-readable JSON and human-readable Markdown reports."""
     timestamp = datetime.now(timezone.utc).strftime(
         "%Y%m%d_%H%M%S"
     )
@@ -858,8 +829,9 @@ async def execute_evaluation(
     output_dir: Path,
     k_values: tuple[int, ...] = DEFAULT_K_VALUES,
     min_queries: int = MIN_DATASET_QUERIES,
+    strategy: str = "hybrid",
+    reranker_provider: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Execute the complete isolated RAG retrieval evaluation."""
     k_values = validate_k_values(k_values)
 
     test_database_url = os.getenv("TEST_DATABASE_URL")
@@ -905,16 +877,23 @@ async def execute_evaluation(
 
         print()
         print("=" * 62)
-        print("  P3-02 RAG RETRIEVAL QUALITY EVALUATION")
+        print("  P3-06 RAG RETRIEVAL QUALITY EVALUATION")
         print("=" * 62)
         print("  Database: isolated test database")
         print(f"  Provider: {provider}")
         print(f"  Queries:  {len(queries)}")
-        print(
-            "  Pipeline: EmbeddingService -> "
-            "VectorRepository -> pgvector"
-        )
+        print(f"  Strategy: {strategy}")
         print("=" * 62)
+
+        if strategy == "hybrid_cross_encoder_rerank":
+            effective_provider = "cross_encoder"
+        elif strategy in ("dense_rerank", "hybrid_rerank"):
+            effective_provider = reranker_provider or "deterministic"
+        else:
+            effective_provider = reranker_provider or getattr(settings, "RERANKER_PROVIDER", "deterministic")
+
+        active_provider = create_reranker_provider(effective_provider)
+        reranker_service = RerankerService(provider=active_provider)
 
         evaluations: list[QueryEvaluation] = []
 
@@ -940,28 +919,51 @@ async def execute_evaluation(
                     f"an embedding for query '{query.query_id}'."
                 )
 
-            results = (
-                VectorRepository.search_hybrid_chunks(
+            cand_start = perf_counter()
+            if strategy == "hybrid":
+                raw_results = VectorRepository.search_hybrid_chunks(
                     user_id=query.user_id,
                     document_id=query.document_id,
                     query_text=query.query,
                     query_vector=query_vector,
                     top_k=max(k_values),
                 )
-            )
-
-            retrieved = tuple(
-                RetrievedChunk(
-                    chunk_id=result["id"],
-                    document_id=result["document_id"],
-                    chunk_index=result.get("chunk_index"),
-                    content=result.get("content", ""),
-                    distance=float(
-                        result.get("distance", 0.0)
-                    ),
+                cand_latency_ms = (perf_counter() - cand_start) * 1000.0
+                rerank_ms = 0.0
+                raw_candidates = raw_results
+                retrieved = tuple(
+                    RetrievedChunk(
+                        chunk_id=r["id"],
+                        document_id=r["document_id"],
+                        chunk_index=r.get("chunk_index"),
+                        content=r.get("content", ""),
+                        distance=float(r.get("distance", 0.0)),
+                    )
+                    for r in raw_results
                 )
-                for result in results
-            )
+            else:
+                raw_candidates = retrieve_strategy_candidates(
+                    query=query,
+                    strategy=strategy,
+                    query_vector=query_vector,
+                    top_k=max(k_values),
+                )
+                cand_latency_ms = (perf_counter() - cand_start) * 1000.0
+                if strategy in ("dense_rerank", "hybrid_rerank", "hybrid_cross_encoder_rerank"):
+                    retrieved, rerank_ms = apply_reranking(query, raw_candidates, reranker_service)
+                else:
+                    rerank_ms = 0.0
+                    retrieved = tuple(
+                        RetrievedChunk(
+                            chunk_id=c.get("id", c.get("chunk_id")),
+                            document_id=c["document_id"],
+                            chunk_index=c.get("chunk_index"),
+                            content=c.get("content", ""),
+                            distance=float(c.get("distance", 0.0)),
+                            retrieval_score=c.get("score"),
+                        )
+                        for c in raw_candidates[:max(k_values)]
+                    )
 
             metrics = calculate_query_metrics(
                 retrieved,
@@ -981,6 +983,11 @@ async def execute_evaluation(
                     retrieved=retrieved,
                     metrics=metrics,
                     reference_answer=query.reference_answer,
+                    strategy=strategy,
+                    candidate_count=len(raw_candidates),
+                    candidate_latency_ms=cand_latency_ms,
+                    rerank_latency_ms=rerank_ms,
+                    total_latency_ms=cand_latency_ms + rerank_ms,
                 )
             )
 
@@ -1105,6 +1112,12 @@ def main() -> None:
 
     parser.add_argument("--strategy", choices=RETRIEVAL_STRATEGIES, default="hybrid", help="Run strategy.")
     parser.add_argument("--all-strategies", action="store_true", help="Run all strategies.")
+    parser.add_argument(
+        "--reranker",
+        choices=["deterministic", "cross_encoder"],
+        default=getattr(settings, "RERANKER_PROVIDER", "deterministic"),
+        help="Reranker provider type to use for reranking strategies.",
+    )
     args = parser.parse_args()
 
     try:
@@ -1125,14 +1138,19 @@ def main() -> None:
                 "Dataset contains no evaluation queries."
             )
 
-        asyncio.run(
-            execute_evaluation(
-                dataset_path=args.dataset,
-                output_dir=args.output_dir,
-                k_values=tuple(args.k),
-                min_queries=args.min_queries,
+        strategies = list(RETRIEVAL_STRATEGIES) if args.all_strategies else [args.strategy]
+        for strat in strategies:
+            print(f"\n>>> Running evaluation for strategy: {strat} (reranker: {args.reranker})")
+            asyncio.run(
+                execute_evaluation(
+                    dataset_path=args.dataset,
+                    output_dir=args.output_dir,
+                    k_values=tuple(args.k),
+                    min_queries=args.min_queries,
+                    strategy=strat,
+                    reranker_provider=args.reranker,
+                )
             )
-        )
 
     except Exception as exc:
         print(

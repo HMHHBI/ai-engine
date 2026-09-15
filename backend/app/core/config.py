@@ -76,6 +76,10 @@ class Settings(BaseSettings):
     DEFAULT_AI_MODEL: AIModel = AIModel.OLLAMA_LLAMA_3_2
     DEFAULT_EMBEDDING_PROVIDER: EmbeddingProvider = EmbeddingProvider.OLLAMA
     ENABLE_RERANKING: bool = False
+    RERANKER_PROVIDER: str = "deterministic"
+    RERANKER_MODEL: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    RERANKER_BATCH_SIZE: int = 8
+    RERANKER_DEVICE: str = "cpu"
 
     # ------------------------------------------------------------------
     # AI Timeout / Lifecycle Configuration
