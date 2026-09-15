@@ -749,40 +749,52 @@ async def ai_stream(
 
                         if settings.ENABLE_RERANKING and context_chunks:
                             rerank_candidates = _build_rerank_candidates(context_chunks)
-                            reranker = RerankerService(provider=create_reranker_provider())
-                            reranked_candidates = await asyncio.to_thread(
-                                reranker.rerank,
-                                req.prompt,
-                                rerank_candidates,
-                                RERANK_FINAL_K,
-                            )
-                            reranked_chunks: list[dict[str, Any]] = []
-                            for candidate in reranked_candidates:
-                                metadata = dict(candidate.metadata or {})
-                                reranked_chunks.append(
-                                    {
-                                        "id": int(metadata["id"]),
-                                        "document_id": metadata.get("document_id"),
-                                        "content": candidate.content,
-                                        "page_number": metadata.get("page_number"),
-                                        "chunk_index": metadata.get("chunk_index"),
-                                        "distance": float(metadata.get("distance", 0.0)),
-                                        "rrf_score": metadata.get("rrf_score"),
-                                        "score": candidate.score,
-                                    }
+                            try:
+                                reranker = RerankerService(provider=create_reranker_provider())
+                                reranked_candidates = await asyncio.to_thread(
+                                    reranker.rerank,
+                                    req.prompt,
+                                    rerank_candidates,
+                                    RERANK_FINAL_K,
                                 )
-                            context_chunks = reranked_chunks
+                                reranked_chunks: list[dict[str, Any]] = []
+                                for candidate in reranked_candidates:
+                                    metadata = dict(candidate.metadata or {})
+                                    reranked_chunks.append(
+                                        {
+                                            "id": int(metadata["id"]),
+                                            "document_id": metadata.get("document_id"),
+                                            "content": candidate.content,
+                                            "page_number": metadata.get("page_number"),
+                                            "chunk_index": metadata.get("chunk_index"),
+                                            "distance": float(metadata.get("distance", 0.0)),
+                                            "rrf_score": metadata.get("rrf_score"),
+                                            "score": candidate.score,
+                                        }
+                                    )
+                                context_chunks = reranked_chunks
 
-                            logger.info(
-                                "rag_reranking_completed",
-                                extra={
-                                    "event": "rag_reranking_completed",
-                                    "chat_id": req.chat_id,
-                                    "candidate_count": len(rerank_candidates),
-                                    "final_count": len(context_chunks),
-                                    "strategy": "hybrid_rerank",
-                                },
-                            )
+                                logger.info(
+                                    "rag_reranking_completed",
+                                    extra={
+                                        "event": "rag_reranking_completed",
+                                        "chat_id": req.chat_id,
+                                        "candidate_count": len(rerank_candidates),
+                                        "final_count": len(context_chunks),
+                                        "strategy": "hybrid_rerank",
+                                    },
+                                )
+                            except Exception as rerank_err:
+                                logger.warning(
+                                    "rag_reranking_fallback_triggered",
+                                    extra={
+                                        "event": "rag_reranking_fallback_triggered",
+                                        "chat_id": req.chat_id,
+                                        "error": str(rerank_err),
+                                        "fallback_strategy": "hybrid_top_k",
+                                    },
+                                )
+                                context_chunks = context_chunks[:RERANK_FINAL_K]
 
             except Exception:
                 logger.exception(
