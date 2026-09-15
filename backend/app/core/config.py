@@ -75,6 +75,7 @@ class Settings(BaseSettings):
     DEFAULT_AI_PROVIDER: AIProvider = AIProvider.OLLAMA
     DEFAULT_AI_MODEL: AIModel = AIModel.OLLAMA_LLAMA_3_2
     DEFAULT_EMBEDDING_PROVIDER: EmbeddingProvider = EmbeddingProvider.OLLAMA
+    ENABLE_RERANKING: bool = False
 
     # ------------------------------------------------------------------
     # AI Timeout / Lifecycle Configuration

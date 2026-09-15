@@ -472,6 +472,75 @@ class VectorRepository:
             ]
 
     @staticmethod
+    def retrieve_candidate_pool(
+        user_id: int,
+        document_id: int,
+        strategy: str,
+        query_text: str,
+        query_vector: list[float],
+        candidate_k: int = 20,
+        max_distance: float = 0.70,
+        adaptive_margin: float = 0.15,
+        rrf_k: int = 60,
+        dense_weight: float = 1.0,
+        sparse_weight: float = 1.0,
+    ) -> list[dict[str, Any]]:
+        """
+        Retrieve an initial candidate pool for RAG evaluation/reranking.
+
+        Supported strategies:
+            dense
+            lexical
+            hybrid
+        """
+        VectorRepository._validate_ids(
+            user_id=user_id,
+            document_id=document_id,
+        )
+
+        if candidate_k <= 0 or candidate_k > 50:
+            raise ValueError("candidate_k must be between 1 and 50.")
+
+        normalized_strategy = strategy.strip().lower()
+
+        if normalized_strategy == "dense":
+            return VectorRepository.search_similar_chunks(
+                user_id=user_id,
+                document_id=document_id,
+                query_vector=query_vector,
+                top_k=candidate_k,
+                max_distance=max_distance,
+                adaptive_margin=adaptive_margin,
+            )
+
+        if normalized_strategy == "lexical":
+            return VectorRepository.search_sparse_chunks(
+                user_id=user_id,
+                document_id=document_id,
+                query_text=query_text,
+                top_k=candidate_k,
+            )
+
+        if normalized_strategy == "hybrid":
+            return VectorRepository.search_hybrid_chunks(
+                user_id=user_id,
+                document_id=document_id,
+                query_text=query_text,
+                query_vector=query_vector,
+                top_k=candidate_k,
+                candidate_k=candidate_k,
+                rrf_k=rrf_k,
+                dense_weight=dense_weight,
+                sparse_weight=sparse_weight,
+                max_distance=max_distance,
+                adaptive_margin=adaptive_margin,
+            )
+
+        raise ValueError(
+            "Unsupported retrieval strategy: "
+            f"{strategy!r}. Expected one of: dense, lexical, hybrid."
+        )
+
     def search_hybrid_chunks(
         user_id: int,
         document_id: int,
