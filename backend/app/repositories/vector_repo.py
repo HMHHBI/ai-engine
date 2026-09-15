@@ -472,7 +472,6 @@ class VectorRepository:
             ]
 
     @staticmethod
-    @staticmethod
     def retrieve_candidate_pool(
         user_id: int,
         document_id: int,
