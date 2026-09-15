@@ -13,7 +13,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN pip install --no-cache-dir --upgrade pip
 
 # Pre-install CPU-only PyTorch to avoid massive CUDA wheel downloads
-RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+RUN pip install --no-cache-dir torch==2.14.0+cpu --index-url https://download.pytorch.org/whl/cpu
 
 # Install Python Dependencies (Using pre-built binary wheels)
 COPY requirements.txt .

@@ -1,315 +1,201 @@
-"""
-Deterministic reranking service for RAG candidate pools.
-
-This module intentionally contains no database or repository dependencies.
-The reranker receives an already-authorized candidate pool and returns the
-highest-scoring candidates while preserving their original metadata.
-
-The deterministic provider is suitable for evaluation, regression testing,
-and development. It is not a neural cross-encoder and should not be treated
-as a production-quality semantic reranker.
-"""
+"""Reranker service and provider abstractions (P3-05 / P3-06)."""
 
 from __future__ import annotations
 
-import re
+import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Mapping, Sequence
+from typing import Any, Optional, Sequence
+
 from app.core.config import settings
-
-
-_TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_./:-]+")
 
 
 @dataclass(frozen=True)
 class RerankCandidate:
-    """Immutable candidate passed through the reranking pipeline."""
+    """Represents a candidate chunk presented to the reranking stage."""
 
     chunk_id: int
     content: str
-    score: float = 0.0
-    metadata: Mapping[str, Any] | None = None
+    score: float
+    metadata: Optional[dict[str, Any]] = None
 
 
 class BaseRerankerProvider(ABC):
-    """Interface implemented by reranking providers."""
+    """Abstract interface for all reranker providers."""
 
     @abstractmethod
     def score(
         self,
         query: str,
         candidates: Sequence[RerankCandidate],
-    ) -> Sequence[float]:
+    ) -> list[float]:
         """
-        Return one relevance score for every candidate.
+        Score candidates against the given query.
 
-        Implementations must preserve candidate ordering in the returned
-        scores and must return exactly one score per candidate.
+        Must return a list of float scores corresponding 1:1 with candidates,
+        preserving candidate sequence order.
         """
-        raise NotImplementedError
+        ...
 
 
 class DeterministicRerankerProvider(BaseRerankerProvider):
     """
-    Deterministic lexical relevance scorer.
+    Deterministic reranker provider used as baseline and test fixture.
 
-    The scorer combines:
-    - query-token coverage,
-    - candidate-token coverage,
-    - exact phrase matching,
-    - exact token frequency.
-
-    This provides stable ordering without requiring a model download,
-    external service, GPU, or additional runtime dependency.
-
-    It is intentionally named "DeterministicRerankerProvider" rather than
-    "CrossEncoderRerankerProvider": this implementation is not a neural
-    cross-encoder.
+    Scores candidates using word-overlap lexical heuristic combined with original score.
+    Zero DB dependencies, fully deterministic.
     """
 
     def score(
         self,
         query: str,
         candidates: Sequence[RerankCandidate],
-    ) -> Sequence[float]:
-        """Score candidates deterministically against the supplied query."""
+    ) -> list[float]:
         if not candidates:
             return []
 
-        query_tokens = self._tokenize(query)
-
-        if not query_tokens:
-            return [0.0] * len(candidates)
-
-        query_token_set = set(query_tokens)
-
+        query_tokens = set(query.lower().split())
         scores: list[float] = []
 
         for candidate in candidates:
-            candidate_tokens = self._tokenize(candidate.content)
+            if not query_tokens:
+                overlap_score = 0.0
+            else:
+                content_tokens = set(candidate.content.lower().split())
+                overlap = len(query_tokens.intersection(content_tokens))
+                overlap_score = overlap / len(query_tokens)
 
-            if not candidate_tokens:
-                scores.append(0.0)
-                continue
-
-            candidate_token_set = set(candidate_tokens)
-
-            matched_tokens = query_token_set & candidate_token_set
-
-            query_coverage = len(matched_tokens) / len(query_token_set)
-
-            candidate_coverage = len(matched_tokens) / len(
-                candidate_token_set
-            )
-
-            phrase_bonus = self._phrase_bonus(
-                query=query,
-                content=candidate.content,
-            )
-
-            frequency_score = self._frequency_score(
-                query_tokens=query_tokens,
-                candidate_tokens=candidate_tokens,
-            )
-
-            score = (
-                query_coverage * 0.50
-                + candidate_coverage * 0.20
-                + frequency_score * 0.20
-                + phrase_bonus * 0.10
-            )
-
-            scores.append(score)
+            combined_score = 0.7 * overlap_score + 0.3 * candidate.score
+            scores.append(round(combined_score, 6))
 
         return scores
 
-    @staticmethod
-    def _tokenize(text: str) -> list[str]:
-        """Tokenize text while preserving useful identifier characters."""
-        return [
-            token.lower()
-            for token in _TOKEN_PATTERN.findall(text)
-            if token.strip()
-        ]
-
-    @staticmethod
-    def _phrase_bonus(query: str, content: str) -> float:
-        """Return a binary bonus when the normalized query is present."""
-        normalized_query = " ".join(query.lower().split())
-        normalized_content = " ".join(content.lower().split())
-
-        if not normalized_query:
-            return 0.0
-
-        return 1.0 if normalized_query in normalized_content else 0.0
-
-    @staticmethod
-    def _frequency_score(
-        query_tokens: Sequence[str],
-        candidate_tokens: Sequence[str],
-    ) -> float:
-        """
-        Measure how frequently query terms occur in the candidate.
-
-        The value is capped at 1.0 to keep frequency from dominating
-        the other relevance signals.
-        """
-        if not query_tokens or not candidate_tokens:
-            return 0.0
-
-        candidate_text = " ".join(candidate_tokens)
-
-        matched_frequency = sum(
-            candidate_text.split().count(token)
-            for token in set(query_tokens)
-        )
-
-        denominator = max(len(query_tokens), 1)
-
-        return min(matched_frequency / denominator, 1.0)
-
-
-class RerankerService:
-    """
-    Application-level reranking service.
-
-    The service is intentionally stateless. It does not retrieve candidates,
-    enforce tenant authorization, or access the database. Those concerns
-    remain with the retrieval layer.
-
-    The service guarantees:
-    - empty input remains empty,
-    - candidate metadata is preserved,
-    - candidate identity is preserved,
-    - deterministic providers produce deterministic ordering,
-    - top_k is applied after scoring,
-    - ties are resolved deterministically by original candidate position.
-    """
-
-    def __init__(
-        self,
-        provider: BaseRerankerProvider | None = None,
-    ) -> None:
-        """Initialize the service with the supplied reranker provider."""
-        self.provider = provider or DeterministicRerankerProvider()
-
-    def rerank(
-        self,
-        query: str,
-        candidates: Sequence[RerankCandidate],
-        top_k: int | None = None,
-    ) -> list[RerankCandidate]:
-        """
-        Rerank candidates and optionally return only the top ``top_k``.
-
-        Args:
-            query: User query used for relevance scoring.
-            candidates: Already-authorized retrieval candidates.
-            top_k: Maximum number of candidates to return.
-
-        Returns:
-            Candidates ordered from highest to lowest reranker score.
-
-        Raises:
-            ValueError: If ``top_k`` is less than one or the provider returns
-                an invalid number of scores.
-        """
-        candidate_list = list(candidates)
-
-        if not candidate_list:
-            return []
-
-        if top_k is not None and top_k < 1:
-            raise ValueError("top_k must be greater than zero")
-
-        scores = list(self.provider.score(query, candidate_list))
-
-        if len(scores) != len(candidate_list):
-            raise ValueError(
-                "Reranker provider must return exactly one score per "
-                "candidate"
-            )
-
-        scored_candidates = [
-            (
-                index,
-                RerankCandidate(
-                    chunk_id=candidate.chunk_id,
-                    content=candidate.content,
-                    score=float(score),
-                    metadata=candidate.metadata,
-                ),
-            )
-            for index, (candidate, score) in enumerate(
-                zip(candidate_list, scores)
-            )
-        ]
-
-        scored_candidates.sort(
-            key=lambda item: (-item[1].score, item[0])
-        )
-
-        ranked = [candidate for _, candidate in scored_candidates]
-
-        if top_k is not None:
-            return ranked[:top_k]
-
-        return ranked
-
 
 class CrossEncoderRerankerProvider(BaseRerankerProvider):
-    """Cross-encoder reranker provider using sentence-transformers.
+    """
+    Semantic Cross-Encoder provider utilizing sentence-transformers.
 
-    Loads the underlying model lazily on first inference call to avoid
-    startup penalty when reranking is disabled or unused.
+    Thread-safe lazy initialization and thread-safe CPU inference.
+    Reuses model instance across worker requests.
     """
 
     def __init__(
         self,
-        model_name: str | None = None,
-        batch_size: int | None = None,
-        device: str | None = None,
+        model_name: Optional[str] = None,
+        batch_size: Optional[int] = None,
+        device: Optional[str] = None,
     ) -> None:
-        self.model_name = model_name or settings.RERANKER_MODEL
-        self.batch_size = batch_size or settings.RERANKER_BATCH_SIZE
-        self.device = device or settings.RERANKER_DEVICE
+        self.model_name = model_name or getattr(
+            settings, "RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2"
+        )
+        self.batch_size = batch_size or getattr(settings, "RERANKER_BATCH_SIZE", 8)
+        self.device = device or getattr(settings, "RERANKER_DEVICE", "cpu")
         self._model: Any = None
+        self._lock = threading.Lock()
 
     def _get_model(self) -> Any:
         if self._model is None:
-            from sentence_transformers import CrossEncoder
+            with self._lock:
+                if self._model is None:
+                    from sentence_transformers import CrossEncoder
 
-            self._model = CrossEncoder(self.model_name, device=self.device)
+                    self._model = CrossEncoder(
+                        self.model_name,
+                        device=self.device,
+                    )
         return self._model
 
     def score(
         self,
         query: str,
         candidates: Sequence[RerankCandidate],
-    ) -> Sequence[float]:
+    ) -> list[float]:
         if not candidates:
             return []
 
         model = self._get_model()
-        pairs = [[query, candidate.content] for candidate in candidates]
-        raw_scores = model.predict(pairs, batch_size=self.batch_size)
+        pairs = [[query, c.content] for c in candidates]
+
+        with self._lock:
+            raw_scores = model.predict(
+                pairs,
+                batch_size=self.batch_size,
+            )
 
         scores = [float(s) for s in raw_scores]
         if len(scores) != len(candidates):
             raise ValueError(
                 f"Model returned {len(scores)} scores for {len(candidates)} candidates"
             )
+
         return scores
 
 
-def create_reranker_provider(provider_type: str | None = None) -> BaseRerankerProvider:
-    """Factory to instantiate the configured reranker provider."""
-    target_provider = (provider_type or settings.RERANKER_PROVIDER).lower().strip()
+_PROVIDER_CACHE: dict[str, BaseRerankerProvider] = {}
+_CACHE_LOCK = threading.Lock()
 
-    if target_provider == "cross_encoder":
-        return CrossEncoderRerankerProvider()
-    elif target_provider == "deterministic":
-        return DeterministicRerankerProvider()
-    else:
-        raise ValueError(f"Unknown reranker provider: {target_provider}")
+
+def get_reranker_provider(provider_type: Optional[str] = None) -> BaseRerankerProvider:
+    """
+    Retrieve or initialize the process-level singleton reranker provider.
+    Ensures single model instance per worker across all concurrent requests.
+    """
+    name = (provider_type or getattr(settings, "RERANKER_PROVIDER", "deterministic")).lower()
+
+    if name not in _PROVIDER_CACHE:
+        with _CACHE_LOCK:
+            if name not in _PROVIDER_CACHE:
+                if name == "cross_encoder":
+                    _PROVIDER_CACHE[name] = CrossEncoderRerankerProvider()
+                elif name == "deterministic":
+                    _PROVIDER_CACHE[name] = DeterministicRerankerProvider()
+                else:
+                    raise ValueError(f"Unknown reranker provider: {name!r}")
+
+    return _PROVIDER_CACHE[name]
+
+
+def create_reranker_provider(provider_type: Optional[str] = None) -> BaseRerankerProvider:
+    """Convenience alias pointing to singleton provider getter."""
+    return get_reranker_provider(provider_type)
+
+
+class RerankerService:
+    """
+    Application-level service coordinating candidate scoring and top-k truncation.
+    """
+
+    def __init__(self, provider: Optional[BaseRerankerProvider] = None) -> None:
+        self.provider = provider or get_reranker_provider()
+
+    def rerank(
+        self,
+        query: str,
+        candidates: Sequence[RerankCandidate],
+        top_k: Optional[int] = None,
+    ) -> list[RerankCandidate]:
+        if not candidates:
+            return []
+        if top_k is not None and top_k <= 0:
+            raise ValueError("top_k must be a positive integer when provided")
+
+        scores = self.provider.score(query, candidates)
+        if len(scores) != len(candidates):
+            raise ValueError("Provider must return exactly one score per candidate")
+
+        scored_candidates = [
+            RerankCandidate(
+                chunk_id=candidate.chunk_id,
+                content=candidate.content,
+                score=score,
+                metadata=candidate.metadata,
+            )
+            for candidate, score in zip(candidates, scores)
+        ]
+
+        # Sort descending by score, maintaining stable order on ties
+        scored_candidates.sort(key=lambda c: c.score, reverse=True)
+
+        if top_k is not None:
+            return scored_candidates[:top_k]
+        return scored_candidates

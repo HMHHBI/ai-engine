@@ -579,3 +579,61 @@ def test_create_reranker_provider_factory() -> None:
 
     with pytest.raises(ValueError, match="Unknown reranker provider"):
         create_reranker_provider("invalid_provider")
+
+
+def test_cross_encoder_concurrency_single_model_initialization(monkeypatch):
+    """Verify concurrent requests synchronize on model load and only instantiate CrossEncoder once."""
+    import concurrent.futures
+    import threading
+    import time
+    from unittest.mock import MagicMock
+    from app.services.reranker_service import CrossEncoderRerankerProvider, RerankCandidate
+
+    mock_model = MagicMock()
+    mock_model.predict.return_value = [0.88, 0.42]
+
+    init_counter = 0
+    init_lock = threading.Lock()
+
+    def mock_cross_encoder_init(*args, **kwargs):
+        nonlocal init_counter
+        with init_lock:
+            init_counter += 1
+        time.sleep(0.05)  # simulate slow model load
+        return mock_model
+
+    monkeypatch.setattr("sentence_transformers.CrossEncoder", mock_cross_encoder_init)
+
+    provider = CrossEncoderRerankerProvider()
+    candidates = [
+        RerankCandidate(chunk_id=1, content="Doc 1", score=0.1),
+        RerankCandidate(chunk_id=2, content="Doc 2", score=0.2),
+    ]
+
+    def worker_call():
+        return provider.score("test query", candidates)
+
+    # Launch 10 concurrent threads simultaneously
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        futures = [executor.submit(worker_call) for _ in range(10)]
+        results = [f.result() for f in futures]
+
+    assert len(results) == 10
+    for res in results:
+        assert res == [0.88, 0.42]
+
+    # Critical assertion: Model initialized exactly once despite 10 concurrent threads
+    assert init_counter == 1
+
+
+def test_get_reranker_provider_singleton_behavior():
+    """Verify get_reranker_provider returns process-level singleton instance."""
+    from app.services.reranker_service import get_reranker_provider
+
+    provider_1 = get_reranker_provider("deterministic")
+    provider_2 = get_reranker_provider("deterministic")
+    assert provider_1 is provider_2
+
+    ce_1 = get_reranker_provider("cross_encoder")
+    ce_2 = get_reranker_provider("cross_encoder")
+    assert ce_1 is ce_2
