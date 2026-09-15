@@ -32,6 +32,7 @@ from app.schemas.chat_schema import (
 )
 from app.services.chat_service import ChatApplicationService
 from app.services.embedding_service import EmbeddingService
+from app.services.reranker_service import RerankCandidate, RerankerService
 from app.services.providers.errors import (
     AIProviderError,
     AIProviderTimeout,
@@ -93,6 +94,32 @@ PERSONA_PROMPTS: dict[str, str] = {
         "Explain complex ideas using simple, plain English, relatable analogies, and concise sentences."
     ),
 }
+
+
+RERANK_INITIAL_K = 20
+RERANK_FINAL_K = 6
+
+
+def _build_rerank_candidates(
+    chunks: list[dict[str, Any]],
+) -> list[RerankCandidate]:
+    return [
+        RerankCandidate(
+            chunk_id=int(chunk["id"]),
+            content=str(chunk["content"]),
+            score=float(chunk.get("rrf_score", chunk.get("score", 0.0))),
+            metadata={
+                "id": chunk["id"],
+                "document_id": chunk.get("document_id"),
+                "page_number": chunk.get("page_number"),
+                "chunk_index": chunk.get("chunk_index"),
+                "distance": chunk.get("distance"),
+                "rrf_score": chunk.get("rrf_score"),
+                "score": chunk.get("score"),
+            },
+        )
+        for chunk in chunks
+    ]
 
 
 def _build_system_prompt(
@@ -703,16 +730,59 @@ async def ai_stream(
                     )
 
                     if query_vector:
+                        retrieval_top_k = (
+                            RERANK_INITIAL_K
+                            if settings.ENABLE_RERANKING
+                            else RERANK_FINAL_K
+                        )
+
                         context_chunks = await asyncio.to_thread(
                             VectorRepository.search_hybrid_chunks,
                             user_id=current_user.id,
                             document_id=doc_id,
                             query_text=req.prompt,
                             query_vector=query_vector,
-                            top_k=6,
+                            top_k=retrieval_top_k,
                             max_distance=0.70,
                             adaptive_margin=0.15,
                         )
+
+                        if settings.ENABLE_RERANKING and context_chunks:
+                            rerank_candidates = _build_rerank_candidates(context_chunks)
+                            reranker = RerankerService()
+                            reranked_candidates = await asyncio.to_thread(
+                                reranker.rerank,
+                                req.prompt,
+                                rerank_candidates,
+                                RERANK_FINAL_K,
+                            )
+                            reranked_chunks: list[dict[str, Any]] = []
+                            for candidate in reranked_candidates:
+                                metadata = dict(candidate.metadata or {})
+                                reranked_chunks.append(
+                                    {
+                                        "id": int(metadata["id"]),
+                                        "document_id": metadata.get("document_id"),
+                                        "content": candidate.content,
+                                        "page_number": metadata.get("page_number"),
+                                        "chunk_index": metadata.get("chunk_index"),
+                                        "distance": float(metadata.get("distance", 0.0)),
+                                        "rrf_score": metadata.get("rrf_score"),
+                                        "score": candidate.score,
+                                    }
+                                )
+                            context_chunks = reranked_chunks
+
+                            logger.info(
+                                "rag_reranking_completed",
+                                extra={
+                                    "event": "rag_reranking_completed",
+                                    "chat_id": req.chat_id,
+                                    "candidate_count": len(rerank_candidates),
+                                    "final_count": len(context_chunks),
+                                    "strategy": "hybrid_rerank",
+                                },
+                            )
 
             except Exception:
                 logger.exception(
