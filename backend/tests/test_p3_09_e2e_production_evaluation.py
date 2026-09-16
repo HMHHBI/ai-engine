@@ -6,6 +6,7 @@ Validates the integrated production backend stack:
 """
 
 import asyncio
+import json
 from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi.testclient import TestClient
@@ -146,7 +147,7 @@ def test_p3_09_e2e_03_and_04_rag_isolation_with_competing_document(monkeypatch):
         assert captured_filter["document_id"] == 101
         assert "event: sources" in response.text
         assert '"page_number":3' in response.text
-        
+
         full_system_context = "".join(captured_prompt)
         assert "Alpha authorized knowledge" in full_system_context
         assert "Beta foreign secret leak" not in full_system_context
@@ -322,18 +323,21 @@ def test_p3_09_e2e_08_persona_and_custom_instructions_grounding(monkeypatch):
 
 
 # =====================================================================
-# E2E-09: REAL CLIENT DISCONNECT / CANCELLATION HARNESS
+# E2E-09: REAL ASGI CLIENT DISCONNECT (http.disconnect) HARNESS
 # =====================================================================
 
-def test_p3_09_e2e_09_client_cancellation_suppresses_phantom_messages(monkeypatch):
+@pytest.mark.asyncio
+async def test_p3_09_e2e_09_client_cancellation_suppresses_phantom_messages(monkeypatch):
     """
-    E2E-09: Mid-stream client disconnect simulation.
-    Exercises the production route boundary:
-      - Stream starts and yields first token.
-      - Client disconnects; request.is_disconnected() returns True.
-      - Endpoint logs ai_stream_cancelled and raises asyncio.CancelledError.
-      - Asserts exactly 0 assistant messages persisted in chat history.
-      - Asserts subsequent /chat/stream request recovers and completes successfully.
+    E2E-09: ASGI-level mid-stream client disconnect simulation.
+    Explicitly exercises the ASGI receive channel:
+      1. ASGI request arrives with valid body payload.
+      2. LLM provider generates the first token and signals disconnect readiness.
+      3. ASGI receive() returns {"type": "http.disconnect"}.
+      4. Route's `await request.is_disconnected()` natively evaluates True.
+      5. Route emits ai_stream_cancelled log and raises asyncio.CancelledError.
+      6. Exactly zero assistant messages are persisted in chat history.
+      7. A subsequent /chat/stream request recovers cleanly and persists the AI message.
     """
     mock_user = MagicMock(id=1)
     app.dependency_overrides[get_current_user] = lambda: mock_user
@@ -355,41 +359,61 @@ def test_p3_09_e2e_09_client_cancellation_suppresses_phantom_messages(monkeypatc
 
     monkeypatch.setattr(ChatRepository, "add_message", mock_add_msg)
 
-    # 1. First run: client disconnects mid-stream
-    disconnect_flag = False
+    # Coordinate token generation with ASGI disconnect injection
+    token_emitted_event = asyncio.Event()
 
-    async def mock_disconnect_stream(*args, **kwargs):
+    async def mock_streaming_provider(*args, **kwargs):
         yield "Initial chunk "
-        nonlocal disconnect_flag
-        disconnect_flag = True
+        token_emitted_event.set()
+        # Sleep briefly to give the event generator a chance to call request.is_disconnected()
+        await asyncio.sleep(0.05)
         yield "Second chunk "
 
     mock_provider = MagicMock()
-    mock_provider.generate_stream = mock_disconnect_stream
+    mock_provider.generate_stream = mock_streaming_provider
     monkeypatch.setattr(LLMProviderFactory, "get_provider", lambda *args, **kwargs: mock_provider)
 
-    from starlette.requests import Request
-    original_is_disconnected = Request.is_disconnected
+    # 1. Drive ASGI app directly with an http.disconnect receive channel
+    disconnect_sent = False
+    req_body = json.dumps({"chat_id": 96, "prompt": "Cancel mid way"}).encode("utf-8")
 
-    async def mock_is_disconnected(self):
-        if disconnect_flag:
-            return True
-        return await original_is_disconnected(self)
+    async def asgi_receive():
+        nonlocal disconnect_sent
+        if not disconnect_sent:
+            # First message: provide the request body
+            disconnect_sent = True
+            return {"type": "http.request", "body": req_body, "more_body": False}
+        # Wait until the provider emits its first token, then signal http.disconnect
+        await token_emitted_event.wait()
+        return {"type": "http.disconnect"}
 
-    monkeypatch.setattr(Request, "is_disconnected", mock_is_disconnected)
+    async def asgi_send(message):
+        pass  # Consume SSE events
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "path": "/chat/stream",
+        "raw_path": b"/chat/stream",
+        "query_string": b"",
+        "headers": [
+            (b"content-type", b"application/json"),
+            (b"host", b"testserver"),
+        ],
+        "app": app,
+    }
 
     try:
-        client = TestClient(app, raise_server_exceptions=False)
-        # Trigger cancellation stream
-        res_cancel = client.post("/chat/stream", json={"chat_id": 96, "prompt": "Cancel mid way"})
-        assert res_cancel.status_code == 200
+        # Invoke the ASGI app directly
+        await app(scope, asgi_receive, asgi_send)
 
-        # Verify zero assistant messages were persisted
+        # Assert zero assistant messages were persisted during disconnect
         ai_messages = [m for m in persisted_messages if getattr(m, "role", None) == "ai"]
         assert len(ai_messages) == 0
 
-        # 2. Recovery: subsequent chat stream succeeds normally
-        disconnect_flag = False
+        # 2. Recovery: subsequent chat stream completes and persists successfully
         async def mock_clean_stream(*args, **kwargs):
             yield "Recovered token"
 
@@ -397,6 +421,7 @@ def test_p3_09_e2e_09_client_cancellation_suppresses_phantom_messages(monkeypatc
         mock_clean_provider.generate_stream = mock_clean_stream
         monkeypatch.setattr(LLMProviderFactory, "get_provider", lambda *args, **kwargs: mock_clean_provider)
 
+        client = TestClient(app, raise_server_exceptions=False)
         res_recovery = client.post("/chat/stream", json={"chat_id": 96, "prompt": "Subsequent clean request"})
         assert res_recovery.status_code == 200
         assert "Recovered token" in res_recovery.text
