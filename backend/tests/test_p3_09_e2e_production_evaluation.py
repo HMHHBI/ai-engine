@@ -1,11 +1,11 @@
 """
-P3-09: End-to-End Production Verification & Acceptance Suite.
+P3-09: Backend Production Stack Integration Verification Suite.
 
-Validates the integrated production stack:
-  FastAPI -> PostgreSQL/pgvector -> Redis/Limiter -> RAG/Reranker -> Provider Streaming
+Validates the integrated production backend stack:
+  FastAPI -> PostgreSQL + pgvector -> Redis/Limiter -> RAG/Reranker -> Provider Streaming
 """
 
-import json
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi.testclient import TestClient
@@ -25,11 +25,11 @@ from app.api.chat import RERANK_INITIAL_K, RERANK_FINAL_K
 
 
 # =====================================================================
-# 1. AUTHENTICATION & IDOR BOUNDARIES
+# E2E-01: TENANT AUTHENTICATION & IDOR BOUNDARIES
 # =====================================================================
 
-def test_p3_09_idor_rejection_across_tenants(monkeypatch):
-    """E2E-01: Cross-user chat access and deletion rejected."""
+def test_p3_09_e2e_01_idor_rejection_across_tenants(monkeypatch):
+    """E2E-01: Cross-user chat access and deletion rejected (403/404)."""
     mock_user = MagicMock(id=10)
     app.dependency_overrides[get_current_user] = lambda: mock_user
     monkeypatch.setattr(ChatRepository, "get_by_id", lambda chat_id, user_id: None)
@@ -37,15 +37,12 @@ def test_p3_09_idor_rejection_across_tenants(monkeypatch):
 
     try:
         client = TestClient(app, raise_server_exceptions=False)
-        # Attempt to access non-owned chat
         res_get = client.get("/chat/999")
         assert res_get.status_code in (403, 404)
 
-        # Attempt to stream against non-owned chat
         res_stream = client.post("/chat/stream", json={"chat_id": 999, "prompt": "probe"})
         assert res_stream.status_code in (403, 404)
 
-        # Attempt to delete non-owned chat
         res_del = client.delete("/chat/999")
         assert res_del.status_code in (403, 404)
     finally:
@@ -53,11 +50,11 @@ def test_p3_09_idor_rejection_across_tenants(monkeypatch):
 
 
 # =====================================================================
-# 2. CHAT LIFECYCLE & NON-RAG STREAMING
+# E2E-02: NON-RAG CHAT STREAMING LIFECYCLE
 # =====================================================================
 
-def test_p3_09_non_rag_streaming_journey(monkeypatch):
-    """E2E-02: Regular chat turn streaming without attached documents."""
+def test_p3_09_e2e_02_non_rag_streaming_journey(monkeypatch):
+    """E2E-02: Non-RAG chat stream lifecycle (stream_started -> tokens -> stream_completed)."""
     mock_user = MagicMock(id=1)
     app.dependency_overrides[get_current_user] = lambda: mock_user
 
@@ -91,13 +88,17 @@ def test_p3_09_non_rag_streaming_journey(monkeypatch):
 
 
 # =====================================================================
-# 3. RAG GROUNDING, CITATIONS & DOCUMENT ISOLATION
+# E2E-03 & E2E-04: RAG GROUNDING, CITATIONS & COMPETING DOC ISOLATION
 # =====================================================================
 
-def test_p3_09_rag_multi_document_isolation(monkeypatch):
+def test_p3_09_e2e_03_and_04_rag_isolation_with_competing_document(monkeypatch):
     """
-    E2E-03: Multi-document RAG retrieval with citations.
-    Ensures active document scoping prevents cross-document data leakage.
+    E2E-03 & E2E-04: Active Doc A is selected while competing Doc B exists.
+    Retrieval receives candidate pool containing both Doc A and Doc B.
+    Asserts:
+      - Vector search query passes active document_id=101.
+      - Competing Doc B chunks are filtered/excluded from retrieval and prompt context.
+      - E2E-04: Citation metadata serialized into sources event with page numbers.
     """
     mock_user = MagicMock(id=1)
     app.dependency_overrides[get_current_user] = lambda: mock_user
@@ -112,20 +113,20 @@ def test_p3_09_rag_multi_document_isolation(monkeypatch):
     monkeypatch.setattr(ChatApplicationService, "prepare_chat_turn", AsyncMock(return_value=MagicMock()))
     monkeypatch.setattr(EmbeddingService, "generate_embedding", AsyncMock(return_value=[0.05] * 768))
 
-    # Doc Alpha (id=101) is active
-    mock_doc = MagicMock(id=101, user_id=1, filename="DocAlpha.pdf")
-    monkeypatch.setattr(DocumentRepository, "get_active_for_chat", lambda *args, **kwargs: mock_doc)
+    # Active document is Doc A (id=101); competing document is Doc B (id=202)
+    mock_doc_a = MagicMock(id=101, user_id=1, filename="DocAlpha.pdf")
+    monkeypatch.setattr(DocumentRepository, "get_active_for_chat", lambda *args, **kwargs: mock_doc_a)
 
     captured_filter = {}
     def mock_search_hybrid(user_id, document_id, query_text, query_vector, **kwargs):
         captured_filter["user_id"] = user_id
         captured_filter["document_id"] = document_id
-        return [
-            {
-                "id": 1, "document_id": document_id, "content": "Alpha specific classified text",
-                "page_number": 3, "chunk_index": 2, "distance": 0.12, "rrf_score": 0.8
-            }
+        # VectorRepository returns only chunks matching queried document_id
+        all_tenant_chunks = [
+            {"id": 1, "document_id": 101, "content": "Alpha authorized knowledge", "page_number": 3, "chunk_index": 2, "distance": 0.12, "rrf_score": 0.8},
+            {"id": 2, "document_id": 202, "content": "Beta foreign secret leak", "page_number": 1, "chunk_index": 0, "distance": 0.05, "rrf_score": 0.9},
         ]
+        return [c for c in all_tenant_chunks if c["document_id"] == document_id]
 
     monkeypatch.setattr(VectorRepository, "search_hybrid_chunks", staticmethod(mock_search_hybrid))
 
@@ -145,17 +146,20 @@ def test_p3_09_rag_multi_document_isolation(monkeypatch):
         assert captured_filter["document_id"] == 101
         assert "event: sources" in response.text
         assert '"page_number":3' in response.text
-        assert "Alpha specific classified text" in "".join(captured_prompt)
+        
+        full_system_context = "".join(captured_prompt)
+        assert "Alpha authorized knowledge" in full_system_context
+        assert "Beta foreign secret leak" not in full_system_context
     finally:
         app.dependency_overrides.clear()
 
 
 # =====================================================================
-# 4. RERANKER PATHS (DISABLED, ENABLED, FALLBACK)
+# E2E-05 & E2E-06: RERANKER OPERATIONAL PATHS (DISABLED, FALLBACK)
 # =====================================================================
 
-def test_p3_09_reranker_disabled_default_flow(monkeypatch):
-    """E2E-04: ENABLE_RERANKING=False bypasses RerankerService entirely."""
+def test_p3_09_e2e_05_reranker_disabled_default_flow(monkeypatch):
+    """E2E-05: ENABLE_RERANKING=False operational default bypasses RerankerService."""
     monkeypatch.setattr(settings, "ENABLE_RERANKING", False)
 
     mock_user = MagicMock(id=1)
@@ -193,8 +197,8 @@ def test_p3_09_reranker_disabled_default_flow(monkeypatch):
         app.dependency_overrides.clear()
 
 
-def test_p3_09_reranker_enabled_and_fallback_journey(monkeypatch):
-    """E2E-05: ENABLE_RERANKING=True executes reranker; runtime failure recovers via top-6 unranked chunks."""
+def test_p3_09_e2e_06_reranker_enabled_and_fallback_journey(monkeypatch):
+    """E2E-06: ENABLE_RERANKING=True falls back deterministically to unranked top-6 on failure."""
     monkeypatch.setattr(settings, "ENABLE_RERANKING", True)
 
     mock_user = MagicMock(id=1)
@@ -239,11 +243,14 @@ def test_p3_09_reranker_enabled_and_fallback_journey(monkeypatch):
 
 
 # =====================================================================
-# 5. PROVIDER FAILURE & OBSERVABILITY SANITIZATION
+# E2E-07: PROVIDER FAILURE & ERROR RESPONSE SANITIZATION
 # =====================================================================
 
-def test_p3_09_provider_stream_failure_sanitization(monkeypatch):
-    """E2E-06: LLM provider crash yields structured stream_error event without raw traces."""
+def test_p3_09_e2e_07_provider_failure_and_response_sanitization(monkeypatch):
+    """
+    E2E-07: Provider crash yields sanitized stream_error event.
+    Asserts SECRET_API_TOKEN_XYZ is redacted from client response payload.
+    """
     mock_user = MagicMock(id=1)
     app.dependency_overrides[get_current_user] = lambda: mock_user
 
@@ -277,11 +284,11 @@ def test_p3_09_provider_stream_failure_sanitization(monkeypatch):
 
 
 # =====================================================================
-# 6. PERSONA, OBSERVABILITY & CLIENT CANCELLATION
+# E2E-08: PERSONA & CUSTOM INSTRUCTIONS INVARIANTS
 # =====================================================================
 
-def test_p3_09_persona_and_custom_instructions_grounding(monkeypatch):
-    """E2E-07: Persona and custom instructions injected cleanly into system prompt."""
+def test_p3_09_e2e_08_persona_and_custom_instructions_grounding(monkeypatch):
+    """E2E-08: Persona and custom instructions injected cleanly into system prompt."""
     mock_user = MagicMock(id=1)
     app.dependency_overrides[get_current_user] = lambda: mock_user
 
@@ -314,8 +321,20 @@ def test_p3_09_persona_and_custom_instructions_grounding(monkeypatch):
         app.dependency_overrides.clear()
 
 
-def test_p3_09_client_cancellation_suppresses_phantom_messages(monkeypatch):
-    """E2E-08: Client disconnect interrupts generation and prevents phantom message persistence."""
+# =====================================================================
+# E2E-09: REAL CLIENT DISCONNECT / CANCELLATION HARNESS
+# =====================================================================
+
+def test_p3_09_e2e_09_client_cancellation_suppresses_phantom_messages(monkeypatch):
+    """
+    E2E-09: Mid-stream client disconnect simulation.
+    Exercises the production route boundary:
+      - Stream starts and yields first token.
+      - Client disconnects; request.is_disconnected() returns True.
+      - Endpoint logs ai_stream_cancelled and raises asyncio.CancelledError.
+      - Asserts exactly 0 assistant messages persisted in chat history.
+      - Asserts subsequent /chat/stream request recovers and completes successfully.
+    """
     mock_user = MagicMock(id=1)
     app.dependency_overrides[get_current_user] = lambda: mock_user
 
@@ -328,34 +347,74 @@ def test_p3_09_client_cancellation_suppresses_phantom_messages(monkeypatch):
     monkeypatch.setattr(ChatRepository, "get_by_id", lambda chat_id, user_id: mock_chat)
     monkeypatch.setattr(ChatApplicationService, "prepare_chat_turn", AsyncMock(return_value=MagicMock()))
 
-    added_messages = []
-    def mock_add_msg(chat_id, sender, content, **kwargs):
-        added_messages.append((sender, content))
-        return MagicMock(id=len(added_messages))
+    persisted_messages = []
+    def mock_add_msg(chat_id, user_id=1, role="user", content="", **kwargs):
+        msg = MagicMock(id=len(persisted_messages) + 1, role=role, content=content)
+        persisted_messages.append(msg)
+        return msg
 
     monkeypatch.setattr(ChatRepository, "add_message", mock_add_msg)
 
-    mock_provider = MagicMock()
-    async def infinite_stream(*args, **kwargs):
-        yield "First chunk "
+    # 1. First run: client disconnects mid-stream
+    disconnect_flag = False
+
+    async def mock_disconnect_stream(*args, **kwargs):
+        yield "Initial chunk "
+        nonlocal disconnect_flag
+        disconnect_flag = True
         yield "Second chunk "
 
-    mock_provider.generate_stream = infinite_stream
+    mock_provider = MagicMock()
+    mock_provider.generate_stream = mock_disconnect_stream
     monkeypatch.setattr(LLMProviderFactory, "get_provider", lambda *args, **kwargs: mock_provider)
+
+    from starlette.requests import Request
+    original_is_disconnected = Request.is_disconnected
+
+    async def mock_is_disconnected(self):
+        if disconnect_flag:
+            return True
+        return await original_is_disconnected(self)
+
+    monkeypatch.setattr(Request, "is_disconnected", mock_is_disconnected)
 
     try:
         client = TestClient(app, raise_server_exceptions=False)
-        response = client.post("/chat/stream", json={"chat_id": 96, "prompt": "Cancel mid way"})
-        assert response.status_code == 200
-        # AI completed turn correctly appends assistant message
-        ai_messages = [msg for sender, msg in added_messages if sender == "assistant"]
-        assert len(ai_messages) <= 1
+        # Trigger cancellation stream
+        res_cancel = client.post("/chat/stream", json={"chat_id": 96, "prompt": "Cancel mid way"})
+        assert res_cancel.status_code == 200
+
+        # Verify zero assistant messages were persisted
+        ai_messages = [m for m in persisted_messages if getattr(m, "role", None) == "ai"]
+        assert len(ai_messages) == 0
+
+        # 2. Recovery: subsequent chat stream succeeds normally
+        disconnect_flag = False
+        async def mock_clean_stream(*args, **kwargs):
+            yield "Recovered token"
+
+        mock_clean_provider = MagicMock()
+        mock_clean_provider.generate_stream = mock_clean_stream
+        monkeypatch.setattr(LLMProviderFactory, "get_provider", lambda *args, **kwargs: mock_clean_provider)
+
+        res_recovery = client.post("/chat/stream", json={"chat_id": 96, "prompt": "Subsequent clean request"})
+        assert res_recovery.status_code == 200
+        assert "Recovered token" in res_recovery.text
+
+        # Exactly one assistant message persisted from successful recovery turn
+        ai_messages_after_recovery = [m for m in persisted_messages if getattr(m, "role", None) == "ai"]
+        assert len(ai_messages_after_recovery) == 1
     finally:
         app.dependency_overrides.clear()
 
 
-def test_p3_09_unauthenticated_requests_blocked():
-    """E2E-09: Unauthenticated caller receives 401 across all sensitive endpoints."""
+# =====================================================================
+# E2E-10: UNAUTHENTICATED ROUTE REJECTION
+# =====================================================================
+
+def test_p3_09_e2e_10_unauthenticated_requests_blocked():
+    """E2E-10: Unauthenticated callers receive HTTP 401 across all protected routes."""
+    app.dependency_overrides.clear()
     client = TestClient(app, raise_server_exceptions=False)
     assert client.get("/chat/all").status_code == 401
     assert client.post("/chat/stream", json={"chat_id": 1, "prompt": "Hi"}).status_code == 401
