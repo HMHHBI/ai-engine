@@ -30,7 +30,7 @@ Structured event telemetry was verified through request lifecycles:
 - `ai_stream_completed`
 - `chat_request_completed`
 
-Log inspection and automated log-capture assertions (`test_p3_09_e2e_07`) confirm zero secret tokens or unhandled database connection strings are exposed in application logs.
+Automated E2E-07 assertions confirm that sensitive provider tokens are absent from client-facing stream_error responses.
 
 ## 4. Performance & Gate Alignment
 - Full backend regression baseline: **359 passed, 0 failed**.
