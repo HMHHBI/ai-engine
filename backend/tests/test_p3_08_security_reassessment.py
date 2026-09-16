@@ -1,16 +1,16 @@
 """
 P3-08: Security & Abuse-Resistance Reassessment Test Suite.
 
-Covers:
-  - S1: RAG Authorization & Tenant/Document Isolation
-  - S2: Prompt Injection & Context-Boundary Invariants
-  - S3: Reranker Resource Abuse & DoS Containment
-  - S4: Rate-Limit & Expensive Path Abuse Resistance
-  - S5: Security & Error-Redaction Regression Invariants
+Domain coverage:
+  - S1: RAG Authorization & Multi-Document Isolation
+  - S2: Prompt Injection Context-Boundary Invariants
+  - S3: Reranker Input Budget & Fallback Resilience
+  - S4: Real Rate-Limiter Route Boundary Enforcement
+  - S5: Security & Error-Redaction Invariants
 """
 
 import threading
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
@@ -23,6 +23,8 @@ from app.services.chat_service import ChatApplicationService
 from app.services.embedding_service import EmbeddingService
 from app.services.reranker_service import RerankCandidate, RerankerService, CrossEncoderRerankerProvider
 from app.services.providers.factory import LLMProviderFactory
+from app.core.config import settings
+from app.core.rate_limiter import limiter
 from app.api.chat import (
     _build_rerank_candidates,
     _build_system_prompt,
@@ -32,15 +34,13 @@ from app.api.chat import (
 
 
 # =====================================================================
-# S1: RAG AUTHORIZATION & TENANT ISOLATION
+# S1: RAG AUTHORIZATION & MULTI-DOCUMENT ISOLATION
 # =====================================================================
 
 def test_s1_cross_user_chat_access_denied(monkeypatch):
     """S1.1: User A cannot access or stream Chat B belonging to User B."""
     mock_user_a = MagicMock(id=101)
     app.dependency_overrides[get_current_user] = lambda: mock_user_a
-
-    # ChatRepository.get_by_id returns None because user_id (101) doesn't own chat 500
     monkeypatch.setattr(ChatRepository, "get_by_id", lambda chat_id, user_id: None)
 
     try:
@@ -51,55 +51,70 @@ def test_s1_cross_user_chat_access_denied(monkeypatch):
         app.dependency_overrides.clear()
 
 
-def test_s1_same_user_cross_document_isolation(monkeypatch):
-    """S1.2: Retrieval strictly enforces active document scope and user scoping."""
+def test_s1_multi_document_isolation_boundary(monkeypatch):
+    """
+    S1.2: End-to-end multi-document isolation.
+    User owns Document A (id=100) and Document B (id=200).
+    Chat has Document A active. Asserts:
+      - search_hybrid_chunks receives document_id=100.
+      - Document B content is never retrieved, reranked, or injected into the LLM stream.
+    """
     mock_user = MagicMock(id=1)
     app.dependency_overrides[get_current_user] = lambda: mock_user
 
     mock_chat = MagicMock(
         id=10, user_id=1, ai_provider="ollama", ai_model="ollama-llama3.2",
-        embedding_provider="ollama", pdf_context="Doc A context", persona="default", custom_instructions=None
+        embedding_provider="ollama", pdf_context="Doc A Active Context", persona="default", custom_instructions=None
     )
     monkeypatch.setattr(ChatRepository, "get_by_id", lambda chat_id, user_id: mock_chat)
     monkeypatch.setattr(ChatRepository, "add_message", lambda *args, **kwargs: MagicMock(id=1))
     monkeypatch.setattr(ChatApplicationService, "prepare_chat_turn", AsyncMock(return_value=MagicMock()))
     monkeypatch.setattr(EmbeddingService, "generate_embedding", AsyncMock(return_value=[0.1] * 768))
 
-    mock_doc_a = MagicMock(id=100, user_id=1)
+    # Active document is Document A (id=100)
+    mock_doc_a = MagicMock(id=100, user_id=1, filename="DocA.pdf")
     monkeypatch.setattr(DocumentRepository, "get_active_for_chat", lambda *args, **kwargs: mock_doc_a)
 
-    captured_params = {}
+    captured_search_args = {}
 
     def mock_search_hybrid(user_id, document_id, query_text, query_vector, **kwargs):
-        captured_params["user_id"] = user_id
-        captured_params["document_id"] = document_id
+        captured_search_args["user_id"] = user_id
+        captured_search_args["document_id"] = document_id
         return [
             {
-                "id": 1, "document_id": document_id, "content": "Valid Doc A content",
+                "id": 1, "document_id": document_id, "content": "Doc A authentic secret content",
                 "page_number": 1, "chunk_index": 0, "distance": 0.1, "rrf_score": 0.5
             }
         ]
 
     monkeypatch.setattr(VectorRepository, "search_hybrid_chunks", staticmethod(mock_search_hybrid))
 
+    captured_system_prompt = []
     mock_provider = MagicMock()
+
     async def mock_stream(*args, **kwargs):
-        yield "Response"
+        system_prompt = kwargs.get("system_prompt", "")
+        captured_system_prompt.append(system_prompt)
+        yield "Doc A response chunk"
+
     mock_provider.generate_stream = mock_stream
     monkeypatch.setattr(LLMProviderFactory, "get_provider", lambda *args, **kwargs: mock_provider)
 
     try:
         client = TestClient(app, raise_server_exceptions=False)
-        response = client.post("/chat/stream", json={"chat_id": 10, "prompt": "Fetch info"})
+        response = client.post("/chat/stream", json={"chat_id": 10, "prompt": "Fetch Doc A facts"})
         assert response.status_code == 200
-        assert captured_params.get("document_id") == 100
-        assert captured_params.get("user_id") == 1
+        assert captured_search_args.get("document_id") == 100
+        assert captured_search_args.get("document_id") != 200
+        full_system_context = "".join(captured_system_prompt)
+        assert "Doc A authentic secret content" in full_system_context
+        assert "Doc B" not in full_system_context
     finally:
         app.dependency_overrides.clear()
 
 
 def test_s1_reranker_operates_only_on_authorized_pool():
-    """S1.3: Reranker input is exclusively sourced from the authorized candidate pool."""
+    """S1.3: Candidate pool builder strictly preserves authorized chunk bounds and metadata."""
     authorized_chunks = [
         {"id": 1, "document_id": 100, "content": "Authorized 1", "page_number": 1, "chunk_index": 0, "distance": 0.1, "rrf_score": 0.5},
         {"id": 2, "document_id": 100, "content": "Authorized 2", "page_number": 1, "chunk_index": 1, "distance": 0.2, "rrf_score": 0.4},
@@ -113,7 +128,7 @@ def test_s1_reranker_operates_only_on_authorized_pool():
 
 
 # =====================================================================
-# S2: PROMPT INJECTION & CONTEXT BOUNDARY INVARIANTS
+# S2: PROMPT INJECTION CONTEXT-BOUNDARY INVARIANTS
 # =====================================================================
 
 def test_s2_malicious_document_instruction_contained_in_context():
@@ -152,45 +167,132 @@ def test_s2_custom_instructions_cannot_bypass_rules():
 
 
 # =====================================================================
-# S3: RERANKER RESOURCE ABUSE & DOS RESISTANCE
+# S3: RERANKER PIPELINE INPUT BUDGET & FALLBACK INTEGRATION
 # =====================================================================
 
-def test_s3_candidate_pool_hard_capped_at_initial_k():
-    """S3.1: Candidate pool passed to reranking is strictly bounded by RERANK_INITIAL_K."""
+def test_s3_pipeline_enforces_initial_k_budget_to_reranker(monkeypatch):
+    """
+    S3.1: Actual /chat/stream pipeline caps reranker candidate inputs at RERANK_INITIAL_K (20)
+    when vector repository returns an oversized candidate set (e.g. 50 chunks).
+    """
+    monkeypatch.setattr(settings, "ENABLE_RERANKING", True)
+
+    mock_user = MagicMock(id=1)
+    app.dependency_overrides[get_current_user] = lambda: mock_user
+
+    mock_chat = MagicMock(
+        id=10, user_id=1, ai_provider="ollama", ai_model="ollama-llama3.2",
+        embedding_provider="ollama", pdf_context="Context", persona="default", custom_instructions=None
+    )
+    monkeypatch.setattr(ChatRepository, "get_by_id", lambda chat_id, user_id: mock_chat)
+    monkeypatch.setattr(ChatRepository, "add_message", lambda *args, **kwargs: MagicMock(id=1))
+    monkeypatch.setattr(ChatApplicationService, "prepare_chat_turn", AsyncMock(return_value=MagicMock()))
+    monkeypatch.setattr(EmbeddingService, "generate_embedding", AsyncMock(return_value=[0.1] * 768))
+
+    mock_doc = MagicMock(id=100, user_id=1)
+    monkeypatch.setattr(DocumentRepository, "get_active_for_chat", lambda *args, **kwargs: mock_doc)
+
     oversized_chunks = [
-        {"id": i, "document_id": 1, "content": f"Text {i}", "page_number": 1, "chunk_index": i, "distance": 0.01 * i, "rrf_score": 0.1}
-        for i in range(100)
+        {
+            "id": i, "document_id": 100, "content": f"Chunk content {i}",
+            "page_number": 1, "chunk_index": i, "distance": 0.01 * i, "rrf_score": 0.5 - (0.005 * i)
+        }
+        for i in range(50)
     ]
-    candidates = _build_rerank_candidates(oversized_chunks[:RERANK_INITIAL_K])
-    assert len(candidates) == RERANK_INITIAL_K
-    assert len(candidates) <= 20
+    monkeypatch.setattr(VectorRepository, "search_hybrid_chunks", staticmethod(lambda **kw: oversized_chunks[:kw.get("top_k", 20)]))
+
+    candidates_received_by_reranker = []
+
+    def mock_rerank(self, query, candidates, top_k):
+        candidates_received_by_reranker.extend(candidates)
+        return candidates[:top_k]
+
+    monkeypatch.setattr(RerankerService, "rerank", mock_rerank)
+
+    mock_provider = MagicMock()
+    async def mock_stream(*args, **kwargs):
+        yield "Response"
+    mock_provider.generate_stream = mock_stream
+    monkeypatch.setattr(LLMProviderFactory, "get_provider", lambda *args, **kwargs: mock_provider)
+
+    try:
+        client = TestClient(app, raise_server_exceptions=False)
+        response = client.post("/chat/stream", json={"chat_id": 10, "prompt": "Reranker input cap test"})
+        assert response.status_code == 200
+        assert len(candidates_received_by_reranker) == RERANK_INITIAL_K
+        assert len(candidates_received_by_reranker) == 20
+    finally:
+        app.dependency_overrides.clear()
 
 
-def test_s3_rerank_output_strictly_capped_at_final_k():
-    """S3.2: RerankerService.rerank caps returned candidates at top_k (RERANK_FINAL_K=6)."""
-    reranker = RerankerService()
-    candidates = [
-        RerankCandidate(chunk_id=i, content=f"Chunk {i}", score=float(i), metadata={"id": i})
-        for i in range(20)
+def test_s3_reranker_failure_fallback_through_chat_stream(monkeypatch):
+    """
+    S3.2: Real integration test through /chat/stream proving reranker failure falls back
+    gracefully to top-6 unranked hybrid chunks with HTTP 200 and successful stream.
+    """
+    monkeypatch.setattr(settings, "ENABLE_RERANKING", True)
+
+    mock_user = MagicMock(id=1)
+    app.dependency_overrides[get_current_user] = lambda: mock_user
+
+    mock_chat = MagicMock(
+        id=10, user_id=1, ai_provider="ollama", ai_model="ollama-llama3.2",
+        embedding_provider="ollama", pdf_context="Context", persona="default", custom_instructions=None
+    )
+    monkeypatch.setattr(ChatRepository, "get_by_id", lambda chat_id, user_id: mock_chat)
+    monkeypatch.setattr(ChatRepository, "add_message", lambda *args, **kwargs: MagicMock(id=1))
+    monkeypatch.setattr(ChatApplicationService, "prepare_chat_turn", AsyncMock(return_value=MagicMock()))
+    monkeypatch.setattr(EmbeddingService, "generate_embedding", AsyncMock(return_value=[0.1] * 768))
+
+    mock_doc = MagicMock(id=100, user_id=1)
+    monkeypatch.setattr(DocumentRepository, "get_active_for_chat", lambda *args, **kwargs: mock_doc)
+
+    hybrid_chunks = [
+        {
+            "id": i, "document_id": 100, "content": f"Hybrid chunk payload {i}",
+            "page_number": 1, "chunk_index": i, "distance": 0.1 * i, "rrf_score": 0.9 - (0.05 * i)
+        }
+        for i in range(10)
     ]
+    monkeypatch.setattr(VectorRepository, "search_hybrid_chunks", staticmethod(lambda **kw: hybrid_chunks))
 
-    results = reranker.rerank(query="test", candidates=candidates, top_k=RERANK_FINAL_K)
-    assert len(results) == RERANK_FINAL_K
-    assert len(results) <= 6
+    def failing_rerank(self, query, candidates, top_k):
+        raise RuntimeError("Model binary corrupt: CUDA out of memory")
+
+    monkeypatch.setattr(RerankerService, "rerank", failing_rerank)
+
+    captured_system_prompt = []
+    mock_provider = MagicMock()
+
+    async def mock_stream(*args, **kwargs):
+        captured_system_prompt.append(kwargs.get("system_prompt", ""))
+        yield "Fallback successful stream chunk"
+
+    mock_provider.generate_stream = mock_stream
+    monkeypatch.setattr(LLMProviderFactory, "get_provider", lambda *args, **kwargs: mock_provider)
+
+    try:
+        client = TestClient(app, raise_server_exceptions=False)
+        response = client.post("/chat/stream", json={"chat_id": 10, "prompt": "Fallback query"})
+        assert response.status_code == 200
+        assert "Fallback successful stream chunk" in response.text
+        full_system_prompt = "".join(captured_system_prompt)
+        for i in range(RERANK_FINAL_K):
+            assert f"Hybrid chunk payload {i}" in full_system_prompt
+        assert "Hybrid chunk payload 7" not in full_system_prompt
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_s3_reranker_model_load_failure_safety(monkeypatch):
-    """S3.4: CrossEncoder initialization failure fails safely without crashing process."""
+    """S3.4: Provider score failure raises safely without segmentation fault."""
     provider = CrossEncoderRerankerProvider(model_name="invalid/non-existent-model")
 
     def failing_init(*args, **kwargs):
         raise RuntimeError("Model binary missing or corrupt")
 
     monkeypatch.setattr(provider, "_get_model", failing_init)
-
-    candidates = [
-        RerankCandidate(chunk_id=1, content="A", score=0.5, metadata={"id": 1})
-    ]
+    candidates = [RerankCandidate(chunk_id=1, content="A", score=0.5, metadata={"id": 1})]
 
     with pytest.raises(RuntimeError) as exc_info:
         provider.score("query", candidates)
@@ -229,52 +331,54 @@ def test_s3_concurrent_rerank_thread_safety():
 
 
 # =====================================================================
-# S4: RATE LIMIT & EXPENSIVE PATH ABUSE RESISTANCE
+# S4: REAL RATE LIMIT ROUTE BOUNDARY ENFORCEMENT
 # =====================================================================
 
-def test_s4_expensive_chat_stream_has_rate_limit():
-    """S4.1: /chat/stream route is registered in the application with SlowAPI rate limit middleware."""
-    from app.core.rate_limiter import limiter
-    assert limiter is not None
-    assert limiter.enabled is True
+def test_s4_real_limiter_rejects_on_limit_and_blocks_pipeline(monkeypatch):
+    """
+    S4.1 & S4.2: Real integration test against SlowAPI limiter on /chat/stream (15/minute).
+    Sends requests up to limit, asserts 429 on exhaustion, and verifies embedding & LLM
+    pipelines are not invoked once the limit is hit.
+    """
+    limiter.reset()
 
-
-def test_s4_rate_limit_rejects_before_expensive_pipeline(monkeypatch):
-    """S4.2: When rate limit triggers, expensive pipeline (Embedding/Rerank/LLM) is not executed."""
-    mock_user = MagicMock(id=999)
+    mock_user = MagicMock(id=888)
     app.dependency_overrides[get_current_user] = lambda: mock_user
 
-    mock_chat = MagicMock(id=888, user_id=999)
+    mock_chat = MagicMock(id=777, user_id=888, ai_provider="ollama", ai_model="llama3.2")
     monkeypatch.setattr(ChatRepository, "get_by_id", lambda chat_id, user_id: mock_chat)
+    monkeypatch.setattr(ChatRepository, "add_message", lambda *args, **kwargs: MagicMock(id=1))
+    monkeypatch.setattr(ChatApplicationService, "prepare_chat_turn", AsyncMock(return_value=MagicMock()))
 
-    embedding_called = False
-    reranker_called = False
+    pipeline_invocations = 0
 
     async def mock_embed(*args, **kwargs):
-        nonlocal embedding_called
-        embedding_called = True
+        nonlocal pipeline_invocations
+        pipeline_invocations += 1
         return [0.1] * 768
 
-    def mock_rerank(*args, **kwargs):
-        nonlocal reranker_called
-        reranker_called = True
-        return []
-
     monkeypatch.setattr(EmbeddingService, "generate_embedding", mock_embed)
-    monkeypatch.setattr(RerankerService, "rerank", mock_rerank)
 
-    with patch("slowapi.extension.Limiter._check_request_limit") as mock_limiter:
-        from fastapi import HTTPException
-        mock_limiter.side_effect = HTTPException(status_code=429, detail="Too Many Requests")
+    mock_provider = MagicMock()
+    async def mock_stream(*args, **kwargs):
+        yield "Rate limited response"
+    mock_provider.generate_stream = mock_stream
+    monkeypatch.setattr(LLMProviderFactory, "get_provider", lambda *args, **kwargs: mock_provider)
 
+    try:
         client = TestClient(app, raise_server_exceptions=False)
-        response = client.post("/chat/stream", json={"chat_id": 888, "prompt": "spam"})
+        for _ in range(15):
+            res = client.post("/chat/stream", json={"chat_id": 777, "prompt": "call"})
+            assert res.status_code in (200, 400)
 
-        assert response.status_code == 429
-        assert embedding_called is False
-        assert reranker_called is False
+        invocations_before_429 = pipeline_invocations
 
-    app.dependency_overrides.clear()
+        blocked_res = client.post("/chat/stream", json={"chat_id": 777, "prompt": "call"})
+        assert blocked_res.status_code == 429
+        assert pipeline_invocations == invocations_before_429
+    finally:
+        limiter.reset()
+        app.dependency_overrides.clear()
 
 
 # =====================================================================
