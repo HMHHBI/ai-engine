@@ -4,7 +4,7 @@ import { use, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 import { AuthGuard } from "@/components/auth/auth-guard";
-import { AppShell } from "@/components/layout/app-shell";
+import { ResearchWorkspace } from "@/features/workspace/components/ResearchWorkspace";
 import { useChatStore } from "@/features/chat/store/chat-store";
 import { chatSessionActions } from "@/features/chat/actions/chat-session-actions";
 
@@ -44,7 +44,11 @@ function ChatPageContent({ params }: ChatPageProps) {
     });
   }, [parsedId, activeChatId, router]);
 
-  return <AppShell />;
+  if (!Number.isInteger(parsedId) || parsedId <= 0) {
+    return null;
+  }
+
+  return <ResearchWorkspace chatId={parsedId} />;
 }
 
 export default function ChatPage({ params }: ChatPageProps) {
