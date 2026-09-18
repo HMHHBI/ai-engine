@@ -124,7 +124,8 @@ async def delete_document(
 ):
     """
     Delete a document with storage-first orchestration.
-    Physical storage must succeed before DB removal to prevent orphaned objects.
+    Physical storage must succeed before DB removal. The database CASCADE
+    handles chunk cleanup atomically with document deletion.
     """
     document = await asyncio.to_thread(
         DocumentRepository.get_owned_document,
@@ -153,19 +154,24 @@ async def delete_document(
                 detail="Failed to delete document from storage.",
             )
 
-    # 2. Vector chunks explicit cleanup
-    await asyncio.to_thread(
-        VectorRepository.delete_document_chunks,
-        user_id=current_user.id,
-        document_id=document_id,
-    )
+    # 2. Database deletion (Atomically cascades to document_chunks)
+    try:
+        deleted = await asyncio.to_thread(
+            DocumentRepository.delete,
+            document_id=document_id,
+            user_id=current_user.id,
+        )
+    except Exception:
+        logger.exception(
+            "Database deletion failed for document_id=%s user_id=%s",
+            document_id,
+            current_user.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete document from database.",
+        )
 
-    # 3. Database deletion (cascades chunks if any remain)
-    deleted = await asyncio.to_thread(
-        DocumentRepository.delete,
-        document_id=document_id,
-        user_id=current_user.id,
-    )
     if not deleted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

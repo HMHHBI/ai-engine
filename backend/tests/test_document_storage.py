@@ -1,14 +1,17 @@
 import io
 import pytest
+from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 
 from app.core.security import create_access_token
-from app.db.models import User
+from app.db.models import User, DocumentChunk
 from app.storage.local import LocalStorageBackend
 from app.storage.keys import build_document_key
 from app.repositories.document_repo import DocumentRepository
 from app.repositories.chat_repo import ChatRepository
 from app.repositories.user_repo import UserRepository
+from app.repositories.vector_repo import VectorRepository
+from app.utils.pdf_extractor import PDFPage
 
 
 def auth_headers(user: User) -> dict[str, str]:
@@ -174,6 +177,107 @@ def test_delete_failure_in_storage_preserves_db_document(client, db_session):
         )
         assert response.status_code == 500
         assert response.json()["detail"] == "Failed to delete document from storage."
+
+    persisted = DocumentRepository.get_owned_document(
+        document_id=doc.id, user_id=user.id
+    )
+    assert persisted is not None
+
+
+from types import SimpleNamespace
+
+
+def test_successful_deletion_cascades_to_chunks(client, db_session):
+    user = UserRepository.create(
+        db_session,
+        name="Comp User 5",
+        email="comp-user5@example.com",
+        password="Password!123",
+    )
+    chat = ChatRepository.create_chat(user_id=user.id, title="Comp Chat")
+    doc = DocumentRepository.create(
+        user_id=user.id,
+        chat_id=chat.id,
+        filename="cascade.pdf",
+        mime_type="application/pdf",
+        file_size=100,
+        storage_key="raw_pdfs/5/cascade.pdf",
+    )
+
+    # Insert vector chunks with proper chunk attributes
+    chunk_item = SimpleNamespace(
+        chunk_index=0,
+        page_number=1,
+        text="Sample text chunk for cascade test",
+    )
+    chunks = [(chunk_item, [0.1] * 768)]
+    VectorRepository.replace_document_chunks(
+        user_id=user.id,
+        document_id=doc.id,
+        chunks_with_embeddings=chunks,
+    )
+
+    # Verify chunks exist in DB
+    existing_chunks = (
+        db_session.query(DocumentChunk)
+        .filter(DocumentChunk.document_id == doc.id)
+        .all()
+    )
+    assert len(existing_chunks) > 0
+
+    mock_storage = MagicMock()
+    with patch("app.api.documents.get_storage_backend", return_value=mock_storage):
+        response = client.delete(
+            f"/documents/{doc.id}",
+            headers=auth_headers(user),
+        )
+        assert response.status_code == 204
+        assert mock_storage.delete.called
+
+    # Verify document and chunks are completely gone
+    persisted = DocumentRepository.get_owned_document(
+        document_id=doc.id, user_id=user.id
+    )
+    assert persisted is None
+
+    remaining_chunks = (
+        db_session.query(DocumentChunk)
+        .filter(DocumentChunk.document_id == doc.id)
+        .all()
+    )
+    assert len(remaining_chunks) == 0
+
+
+def test_db_deletion_failure_preserves_document(client, db_session):
+    user = UserRepository.create(
+        db_session,
+        name="Comp User 6",
+        email="comp-user6@example.com",
+        password="Password!123",
+    )
+    chat = ChatRepository.create_chat(user_id=user.id, title="Comp Chat")
+    doc = DocumentRepository.create(
+        user_id=user.id,
+        chat_id=chat.id,
+        filename="db_fail.pdf",
+        mime_type="application/pdf",
+        file_size=100,
+        storage_key="raw_pdfs/6/db_fail.pdf",
+    )
+
+    mock_storage = MagicMock()
+    with patch(
+        "app.api.documents.get_storage_backend", return_value=mock_storage
+    ), patch(
+        "app.repositories.document_repo.DocumentRepository.delete",
+        side_effect=Exception("DB deadlock"),
+    ):
+        response = client.delete(
+            f"/documents/{doc.id}",
+            headers=auth_headers(user),
+        )
+        assert response.status_code == 500
+        assert response.json()["detail"] == "Failed to delete document from database."
 
     persisted = DocumentRepository.get_owned_document(
         document_id=doc.id, user_id=user.id
