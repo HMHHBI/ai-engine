@@ -12,6 +12,7 @@ from app.db.session import session_scope
 
 class RetrievedSource(TypedDict):
     id: int
+    document_id: int | None
     page_number: int | None
     chunk_index: int | None
     distance: float
