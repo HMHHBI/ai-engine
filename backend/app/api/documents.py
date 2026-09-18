@@ -3,8 +3,10 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import List
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 
 from app.api.deps import get_current_user
 from app.db.models import User
@@ -178,3 +180,76 @@ async def delete_document(
             detail="Document deletion failed.",
         )
     return None
+
+
+@router.get(
+    "/{document_id}/file",
+    status_code=status.HTTP_200_OK,
+)
+async def get_document_file(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Authenticated binary stream for document PDF viewer.
+    Enforces dual ownership check and streams directly from backend storage.
+    """
+    # 1. Ownership & storage_key verification
+    document = await asyncio.to_thread(
+        DocumentRepository.get_owned_document,
+        document_id=document_id,
+        user_id=current_user.id,
+    )
+    if not document or not document.storage_key:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found.",
+        )
+
+    # 2. Retrieve readable stream from storage driver
+    try:
+        storage = get_storage_backend()
+        stream = await asyncio.to_thread(storage.get_stream, document.storage_key)
+    except FileNotFoundError:
+        logger.warning(
+            "Storage object missing for document_id=%s storage_key=%s",
+            document_id,
+            document.storage_key,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found.",
+        )
+    except Exception:
+        logger.exception(
+            "Unexpected error reading storage for document_id=%s storage_key=%s",
+            document_id,
+            document.storage_key,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve document file.",
+        )
+
+    # 3. Stream generator ensuring underlying body is closed
+    def stream_chunks():
+        try:
+            while chunk := stream.read(64 * 1024):
+                yield chunk
+        finally:
+            if hasattr(stream, "close"):
+                stream.close()
+
+    filename = document.filename or f"document_{document.id}.pdf"
+    encoded_filename = quote(filename)
+
+    headers = {
+        "Content-Disposition": f'inline; filename="{encoded_filename}"',
+        "Cache-Control": "private, no-store",
+    }
+
+    return StreamingResponse(
+        stream_chunks(),
+        media_type="application/pdf",
+        headers=headers,
+    )

@@ -335,6 +335,7 @@ def test_stream_emits_structured_sources_event(client, user_and_chat, db_session
         "sources": [
             {
                 "id": 101,
+                "document_id": None,
                 "page_number": 4,
                 "chunk_index": 7,
                 "distance": 0.3142,

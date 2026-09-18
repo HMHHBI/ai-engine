@@ -909,17 +909,22 @@ async def ai_stream(
         sources = [
             {
                 "id": int(chunk["id"]),
+                "document_id": (
+                    int(chunk["document_id"])
+                    if chunk.get("document_id") is not None
+                    else None
+                ),
                 "page_number": (
                     int(chunk["page_number"])
-                    if chunk["page_number"] is not None
+                    if chunk.get("page_number") is not None
                     else None
                 ),
                 "chunk_index": (
                     int(chunk["chunk_index"])
-                    if chunk["chunk_index"] is not None
+                    if chunk.get("chunk_index") is not None
                     else None
                 ),
-                "distance": float(chunk["distance"]),
+                "distance": float(chunk.get("distance", 0.0)),
             }
             for chunk in context_chunks
         ]
