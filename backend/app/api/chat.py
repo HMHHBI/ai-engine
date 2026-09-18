@@ -1396,7 +1396,7 @@ async def upload_pdf(
             mime_type=file.content_type or "application/pdf",
             file_size=len(content),
             page_count=len(pages),
-            storage_url=storage_key,
+            storage_url=None,
             storage_key=storage_key,
         )
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -11,6 +12,9 @@ from app.repositories.chat_repo import ChatRepository
 from app.repositories.document_repo import DocumentRepository
 from app.repositories.vector_repo import VectorRepository
 from app.schemas.document_schema import DocumentMetadataUpdate, DocumentOut
+from app.storage import get_storage_backend
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/documents",
@@ -119,7 +123,8 @@ async def delete_document(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Delete a document and clean up its vector chunks atomically.
+    Delete a document with storage-first orchestration.
+    Physical storage must succeed before DB removal to prevent orphaned objects.
     """
     document = await asyncio.to_thread(
         DocumentRepository.get_owned_document,
@@ -132,12 +137,30 @@ async def delete_document(
             detail="Document not found or unauthorized.",
         )
 
+    # 1. Physical storage deletion first
+    if document.storage_key:
+        try:
+            storage = get_storage_backend()
+            await asyncio.to_thread(storage.delete, document.storage_key)
+        except Exception:
+            logger.exception(
+                "Physical storage deletion failed for document_id=%s storage_key=%s",
+                document_id,
+                document.storage_key,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to delete document from storage.",
+            )
+
+    # 2. Vector chunks explicit cleanup
     await asyncio.to_thread(
         VectorRepository.delete_document_chunks,
         user_id=current_user.id,
         document_id=document_id,
     )
 
+    # 3. Database deletion (cascades chunks if any remain)
     deleted = await asyncio.to_thread(
         DocumentRepository.delete,
         document_id=document_id,

@@ -376,14 +376,15 @@ class DocumentRepository:
         user_id: int,
     ) -> bool:
         """
-        Delete a document owned by the authenticated user and clean up physical storage.
+        Delete a document owned by the authenticated user.
+
+        DocumentChunk rows are removed by the database ON DELETE CASCADE
+        constraint on document_chunks.document_id.
         """
         DocumentRepository._validate_ids(
             user_id=user_id,
             document_id=document_id,
         )
-
-        key_to_delete = None
 
         with session_scope() as db:
             document = db.execute(
@@ -402,17 +403,8 @@ class DocumentRepository:
             if document is None:
                 return False
 
-            key_to_delete = document.storage_key
             db.delete(document)
-
-        if key_to_delete:
-            try:
-                storage = get_storage_backend()
-                storage.delete(key_to_delete)
-            except Exception:
-                logger.exception("Failed to delete physical file: %s", key_to_delete)
-
-        return True
+            return True
 
     @staticmethod
     def get_active_for_chat(
