@@ -277,6 +277,13 @@ class Document(Base):
         nullable=True,
     )
 
+    storage_key = Column(
+        Text,
+        nullable=True,
+        unique=True,
+        index=True,
+    )
+
     status = Column(
         String(20),
         nullable=False,

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 from sqlalchemy import delete, select
 
 from app.db.models import Chat, Document
 from app.db.session import session_scope
+from app.storage import get_storage_backend
 
+logger = logging.getLogger(__name__)
 
 class DocumentRepository:
     """
@@ -89,6 +92,7 @@ class DocumentRepository:
         file_size: Optional[int] = None,
         page_count: Optional[int] = None,
         storage_url: Optional[str] = None,
+        storage_key: Optional[str] = None,
     ) -> Optional[Document]:
         """
         Create a processing document owned by the authenticated user.
@@ -133,6 +137,7 @@ class DocumentRepository:
                 file_size=file_size,
                 page_count=page_count,
                 storage_url=normalized_storage_url,
+                storage_key=storage_key,
                 status="processing",
                 error_message=None,
             )
@@ -371,15 +376,14 @@ class DocumentRepository:
         user_id: int,
     ) -> bool:
         """
-        Delete a document owned by the authenticated user.
-
-        DocumentChunk rows are removed by the database ON DELETE CASCADE
-        constraint on document_chunks.document_id.
+        Delete a document owned by the authenticated user and clean up physical storage.
         """
         DocumentRepository._validate_ids(
             user_id=user_id,
             document_id=document_id,
         )
+
+        key_to_delete = None
 
         with session_scope() as db:
             document = db.execute(
@@ -398,9 +402,17 @@ class DocumentRepository:
             if document is None:
                 return False
 
+            key_to_delete = document.storage_key
             db.delete(document)
 
-            return True
+        if key_to_delete:
+            try:
+                storage = get_storage_backend()
+                storage.delete(key_to_delete)
+            except Exception:
+                logger.exception("Failed to delete physical file: %s", key_to_delete)
+
+        return True
 
     @staticmethod
     def get_active_for_chat(

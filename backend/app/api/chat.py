@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import logging
 import time
@@ -32,7 +33,11 @@ from app.schemas.chat_schema import (
 )
 from app.services.chat_service import ChatApplicationService
 from app.services.embedding_service import EmbeddingService
-from app.services.reranker_service import RerankCandidate, RerankerService, create_reranker_provider
+from app.services.reranker_service import (
+    RerankCandidate,
+    RerankerService,
+    create_reranker_provider,
+)
 from app.services.providers.errors import (
     AIProviderError,
     AIProviderTimeout,
@@ -42,6 +47,7 @@ from app.services.providers.factory import (
     LLMProviderFactory,
     MODEL_REGISTRY,
 )
+from app.storage import build_document_key, get_storage_backend
 from app.utils.file_validation import (
     read_upload_with_limit,
     sanitize_filename,
@@ -750,7 +756,9 @@ async def ai_stream(
                         if settings.ENABLE_RERANKING and context_chunks:
                             rerank_candidates = _build_rerank_candidates(context_chunks)
                             try:
-                                reranker = RerankerService(provider=create_reranker_provider())
+                                reranker = RerankerService(
+                                    provider=create_reranker_provider()
+                                )
                                 reranked_candidates = await asyncio.to_thread(
                                     reranker.rerank,
                                     req.prompt,
@@ -767,7 +775,9 @@ async def ai_stream(
                                             "content": candidate.content,
                                             "page_number": metadata.get("page_number"),
                                             "chunk_index": metadata.get("chunk_index"),
-                                            "distance": float(metadata.get("distance", 0.0)),
+                                            "distance": float(
+                                                metadata.get("distance", 0.0)
+                                            ),
                                             "rrf_score": metadata.get("rrf_score"),
                                             "score": candidate.score,
                                         }
@@ -1235,6 +1245,7 @@ async def upload_pdf(
     current_user: User = Depends(get_current_user),
 ):
     document = None
+    storage_key = None
     try:
         chat = await asyncio.to_thread(
             ChatRepository.get_by_id,
@@ -1351,12 +1362,32 @@ async def upload_pdf(
 
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=(
-                    "Document embedding failed. " "Existing document was not changed."
-                ),
+                detail="Document embedding failed. Existing document was not changed.",
             )
 
-        # 1. Create processing document entity
+        # 1. Physical Storage Save before DB entity creation
+        storage = get_storage_backend()
+        storage_key = build_document_key(user_id=current_user.id)
+
+        try:
+            content_stream = io.BytesIO(content)
+            await asyncio.to_thread(
+                storage.save,
+                storage_key,
+                content_stream,
+                content_type=file.content_type or "application/pdf",
+            )
+        except Exception:
+            logger.exception(
+                "Document storage failed before database creation. user_id=%s",
+                current_user.id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Document storage failed.",
+            )
+
+        # 2. Persist Document entity
         document = await asyncio.to_thread(
             DocumentRepository.create,
             user_id=current_user.id,
@@ -1365,16 +1396,18 @@ async def upload_pdf(
             mime_type=file.content_type or "application/pdf",
             file_size=len(content),
             page_count=len(pages),
-            storage_url=None,
+            storage_url=storage_key,
+            storage_key=storage_key,
         )
 
         if not document:
+            if storage_key:
+                await asyncio.to_thread(storage.delete, storage_key)
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Chat session missing or unauthorized.",
             )
 
-        # 2. Persist chunks using document_id
         db_objs = await asyncio.to_thread(
             VectorRepository.replace_document_chunks,
             user_id=current_user.id,
@@ -1383,7 +1416,6 @@ async def upload_pdf(
             pdf_context=f"Indexed File: {safe_filename}",
         )
 
-        # 3. Mark document ready
         await asyncio.to_thread(
             DocumentRepository.update_status,
             document_id=document.id,
@@ -1410,6 +1442,7 @@ async def upload_pdf(
                 "mime_type": document.mime_type,
                 "file_size": document.file_size,
                 "page_count": document.page_count,
+                "storage_key": document.storage_key,
                 "status": "ready",
             },
         }
@@ -1423,9 +1456,20 @@ async def upload_pdf(
                 status="failed",
                 error_message="Document ingestion failed.",
             )
+        if storage_key:
+            try:
+                storage = get_storage_backend()
+                await asyncio.to_thread(storage.delete, storage_key)
+            except Exception:
+                pass
         raise
 
-    except Exception:
+    except BaseException:
+        logger.exception(
+            "Unexpected error in upload_pdf chat_id=%s user_id=%s",
+            chat_id,
+            current_user.id,
+        )
         if document:
             await asyncio.to_thread(
                 DocumentRepository.update_status,
@@ -1434,11 +1478,12 @@ async def upload_pdf(
                 status="failed",
                 error_message="Server error during document ingestion.",
             )
-        logger.exception(
-            "Unexpected error in upload_pdf chat_id=%s user_id=%s",
-            chat_id,
-            current_user.id,
-        )
+        if storage_key:
+            try:
+                storage = get_storage_backend()
+                await asyncio.to_thread(storage.delete, storage_key)
+            except Exception:
+                pass
 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
