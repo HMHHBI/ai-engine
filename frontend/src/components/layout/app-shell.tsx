@@ -1,16 +1,12 @@
 "use client";
 
-import { ReactNode, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
 import { AppHeader } from "@/components/layout/app-header";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { ChatArea } from "@/features/chat/components/chat-area";
 
-interface AppShellProps {
-  children?: ReactNode;
-}
-
-export function AppShell({ children }: AppShellProps) {
+export function AppShell() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -21,6 +17,7 @@ export function AppShell({ children }: AppShellProps) {
 
   function handleCloseMobileSidebar() {
     setMobileSidebarOpen(false);
+    // Return focus to the trigger button that opened the drawer
     triggerRef.current?.focus();
   }
 
@@ -33,16 +30,14 @@ export function AppShell({ children }: AppShellProps) {
         onCloseMobile={handleCloseMobileSidebar}
       />
 
-      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <main className="flex min-w-0 flex-1 flex-col">
         <AppHeader
           ref={triggerRef}
           onOpenMobileSidebar={handleOpenMobileSidebar}
           onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
         />
 
-        <div className="min-h-0 flex-1 overflow-hidden">
-          {children ?? <ChatArea />}
-        </div>
+        <ChatArea />
       </main>
     </div>
   );
