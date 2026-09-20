@@ -1,10 +1,11 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { Suspense, useRef, useState } from "react";
 
 import { AppHeader } from "@/components/layout/app-header";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { ChatArea } from "@/features/chat/components/chat-area";
+import { WorkspaceController } from "@/features/workspace/components/workspace-controller";
 
 export function AppShell() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -37,7 +38,9 @@ export function AppShell() {
           onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
         />
 
-        <ChatArea />
+        <Suspense fallback={<ChatArea />}>
+          <WorkspaceController />
+        </Suspense>
       </main>
     </div>
   );
