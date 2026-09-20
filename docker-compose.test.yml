@@ -2,3 +2,4 @@ services:
   backend:
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/hassan_ai_test
+      TESTING: "true"
