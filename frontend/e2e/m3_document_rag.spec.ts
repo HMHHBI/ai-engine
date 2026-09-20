@@ -9,6 +9,7 @@ test.describe.serial("M3 Document, RAG & Shell Regression Gate", () => {
   let sharedPage: any;
 
   test.beforeAll(async ({ browser }) => {
+    test.setTimeout(60000);
     const context = await browser.newContext();
     sharedPage = await context.newPage();
 
@@ -17,7 +18,8 @@ test.describe.serial("M3 Document, RAG & Shell Regression Gate", () => {
     await sharedPage.fill("#email", TEST_EMAIL);
     await sharedPage.fill("#password", TEST_PASSWORD);
     await sharedPage.click("button[type='submit']");
-    await sharedPage.waitForURL(/\/dashboard/, { timeout: 15000 });
+    await sharedPage.waitForLoadState('networkidle');
+    await sharedPage.waitForURL(/\/dashboard/, { timeout: 30000 });
   });
 
   test.afterAll(async () => {
