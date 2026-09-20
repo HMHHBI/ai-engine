@@ -37,14 +37,14 @@ class ChatSessionActions {
   }
 
   async createChat(): Promise<number> {
-    const response = await chatApi.create();
-    const chatId = response.chat_id;
+    const response = await chatApi.create() as any;
+    const chatId = Number(response.id ?? response.chat_id);
     const now = new Date().toISOString();
 
     const session: ChatSession = {
       id: chatId,
       user_id: 0,
-      title: "New Chat",
+      title: response.title || "New Chat",
       created_at: now,
       updated_at: now,
       has_pdf: false,
@@ -52,7 +52,6 @@ class ChatSessionActions {
 
     useChatStore.getState().setMessages(chatId, []);
     useChatSessionStore.getState().addSession(session);
-
     return chatId;
   }
 
