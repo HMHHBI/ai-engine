@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { defineConfig, defaultExclude } from "vitest/config";
 import path from "node:path";
 
 export default defineConfig({
@@ -7,6 +7,7 @@ export default defineConfig({
     globals: true,
     clearMocks: true,
     restoreMocks: true,
+    exclude: [...defaultExclude, "e2e/**"],
     env: {
       NEXT_PUBLIC_API_URL: "https://ai-engine-d9lm.onrender.com",
     },

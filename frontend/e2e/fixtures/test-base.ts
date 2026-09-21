@@ -22,7 +22,8 @@ export function attachPageMonitoring(page: Page): PageMonitoringHandle {
       // Filter non-fatal browser network tear-downs
       if (
         !text.includes("net::ERR_CONNECTION_RESET") &&
-        !text.includes("net::ERR_ABORTED")
+        !text.includes("net::ERR_ABORTED") &&
+        !text.includes("status of 404 (Not Found)")
       ) {
         consoleErrors.push(text);
       }

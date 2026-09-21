@@ -15,29 +15,18 @@ export interface DocumentResolutionState {
 export function useResolvedWorkspaceDocument(
   candidateDocId: number | null
 ): DocumentResolutionState {
-  const [state, setState] = useState<DocumentResolutionState>(() => ({
+  const [state, setState] = useState<DocumentResolutionState>({
     status: candidateDocId ? "loading" : "idle",
     document: null,
     error: null,
-  }));
+  });
 
   useEffect(() => {
     let isMounted = true;
 
     if (!candidateDocId) {
-      setState({
-        status: "idle",
-        document: null,
-        error: null,
-      });
       return;
     }
-
-    setState({
-      status: "loading",
-      document: null,
-      error: null,
-    });
 
     documentApi
       .get(candidateDocId)
@@ -81,6 +70,14 @@ export function useResolvedWorkspaceDocument(
       isMounted = false;
     };
   }, [candidateDocId]);
+
+  if (!candidateDocId && (state.status !== "idle" || state.document !== null)) {
+    return {
+      status: "idle",
+      document: null,
+      error: null,
+    };
+  }
 
   return state;
 }

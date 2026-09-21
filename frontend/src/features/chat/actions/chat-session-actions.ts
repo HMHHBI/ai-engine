@@ -37,7 +37,7 @@ class ChatSessionActions {
   }
 
   async createChat(): Promise<number> {
-    const response = await chatApi.create() as any;
+    const response = (await chatApi.create()) as unknown as { id?: number; chat_id?: number; title?: string };
     const chatId = Number(response.id ?? response.chat_id);
     const now = new Date().toISOString();
 
