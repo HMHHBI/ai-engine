@@ -24,4 +24,4 @@ docker exec -e DATABASE_URL=postgresql://postgres:postgres@db:5432/hassan_ai_tes
 
 echo "=== [3/4] Running Playwright M3 Regression Suite (Desktop + Laptop) ==="
 cd "$PROJECT_ROOT/frontend"
-npx playwright test e2e/m3_smoke.spec.ts e2e/m3_auth_journeys.spec.ts e2e/m3_chat_journeys.spec.ts e2e/m3_document_rag.spec.ts e2e/m4_workspace_journeys.spec.ts --project=desktop --project=laptop
+npx playwright test e2e/m3_smoke.spec.ts e2e/m3_auth_journeys.spec.ts e2e/m3_chat_journeys.spec.ts e2e/m3_document_rag.spec.ts e2e/m4_workspace_journeys.spec.ts e2e/m5_pdf_viewer_journeys.spec.ts --project=desktop --project=laptop
