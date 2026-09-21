@@ -6,6 +6,8 @@ import { ChatArea } from "@/features/chat/components/chat-area";
 import { ResearchWorkspace } from "./research-workspace";
 import { parseCandidateDocId } from "../utils/workspace-url";
 import { useResolvedWorkspaceDocument } from "../hooks/use-resolved-workspace-document";
+import { selectDocument } from "@/features/documents/document-actions";
+import { useChatSessionStore } from "@/features/chat/store/chat-session-store";
 
 export function WorkspaceController() {
   const router = useRouter();
@@ -15,6 +17,12 @@ export function WorkspaceController() {
   const { status, document: resolvedDocument } = useResolvedWorkspaceDocument(candidateDocId);
 
   const handleCloseDocument = useCallback(() => {
+    // Clear legacy store selection for current chat to ensure no hidden fallback persists
+    const currentChatId = useChatSessionStore.getState().activeChatId;
+    if (currentChatId) {
+      selectDocument(currentChatId, null);
+    }
+
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(searchParams?.toString() ?? "");
       params.delete("docId");

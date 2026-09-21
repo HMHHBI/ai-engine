@@ -15,7 +15,13 @@ export interface DocumentResolutionState {
 export function useResolvedWorkspaceDocument(
   candidateDocId: number | null
 ): DocumentResolutionState {
-  const [state, setState] = useState<DocumentResolutionState>({
+  const [internalState, setInternalState] = useState<{
+    resolvedCandidateId: number | null;
+    status: DocumentResolutionStatus;
+    document: Document | null;
+    error: string | null;
+  }>({
+    resolvedCandidateId: candidateDocId,
     status: candidateDocId ? "loading" : "idle",
     document: null,
     error: null,
@@ -33,13 +39,15 @@ export function useResolvedWorkspaceDocument(
       .then((doc) => {
         if (!isMounted) return;
         if (doc && doc.id === candidateDocId) {
-          setState({
+          setInternalState({
+            resolvedCandidateId: candidateDocId,
             status: "resolved",
             document: doc,
             error: null,
           });
         } else {
-          setState({
+          setInternalState({
+            resolvedCandidateId: candidateDocId,
             status: "not_found",
             document: null,
             error: "Document not found or inaccessible.",
@@ -48,17 +56,20 @@ export function useResolvedWorkspaceDocument(
       })
       .catch((err: unknown) => {
         if (!isMounted) return;
-        const statusCode = (err as { status?: number; response?: { status?: number } })?.status ??
+        const statusCode =
+          (err as { status?: number; response?: { status?: number } })?.status ??
           (err as { response?: { status?: number } })?.response?.status;
 
         if (statusCode === 404 || statusCode === 403) {
-          setState({
+          setInternalState({
+            resolvedCandidateId: candidateDocId,
             status: "not_found",
             document: null,
             error: "Document not found or access denied.",
           });
         } else {
-          setState({
+          setInternalState({
+            resolvedCandidateId: candidateDocId,
             status: "error",
             document: null,
             error: err instanceof Error ? err.message : "Failed to load document.",
@@ -71,7 +82,7 @@ export function useResolvedWorkspaceDocument(
     };
   }, [candidateDocId]);
 
-  if (!candidateDocId && (state.status !== "idle" || state.document !== null)) {
+  if (!candidateDocId) {
     return {
       status: "idle",
       document: null,
@@ -79,5 +90,18 @@ export function useResolvedWorkspaceDocument(
     };
   }
 
-  return state;
+  // Prevent stale document from previous candidate leaking into current render
+  if (internalState.resolvedCandidateId !== candidateDocId) {
+    return {
+      status: "loading",
+      document: null,
+      error: null,
+    };
+  }
+
+  return {
+    status: internalState.status,
+    document: internalState.document,
+    error: internalState.error,
+  };
 }

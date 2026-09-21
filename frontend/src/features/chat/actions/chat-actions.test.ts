@@ -1,3 +1,4 @@
+import { selectDocument } from "@/features/documents/document-actions";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { chatActions } from "./chat-actions";
@@ -7,6 +8,7 @@ import { chatRequestController } from "@/features/chat/stream/chat-request-contr
 import { chatSessionActions } from "@/features/chat/actions/chat-session-actions";
 import { useChatStore } from "@/features/chat/store/chat-store";
 import { useChatSessionStore } from "@/features/chat/store/chat-session-store";
+import { useDocumentStore } from "@/features/documents/document-store";
 import { ApiError } from "@/lib/errors/api-error";
 import type { StreamPayload } from "@/types/api";
 import { chatApi } from "@/lib/api/chat";
@@ -988,6 +990,60 @@ describe("chatActions", () => {
         },
         expect.anything(),
       );
+    });
+
+    it("C6: workspace close deselects store selection and prevents stale document_id in subsequent messages", async () => {
+      vi.mocked(chatStreamService.stream).mockResolvedValue();
+
+      // Seed document into store with status ready so selectDocument succeeds
+      useDocumentStore.setState((state) => ({
+        documentsByChat: {
+          ...state.documentsByChat,
+          10: [
+            {
+              id: 123,
+              user_id: 1,
+              chat_id: 10,
+              filename: "doc123.pdf",
+              mime_type: "application/pdf",
+              file_size: 1024,
+              page_count: 3,
+              storage_url: null,
+              status: "ready",
+              error_message: null,
+              created_at: "2026-09-20T00:00:00Z",
+              updated_at: "2026-09-20T00:00:00Z",
+            },
+          ],
+        },
+      }));
+
+      selectDocument(10, 123);
+      expect(useDocumentStore.getState().selectedDocumentIdByChat[10]).toBe(123);
+
+      await chatActions.sendMessage({
+        chatId: 10,
+        prompt: "Workspace active query",
+        documentId: 123,
+      });
+
+      expect(chatStreamService.stream).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          document_id: 123,
+        }),
+        expect.anything(),
+      );
+
+      selectDocument(10, null);
+      expect(useDocumentStore.getState().selectedDocumentIdByChat[10]).toBeNull();
+
+      await chatActions.sendMessage({
+        chatId: 10,
+        prompt: "Post-workspace closing standard query",
+      });
+
+      const lastCallPayload = vi.mocked(chatStreamService.stream).mock.calls.at(-1)?.[0];
+      expect(lastCallPayload?.document_id).toBeUndefined();
     });
   });
 });

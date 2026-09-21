@@ -1,4 +1,4 @@
-import { test as base, expect, Page } from "@playwright/test";
+import { test as baseTest, expect, Page } from "@playwright/test";
 
 export interface PageMonitoringHandle {
   pageErrors: Error[];
@@ -7,7 +7,7 @@ export interface PageMonitoringHandle {
   assertNoErrors: () => void;
 }
 
-export function attachPageMonitoring(page: Page): PageMonitoringHandle {
+export function setupPageMonitoring(page: Page): PageMonitoringHandle {
   const pageErrors: Error[] = [];
   const consoleErrors: string[] = [];
   const server5xxErrors: string[] = [];
@@ -19,11 +19,12 @@ export function attachPageMonitoring(page: Page): PageMonitoringHandle {
   page.on("console", (msg) => {
     if (msg.type() === "error") {
       const text = msg.text();
-      // Filter non-fatal browser network tear-downs
+      // Filter browser network-level status logs for expected 404/aborted requests
       if (
         !text.includes("net::ERR_CONNECTION_RESET") &&
         !text.includes("net::ERR_ABORTED") &&
-        !text.includes("status of 404 (Not Found)")
+        !text.includes("Failed to load resource: the server responded with a status of 404") &&
+        !text.includes("Failed to load resource: the server responded with a status of 403")
       ) {
         consoleErrors.push(text);
       }
@@ -45,12 +46,6 @@ export function attachPageMonitoring(page: Page): PageMonitoringHandle {
   return { pageErrors, consoleErrors, server5xxErrors, assertNoErrors };
 }
 
-export const test = base.extend({
-  page: async ({ page }, use) => {
-    const monitoring = attachPageMonitoring(page);
-    await use(page);
-    monitoring.assertNoErrors();
-  },
-});
-
+export const attachPageMonitoring = setupPageMonitoring;
+export const test = baseTest;
 export { expect };

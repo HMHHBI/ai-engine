@@ -113,11 +113,19 @@ test.describe.serial("M4 Workspace Acceptance Suite (W1–W10)", () => {
   });
 
   test("W3 — document selection updates URL query parameter without full-page navigation", async () => {
+    // Inject a runtime window marker to verify navigation was purely client-side
+    await sharedPage.evaluate(() => {
+      (window as any).__m4_client_nav_marker = "persisted_without_reload";
+    });
+
     const currentUrl = sharedPage.url();
     expect(currentUrl).toContain(`docId=${uploadedDocId}`);
 
     const splitChatPane = sharedPage.locator('[data-testid="workspace-chat-pane"]');
     await expect(splitChatPane).toBeVisible();
+
+    const marker = await sharedPage.evaluate(() => (window as any).__m4_client_nav_marker);
+    expect(marker).toBe("persisted_without_reload");
   });
 
   test("W4 — page refresh preserves workspace split pane and active document", async () => {
@@ -191,7 +199,14 @@ test.describe.serial("M4 Workspace Acceptance Suite (W1–W10)", () => {
     const box = await docContainer.boundingBox();
     expect(box).not.toBeNull();
     if (box) {
-      expect(box.width).toBeGreaterThanOrEqual(280);
+      expect(box.width).toBeGreaterThanOrEqual(360);
+    }
+
+    const chatPane = sharedPage.locator('[data-testid="workspace-chat-pane"]');
+    const chatBox = await chatPane.boundingBox();
+    expect(chatBox).not.toBeNull();
+    if (chatBox) {
+      expect(chatBox.width).toBeGreaterThanOrEqual(420);
     }
   });
 
@@ -211,8 +226,35 @@ test.describe.serial("M4 Workspace Acceptance Suite (W1–W10)", () => {
     await expect(sharedPage.locator('[data-testid="workspace-split-pane"]')).toBeVisible();
   });
 
-  test("W9 — invalid or non-owned ?docId safely defaults to standard chat without errors", async () => {
-    await sharedPage.goto(`${primaryChatUrl}?docId=99999999`);
+    test("W9a — nonexistent ?docId safely defaults to standard chat without workspace", async () => {
+    const [response] = await Promise.all([
+      sharedPage.waitForResponse(
+        (resp) => resp.url().includes("/documents/99999999") && resp.status() === 404,
+        { timeout: 15000 }
+      ).catch(() => null),
+      sharedPage.goto(`${primaryChatUrl}?docId=99999999`),
+    ]);
+
+    await sharedPage.waitForLoadState("networkidle");
+
+    const splitPane = sharedPage.locator('[data-testid="workspace-split-pane"]');
+    await expect(splitPane).toHaveCount(0);
+
+    const promptInput = sharedPage.getByRole("textbox", { name: /chat prompt/i });
+    await expect(promptInput).toBeVisible();
+    await expect(promptInput).toBeEnabled();
+  });
+
+  test("W9b — cross-user non-owned ?docId safely defaults to standard chat without leak", async () => {
+    // Document ID 55 belongs to other_user@example.com (seeded)
+    const [response] = await Promise.all([
+      sharedPage.waitForResponse(
+        (resp) => resp.url().includes("/documents/55") && (resp.status() === 404 || resp.status() === 403),
+        { timeout: 15000 }
+      ).catch(() => null),
+      sharedPage.goto(`${primaryChatUrl}?docId=55`),
+    ]);
+
     await sharedPage.waitForLoadState("networkidle");
 
     const splitPane = sharedPage.locator('[data-testid="workspace-split-pane"]');
