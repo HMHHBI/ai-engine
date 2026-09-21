@@ -9,6 +9,7 @@ export function PdfPage({
   width,
   onRenderSuccess,
   onRenderError,
+  onLoadSuccess,
 }: PdfPageProps) {
   return (
     <div
@@ -24,6 +25,7 @@ export function PdfPage({
         renderTextLayer
         onRenderSuccess={onRenderSuccess}
         onRenderError={onRenderError}
+        onLoadSuccess={onLoadSuccess}
       />
     </div>
   );

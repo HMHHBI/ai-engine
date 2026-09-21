@@ -1,3 +1,6 @@
+import type { PDFPageProxy } from "pdfjs-dist";
+import type { PdfNavigationTarget } from "./navigation";
+
 export type PdfDocumentStatus =
   | "idle"
   | "loading"
@@ -31,6 +34,7 @@ export interface PdfPageProps {
   width?: number;
   onRenderSuccess?: () => void;
   onRenderError?: (error: Error) => void;
+  onLoadSuccess?: (page: PDFPageProxy) => void;
 }
 
 export interface PdfToolbarProps {
@@ -41,8 +45,12 @@ export interface PdfToolbarProps {
   onNextPage: () => void;
   onZoomOut: () => void;
   onZoomIn: () => void;
+  onResetZoom: () => void;
+  onFitWidth: () => void;
+  onFitHeight: () => void;
 }
 
 export interface PdfViewerProps {
   documentId: number | null;
+  navigationTarget?: PdfNavigationTarget | null;
 }
