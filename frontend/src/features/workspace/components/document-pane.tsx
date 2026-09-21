@@ -1,14 +1,28 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { FileText, X } from "lucide-react";
+import { PdfLoadingState } from "@/features/pdf/components/pdf-loading-state";
 import type { Document } from "@/types/api";
+
+const PdfViewer = dynamic(
+  () =>
+    import("@/features/pdf/components/pdf-viewer").then((mod) => mod.PdfViewer),
+  {
+    ssr: false,
+    loading: () => <PdfLoadingState />,
+  },
+);
 
 interface DocumentPaneProps {
   document: Document;
   onClose?: () => void;
 }
 
-export function DocumentPane({ document, onClose }: DocumentPaneProps) {
+export function DocumentPane({
+  document,
+  onClose,
+}: DocumentPaneProps) {
   return (
     <div
       data-testid="workspace-document-pane"
@@ -18,6 +32,7 @@ export function DocumentPane({ document, onClose }: DocumentPaneProps) {
       <div className="flex items-center justify-between border-b border-border px-4 py-2.5 h-12 shrink-0 bg-muted/30">
         <div className="flex items-center space-x-2 truncate">
           <FileText className="h-4 w-4 text-primary shrink-0" />
+
           <span
             data-testid="workspace-document-title"
             className="text-sm font-medium truncate text-foreground"
@@ -43,22 +58,24 @@ export function DocumentPane({ document, onClose }: DocumentPaneProps) {
       {/* Document Metadata Strip */}
       <div className="flex items-center space-x-4 border-b border-border/50 px-4 py-1.5 text-xs text-muted-foreground bg-muted/10 shrink-0">
         <span>Status: {document.status}</span>
-        {document.page_count !== null && <span>{document.page_count} pages</span>}
+
+        {document.page_count !== null && (
+          <span>{document.page_count} pages</span>
+        )}
+
         {document.file_size !== null && (
-          <span>{(document.file_size / 1024).toFixed(1)} KB</span>
+          <span>
+            {(document.file_size / 1024).toFixed(1)} KB
+          </span>
         )}
       </div>
 
-      {/* M5 Mounting Surface Boundary */}
+      {/* M5 PDF Viewer Boundary */}
       <div
         data-testid="pdf-viewer-boundary"
-        className="flex-1 flex flex-col items-center justify-center p-6 text-center text-muted-foreground bg-muted/5 overflow-auto"
+        className="min-h-0 flex-1 overflow-hidden bg-muted/5"
       >
-        <FileText className="h-10 w-10 text-muted-foreground/40 mb-2" />
-        <p className="text-sm font-medium text-foreground">Document Surface Ready</p>
-        <p className="text-xs text-muted-foreground mt-1 max-w-xs">
-          Interactive PDF rendering, page synchronization, and citation jumps will mount here in Milestone 5.
-        </p>
+        <PdfViewer documentId={document.id} />
       </div>
     </div>
   );
