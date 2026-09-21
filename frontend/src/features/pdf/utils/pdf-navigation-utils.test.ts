@@ -62,4 +62,68 @@ describe("PDF citation navigation", () => {
       createPdfNavigationTarget(source, 42, 1),
     ).toBeNull();
   });
+
+  it("P19: matching citation after document switch targets the new document", () => {
+    const source: RetrievedSource = {
+      id: 105,
+      document_id: 51,
+      page_number: 8,
+      chunk_index: 12,
+      distance: 0.1,
+    };
+
+    expect(
+      createPdfNavigationTarget(source, 51, 2),
+    ).toEqual({
+      documentId: 51,
+      pageNumber: 8,
+      requestId: 2,
+    });
+
+    expect(
+      createPdfNavigationTarget(source, 42, 2),
+    ).toBeNull();
+  });
+
+  it("rejects page zero", () => {
+    const source: RetrievedSource = {
+      id: 106,
+      document_id: 42,
+      page_number: 0,
+      chunk_index: 1,
+      distance: 0.1,
+    };
+
+    expect(
+      createPdfNavigationTarget(source, 42, 3),
+    ).toBeNull();
+  });
+
+  it("rejects negative page numbers", () => {
+    const source: RetrievedSource = {
+      id: 107,
+      document_id: 42,
+      page_number: -3,
+      chunk_index: 1,
+      distance: 0.1,
+    };
+
+    expect(
+      createPdfNavigationTarget(source, 42, 4),
+    ).toBeNull();
+  });
+
+  it("rejects non-integer page numbers", () => {
+    const source: RetrievedSource = {
+      id: 108,
+      document_id: 42,
+      page_number: 2.5,
+      chunk_index: 1,
+      distance: 0.1,
+    };
+
+    expect(
+      createPdfNavigationTarget(source, 42, 5),
+    ).toBeNull();
+  });
 });

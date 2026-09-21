@@ -10,7 +10,9 @@ export function createPdfNavigationTarget(
     source.document_id === null ||
     source.document_id === undefined ||
     source.document_id !== activeDocumentId ||
-    source.page_number === null
+    source.page_number === null ||
+    !Number.isInteger(source.page_number) ||
+    source.page_number < 1
   ) {
     return null;
   }

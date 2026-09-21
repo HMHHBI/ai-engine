@@ -5,6 +5,7 @@ import {
   MIN_SCALE,
   calculateFitHeightScale,
   calculateFitWidthScale,
+  clampPage,
   resetZoom,
   zoomIn,
   zoomOut,
@@ -53,5 +54,15 @@ describe("PDF fit utilities", () => {
   it("falls back safely for invalid dimensions", () => {
     expect(calculateFitWidthScale(0, 1000)).toBe(1);
     expect(calculateFitHeightScale(1000, 0)).toBe(1);
+  });
+});
+
+describe("PDF page clamping bounds", () => {
+  it("clamps an out-of-bounds citation page to the final page", () => {
+    expect(clampPage(99, 20)).toBe(20);
+  });
+
+  it("clamps a low citation page to page 1", () => {
+    expect(clampPage(0, 20)).toBe(1);
   });
 });
