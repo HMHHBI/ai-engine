@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { AlertCircle, RefreshCw } from "lucide-react";
 import { useState } from "react";
@@ -10,7 +10,7 @@ import { MessageList } from "@/features/chat/components/message-list";
 import { MessageSkeleton } from "@/features/chat/components/message-skeleton";
 import { ModelSelector } from "@/features/chat/components/model-selector";
 import { useChatStore } from "@/features/chat/store/chat-store";
-import type { AIModel, AIProvider, ChatMessage } from "@/types/api";
+import type { AIModel, AIProvider, ChatMessage, RetrievedSource } from "@/types/api";
 
 const EMPTY_MESSAGES: ChatMessage[] = [];
 
@@ -20,9 +20,10 @@ const DEFAULT_PROVIDER: AIProvider = "ollama";
 
 export interface ChatAreaProps {
   documentId?: number | null;
+  onCitationClick?: (source: RetrievedSource) => void;
 }
 
-export function ChatArea({ documentId }: ChatAreaProps = {}) {
+export function ChatArea({ documentId, onCitationClick }: ChatAreaProps = {}) {
   const activeChatId = useChatStore((state) => state.activeChatId);
 
   const messages = useChatStore((state) =>
@@ -95,7 +96,7 @@ export function ChatArea({ documentId }: ChatAreaProps = {}) {
             description="Type a message below or attach files to begin chatting with the AI."
           />
         ) : (
-          <MessageList chatId={activeChatId} />
+          <MessageList chatId={activeChatId} onCitationClick={onCitationClick} />
         )}
       </div>
 

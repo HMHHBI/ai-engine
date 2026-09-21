@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { FileText, X } from "lucide-react";
 import { PdfLoadingState } from "@/features/pdf/components/pdf-loading-state";
 import type { Document } from "@/types/api";
+import type { PdfNavigationTarget } from "@/features/pdf/types/navigation";
 
 const PdfViewer = dynamic(
   () =>
@@ -17,11 +18,13 @@ const PdfViewer = dynamic(
 interface DocumentPaneProps {
   document: Document;
   onClose?: () => void;
+  navigationTarget?: PdfNavigationTarget | null;
 }
 
 export function DocumentPane({
   document,
   onClose,
+  navigationTarget,
 }: DocumentPaneProps) {
   return (
     <div
@@ -75,7 +78,7 @@ export function DocumentPane({
         data-testid="pdf-viewer-boundary"
         className="min-h-0 flex-1 overflow-hidden bg-muted/5"
       >
-        <PdfViewer documentId={document.id} />
+        <PdfViewer documentId={document.id} navigationTarget={navigationTarget} />
       </div>
     </div>
   );

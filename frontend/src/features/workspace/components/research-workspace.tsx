@@ -11,7 +11,9 @@ import {
   WORKSPACE_DOCUMENT_DEFAULT_RATIO,
   WORKSPACE_CHAT_MIN_WIDTH,
 } from "../constants/layout";
-import type { Document as WorkspaceDoc } from "@/types/api";
+import type { Document as WorkspaceDoc, RetrievedSource } from "@/types/api";
+import type { PdfNavigationTarget } from "@/features/pdf/types/navigation";
+import { createPdfNavigationTarget } from "@/features/pdf/utils/pdf-navigation-utils";
 
 interface ResearchWorkspaceProps {
   document: WorkspaceDoc;
@@ -30,6 +32,9 @@ export function ResearchWorkspace({ document: activeDoc, onClose }: ResearchWork
   const setCollapsed = useWorkspaceUiStore((state) => state.setDocumentPaneCollapsed);
 
   const [isNarrow, setIsNarrow] = useState<boolean>(false);
+  const [pdfNavigationTarget, setPdfNavigationTarget] =
+    useState<PdfNavigationTarget | null>(null);
+  const navigationRequestIdRef = useRef(0);
 
   useEffect(() => {
     function checkWidth() {
@@ -110,6 +115,30 @@ export function ResearchWorkspace({ document: activeDoc, onClose }: ResearchWork
     }
   }, [isNarrow, setCollapsed, onClose]);
 
+  const handleCitationClick = useCallback(
+    (source: RetrievedSource) => {
+      navigationRequestIdRef.current += 1;
+
+      const target = createPdfNavigationTarget(
+        source,
+        activeDoc.id,
+        navigationRequestIdRef.current,
+      );
+
+      if (!target) {
+        return;
+      }
+
+      setPdfNavigationTarget(target);
+
+      // Agar responsive mode mein collapsed ho to pane open kar dein
+      if (isNarrow && isCollapsed) {
+        setCollapsed(false);
+      }
+    },
+    [activeDoc.id, isNarrow, isCollapsed, setCollapsed],
+  );
+
   return (
     <div
       ref={containerRef}
@@ -124,7 +153,10 @@ export function ResearchWorkspace({ document: activeDoc, onClose }: ResearchWork
         className="flex h-full flex-1 flex-col overflow-hidden min-w-0"
         style={{ minWidth: !isNarrow ? `${WORKSPACE_CHAT_MIN_WIDTH}px` : undefined }}
       >
-        <ChatArea documentId={activeDoc.id} />
+        <ChatArea
+          documentId={activeDoc.id}
+          onCitationClick={handleCitationClick}
+        />
       </div>
 
       {/* Narrow view: Reopen button when drawer is collapsed */}
@@ -158,6 +190,7 @@ export function ResearchWorkspace({ document: activeDoc, onClose }: ResearchWork
             <DocumentPane
               document={activeDoc}
               onClose={handleResponsiveClose}
+              navigationTarget={pdfNavigationTarget}
             />
           </div>
         </>
@@ -179,7 +212,11 @@ export function ResearchWorkspace({ document: activeDoc, onClose }: ResearchWork
             className="h-full shrink-0 overflow-hidden"
             style={{ width: `${panelWidth}px`, minWidth: `${WORKSPACE_DOCUMENT_MIN_WIDTH}px` }}
           >
-            <DocumentPane document={activeDoc} onClose={onClose} />
+            <DocumentPane
+              document={activeDoc}
+              onClose={onClose}
+              navigationTarget={pdfNavigationTarget}
+            />
           </div>
         </>
       )}
