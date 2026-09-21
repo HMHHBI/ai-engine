@@ -7,16 +7,18 @@ import { PdfLoadingState } from "@/features/pdf/components/pdf-loading-state";
 import { PdfPage } from "@/features/pdf/components/pdf-page";
 import { PdfToolbar } from "@/features/pdf/components/pdf-toolbar";
 import { usePdfDocument } from "@/features/pdf/hooks/use-pdf-document";
+import {
+  clampPage,
+  MIN_SCALE,
+  MAX_SCALE,
+  SCALE_STEP,
+} from "@/features/pdf/utils/pdf-viewer-utils";
 import type { PdfViewerProps } from "@/features/pdf/types/pdf";
 
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 
 pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
-
-const MIN_SCALE = 0.5;
-const MAX_SCALE = 3;
-const SCALE_STEP = 0.25;
 
 function PdfViewerLoaded({
   objectUrl,
@@ -27,6 +29,10 @@ function PdfViewerLoaded({
   const [numPages, setNumPages] = useState(0);
   const [scale, setScale] = useState(1);
 
+  const goToPage = (page: number) => {
+    setCurrentPage((current) => clampPage(page, numPages || current));
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="pdf-viewer">
       <PdfToolbar
@@ -34,10 +40,10 @@ function PdfViewerLoaded({
         numPages={numPages}
         scale={scale}
         onPreviousPage={() => {
-          setCurrentPage((page) => Math.max(1, page - 1));
+          goToPage(currentPage - 1);
         }}
         onNextPage={() => {
-          setCurrentPage((page) => Math.min(numPages, page + 1));
+          goToPage(currentPage + 1);
         }}
         onZoomOut={() => {
           setScale((value) =>
@@ -65,11 +71,11 @@ function PdfViewerLoaded({
           }
           onLoadSuccess={({ numPages: loadedPages }) => {
             setNumPages(loadedPages);
-            setCurrentPage((page) => Math.min(Math.max(page, 1), loadedPages));
+            setCurrentPage((page) => clampPage(page, loadedPages));
           }}
         >
           {numPages > 0 && (
-            <PdfPage pageNumber={currentPage} scale={scale} />
+            <PdfPage pageNumber={clampPage(currentPage, numPages)} scale={scale} />
           )}
         </Document>
       </div>
