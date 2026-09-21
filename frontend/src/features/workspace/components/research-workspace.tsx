@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { FileText } from "lucide-react";
 import { ChatArea } from "@/features/chat/components/chat-area";
 import { DocumentPane } from "./document-pane";
 import { useWorkspaceUiStore } from "../store/workspace-ui-store";
@@ -17,6 +18,8 @@ interface ResearchWorkspaceProps {
   onClose?: () => void;
 }
 
+const RESPONSIVE_BREAKPOINT_PX = 1024;
+
 export function ResearchWorkspace({ document: activeDoc, onClose }: ResearchWorkspaceProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const isDraggingRef = useRef(false);
@@ -24,8 +27,22 @@ export function ResearchWorkspace({ document: activeDoc, onClose }: ResearchWork
   const panelWidth = useWorkspaceUiStore((state) => state.panelWidth);
   const setPanelWidth = useWorkspaceUiStore((state) => state.setPanelWidth);
   const isCollapsed = useWorkspaceUiStore((state) => state.isDocumentPaneCollapsed);
+  const setCollapsed = useWorkspaceUiStore((state) => state.setDocumentPaneCollapsed);
 
-  // Initialize bounded width on mount if default is too small or unset
+  const [isNarrow, setIsNarrow] = useState<boolean>(false);
+
+  useEffect(() => {
+    function checkWidth() {
+      if (typeof window !== "undefined") {
+        setIsNarrow(window.innerWidth < RESPONSIVE_BREAKPOINT_PX);
+      }
+    }
+
+    checkWidth();
+    window.addEventListener("resize", checkWidth);
+    return () => window.removeEventListener("resize", checkWidth);
+  }, []);
+
   useEffect(() => {
     if (!containerRef.current) return;
     const containerWidth = containerRef.current.getBoundingClientRect().width;
@@ -57,10 +74,8 @@ export function ResearchWorkspace({ document: activeDoc, onClose }: ResearchWork
       const containerRect = containerRef.current.getBoundingClientRect();
       const containerWidth = containerRect.width;
 
-      // Available space right of the cursor becomes document pane width
       const targetDocWidth = containerRect.right - e.clientX;
 
-      // Calculate dynamic bounds against container width
       const minDocWidth = WORKSPACE_DOCUMENT_MIN_WIDTH;
       const maxDocByRatio = Math.round(containerWidth * WORKSPACE_DOCUMENT_MAX_RATIO);
       const maxDocByChatFloor = containerWidth - WORKSPACE_CHAT_MIN_WIDTH;
@@ -87,44 +102,86 @@ export function ResearchWorkspace({ document: activeDoc, onClose }: ResearchWork
     }
   }, []);
 
+  const handleResponsiveClose = useCallback(() => {
+    if (isNarrow) {
+      setCollapsed(true);
+    } else if (onClose) {
+      onClose();
+    }
+  }, [isNarrow, setCollapsed, onClose]);
+
   return (
     <div
       ref={containerRef}
       data-testid="workspace-split-pane"
       className="flex h-full w-full overflow-hidden relative"
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
+      onPointerMove={!isNarrow ? handlePointerMove : undefined}
+      onPointerUp={!isNarrow ? handlePointerUp : undefined}
     >
-      {/* Left Chat Pane */}
+      {/* Primary Chat Surface */}
       <div
         data-testid="workspace-chat-pane"
-        className="flex h-full flex-1 flex-col overflow-hidden min-w-[420px]"
-        style={{ minWidth: `${WORKSPACE_CHAT_MIN_WIDTH}px` }}
+        className="flex h-full flex-1 flex-col overflow-hidden min-w-0"
+        style={{ minWidth: !isNarrow ? `${WORKSPACE_CHAT_MIN_WIDTH}px` : undefined }}
       >
         <ChatArea />
       </div>
 
-      {/* Resize Handle */}
-      {!isCollapsed && (
-        <div
-          data-testid="workspace-resize-handle"
-          role="separator"
-          aria-orientation="vertical"
-          tabIndex={0}
-          onPointerDown={handlePointerDown}
-          className="w-1.5 h-full cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors z-10 shrink-0 bg-transparent"
-        />
+      {/* Narrow view: Reopen button when drawer is collapsed */}
+      {isNarrow && isCollapsed && (
+        <button
+          type="button"
+          data-testid="workspace-reopen-document-button"
+          onClick={() => setCollapsed(false)}
+          className="fixed bottom-20 right-4 z-30 flex items-center space-x-2 rounded-full bg-primary px-3 py-2 text-xs font-medium text-primary-foreground shadow-lg hover:bg-primary/90 transition-all"
+        >
+          <FileText className="h-4 w-4" />
+          <span>View Document</span>
+        </button>
       )}
 
-      {/* Right Document Pane */}
-      {!isCollapsed && (
-        <div
-          data-testid="workspace-document-pane-container"
-          className="h-full shrink-0 overflow-hidden"
-          style={{ width: `${panelWidth}px`, minWidth: `${WORKSPACE_DOCUMENT_MIN_WIDTH}px` }}
-        >
-          <DocumentPane document={activeDoc} onClose={onClose} />
-        </div>
+      {/* Narrow view: Responsive Sheet/Drawer with backdrop */}
+      {isNarrow && !isCollapsed && (
+        <>
+          <div
+            data-testid="workspace-drawer-backdrop"
+            aria-hidden="true"
+            onClick={() => setCollapsed(true)}
+            className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[1px]"
+          />
+          <div
+            data-testid="workspace-responsive-drawer"
+            role="dialog"
+            aria-label={activeDoc.filename}
+            className="fixed inset-y-0 right-0 z-50 w-full max-w-md bg-background shadow-xl border-l border-border flex flex-col"
+          >
+            <DocumentPane
+              document={activeDoc}
+              onClose={handleResponsiveClose}
+            />
+          </div>
+        </>
+      )}
+
+      {/* Desktop view: Split layout with resize handle */}
+      {!isNarrow && !isCollapsed && (
+        <>
+          <div
+            data-testid="workspace-resize-handle"
+            role="separator"
+            aria-orientation="vertical"
+            tabIndex={0}
+            onPointerDown={handlePointerDown}
+            className="w-1.5 h-full cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors z-10 shrink-0 bg-transparent"
+          />
+          <div
+            data-testid="workspace-document-pane-container"
+            className="h-full shrink-0 overflow-hidden"
+            style={{ width: `${panelWidth}px`, minWidth: `${WORKSPACE_DOCUMENT_MIN_WIDTH}px` }}
+          >
+            <DocumentPane document={activeDoc} onClose={onClose} />
+          </div>
+        </>
       )}
     </div>
   );
