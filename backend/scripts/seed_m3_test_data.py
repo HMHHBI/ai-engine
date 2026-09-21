@@ -1,3 +1,4 @@
+import json
 import sys
 from pathlib import Path
 
@@ -75,6 +76,30 @@ def seed_m3():
             db.commit()
             db.refresh(doc2)
         print(f"Seeded User 2 (ID: {user2.id}) and non-owned Doc (ID: {doc2.id})")
+        # Write deterministic fixture state for E2E tests
+        # Support both host execution and container mounted paths
+        target_dirs = [
+            Path(__file__).resolve().parent.parent.parent / "frontend" / "e2e" / "fixtures",
+            Path("/app/frontend/e2e/fixtures"),
+            Path("/frontend/e2e/fixtures"),
+        ]
+        fixture_data = {
+            "user1_email": user.email,
+            "user1_id": user.id,
+            "user2_email": user2.email,
+            "user2_id": user2.id,
+            "user2_chat_id": chat2.id,
+            "user2_doc_id": doc2.id,
+        }
+        for fdir in target_dirs:
+            try:
+                fdir.mkdir(parents=True, exist_ok=True)
+                with open(fdir / "test_seed_state.json", "w") as f:
+                    json.dump(fixture_data, f, indent=2)
+                print(f"Wrote seed fixture state to {fdir / 'test_seed_state.json'}")
+            except Exception:
+                pass
+
 
     finally:
         db.close()

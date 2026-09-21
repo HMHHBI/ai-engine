@@ -1,3 +1,4 @@
+import fs from "fs";
 import path from "path";
 import { test, expect } from "./fixtures/test-base";
 import { attachPageMonitoring, PageMonitoringHandle } from "./fixtures/test-base";
@@ -5,6 +6,20 @@ import { attachPageMonitoring, PageMonitoringHandle } from "./fixtures/test-base
 const TEST_EMAIL = "m3_test_user@example.com";
 const TEST_PASSWORD = "Password123!";
 const PDF_FIXTURE_PATH = path.resolve(__dirname, "fixtures/rag_test_doc.pdf");
+// Read deterministic seeded cross-user state
+let USER2_DOC_ID = 55;
+try {
+  const seedStatePath = path.resolve(__dirname, "fixtures/test_seed_state.json");
+  if (fs.existsSync(seedStatePath)) {
+    const seedState = JSON.parse(fs.readFileSync(seedStatePath, "utf-8"));
+    if (seedState.user2_doc_id) {
+      USER2_DOC_ID = seedState.user2_doc_id;
+    }
+  }
+} catch (e) {
+  // fallback remains
+}
+
 
 test.describe.serial("M4 Workspace Acceptance Suite (W1–W10)", () => {
   let sharedPage: any;
@@ -246,13 +261,13 @@ test.describe.serial("M4 Workspace Acceptance Suite (W1–W10)", () => {
   });
 
   test("W9b — cross-user non-owned ?docId safely defaults to standard chat without leak", async () => {
-    // Document ID 55 belongs to other_user@example.com (seeded)
+    // Dynamically uses deterministically seeded User 2 document ID
     const [response] = await Promise.all([
       sharedPage.waitForResponse(
-        (resp) => resp.url().includes("/documents/55") && (resp.status() === 404 || resp.status() === 403),
+        (resp) => resp.url().includes(`/documents/${USER2_DOC_ID}`) && (resp.status() === 404 || resp.status() === 403),
         { timeout: 15000 }
       ).catch(() => null),
-      sharedPage.goto(`${primaryChatUrl}?docId=55`),
+      sharedPage.goto(`${primaryChatUrl}?docId=${USER2_DOC_ID}`),
     ]);
 
     await sharedPage.waitForLoadState("networkidle");
