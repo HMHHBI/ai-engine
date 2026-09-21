@@ -19,8 +19,13 @@ export const documentApi = {
     return normalizeDocument(raw);
   },
 
-  async getFile(documentId: number): Promise<Blob> {
-    return apiClient.getBlob(`/documents/${documentId}/file`);
+  async getFile(
+    documentId: number,
+    options?: RequestInit,
+  ): Promise<Blob> {
+    return options
+      ? apiClient.getBlob(`/documents/${documentId}/file`, options)
+      : apiClient.getBlob(`/documents/${documentId}/file`);
   },
 
   async update(
