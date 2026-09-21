@@ -21,6 +21,7 @@ export type ChatPersona =
 
 export interface RetrievedSource {
   id: number;
+  document_id?: number | null;
   page_number: number | null;
   chunk_index: number | null;
   distance: number;
