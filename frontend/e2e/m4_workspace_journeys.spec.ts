@@ -244,7 +244,7 @@ test.describe.serial("M4 Workspace Acceptance Suite (W1–W10)", () => {
     test("W9a — nonexistent ?docId safely defaults to standard chat without workspace", async () => {
     const [response] = await Promise.all([
       sharedPage.waitForResponse(
-        (resp) => resp.url().includes("/documents/99999999") && resp.status() === 404,
+        (resp: any) => resp.url().includes("/documents/99999999") && resp.status() === 404,
         { timeout: 15000 }
       ).catch(() => null),
       sharedPage.goto(`${primaryChatUrl}?docId=99999999`),
@@ -264,7 +264,7 @@ test.describe.serial("M4 Workspace Acceptance Suite (W1–W10)", () => {
     // Dynamically uses deterministically seeded User 2 document ID
     const [response] = await Promise.all([
       sharedPage.waitForResponse(
-        (resp) => resp.url().includes(`/documents/${USER2_DOC_ID}`) && (resp.status() === 404 || resp.status() === 403),
+        (resp: any) => resp.url().includes(`/documents/${USER2_DOC_ID}`) && (resp.status() === 404 || resp.status() === 403),
         { timeout: 15000 }
       ).catch(() => null),
       sharedPage.goto(`${primaryChatUrl}?docId=${USER2_DOC_ID}`),

@@ -69,15 +69,20 @@ function getErrorMessage(body: unknown, fallback: string): string {
 function mapStatusToCode(status: number): string {
   switch (status) {
     case 401:
+    case 403:
       return "UNAUTHORIZED";
+    case 404:
+      return "NOT_FOUND";
     case 413:
       return "FILE_TOO_LARGE";
     case 429:
       return "RATE_LIMITED";
+    case 500:
+    case 501:
     case 502:
     case 503:
     case 504:
-      return "PROVIDER_DOWN";
+      return "SERVER_ERROR";
     default:
       return "UNKNOWN";
   }
@@ -145,9 +150,75 @@ async function request<T>(
   return body as T;
 }
 
+async function requestBlob(
+  path: string,
+  options: RequestOptions = {},
+): Promise<Blob> {
+  const { skipAuth = false, headers, ...fetchOptions } = options;
+
+  const requestHeaders = new Headers(headers);
+
+  requestHeaders.set("Accept", "application/pdf");
+
+  const isFormData = fetchOptions.body instanceof FormData;
+
+  if (fetchOptions.body && !isFormData && !requestHeaders.has("Content-Type")) {
+    requestHeaders.set("Content-Type", "application/json");
+  }
+
+  if (!skipAuth) {
+    const token = getToken();
+
+    if (token) {
+      requestHeaders.set("Authorization", `Bearer ${token}`);
+    }
+  }
+
+  let response: Response;
+
+  try {
+    response = await fetch(buildUrl(path), {
+      ...fetchOptions,
+      headers: requestHeaders,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw error;
+    }
+
+    throw new ApiError(
+      "Network request failed.",
+      "NETWORK_ERROR",
+      undefined,
+      error,
+    );
+  }
+
+  if (!response.ok) {
+    const body = await parseResponseBody(response);
+    const code = mapStatusToCode(response.status);
+
+    throw new ApiError(
+      getErrorMessage(body, `Request failed with status ${response.status}.`),
+      code,
+      response.status,
+      body,
+    );
+  }
+
+  return response.blob();
+}
+
 export const apiClient = {
   get<T>(path: string, options?: RequestOptions): Promise<T> {
     return request<T>(path, {
+      ...options,
+      method: "GET",
+    });
+  },
+
+  getBlob(path: string, options?: RequestOptions): Promise<Blob> {
+    return requestBlob(path, {
       ...options,
       method: "GET",
     });
