@@ -18,7 +18,11 @@ const DEFAULT_MODEL: AIModel = "llama3.2";
 
 const DEFAULT_PROVIDER: AIProvider = "ollama";
 
-export function ChatArea() {
+export interface ChatAreaProps {
+  documentId?: number | null;
+}
+
+export function ChatArea({ documentId }: ChatAreaProps = {}) {
   const activeChatId = useChatStore((state) => state.activeChatId);
 
   const messages = useChatStore((state) =>
@@ -69,6 +73,7 @@ export function ChatArea() {
         prompt: lastUserMessage.content,
         model,
         provider,
+        documentId,
       });
     } catch {
       // Handled in chatActions.
@@ -132,7 +137,7 @@ export function ChatArea() {
         </div>
       </div>
 
-      <ChatComposer chatId={activeChatId} model={model} provider={provider} />
+      <ChatComposer chatId={activeChatId} model={model} provider={provider} documentId={documentId} />
     </div>
   );
 }

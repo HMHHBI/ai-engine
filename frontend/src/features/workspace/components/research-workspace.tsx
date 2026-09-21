@@ -124,7 +124,7 @@ export function ResearchWorkspace({ document: activeDoc, onClose }: ResearchWork
         className="flex h-full flex-1 flex-col overflow-hidden min-w-0"
         style={{ minWidth: !isNarrow ? `${WORKSPACE_CHAT_MIN_WIDTH}px` : undefined }}
       >
-        <ChatArea />
+        <ChatArea documentId={activeDoc.id} />
       </div>
 
       {/* Narrow view: Reopen button when drawer is collapsed */}

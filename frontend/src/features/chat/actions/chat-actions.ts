@@ -20,6 +20,7 @@ export interface SendMessageOptions {
   provider?: AIProvider;
   imageBase64?: string[];
   imageMime?: string[];
+  documentId?: number | null;
 }
 
 export function buildStreamPayload(
@@ -35,8 +36,13 @@ export function buildStreamPayload(
     image_mime: options.imageMime,
   };
 
-  if (selectedDocumentId !== null) {
-    payload.document_id = selectedDocumentId;
+  const effectiveDocumentId =
+    options.documentId !== undefined
+      ? options.documentId
+      : selectedDocumentId;
+
+  if (effectiveDocumentId !== null && effectiveDocumentId !== undefined) {
+    payload.document_id = effectiveDocumentId;
   }
 
   return payload;
@@ -118,6 +124,7 @@ class ChatActions {
         provider,
         imageBase64,
         imageMime,
+        documentId: options.documentId,
       },
       selectedDocumentId,
     );

@@ -877,4 +877,117 @@ describe("chatActions", () => {
       expect.anything(),
     );
   });
+
+  describe("M4.7 Active Resolved Document Streaming Payload (C1-C5)", () => {
+    it("C1: preserves standard payload without document_id when no document is active", async () => {
+      vi.mocked(chatStreamService.stream).mockResolvedValue();
+
+      await chatActions.sendMessage({
+        chatId: 10,
+        prompt: "Standard non-doc prompt",
+      });
+
+      expect(chatStreamService.stream).toHaveBeenCalledWith(
+        expect.not.objectContaining({
+          document_id: expect.anything(),
+        }),
+        expect.anything(),
+      );
+    });
+
+    it("C2: attaches resolved document_id to stream payload when active document is present", async () => {
+      vi.mocked(chatStreamService.stream).mockResolvedValue();
+
+      await chatActions.sendMessage({
+        chatId: 10,
+        prompt: "Analyze section 2",
+        documentId: 42,
+      });
+
+      expect(chatStreamService.stream).toHaveBeenCalledWith(
+        expect.objectContaining({
+          chat_id: 10,
+          prompt: "Analyze section 2",
+          document_id: 42,
+        }),
+        expect.anything(),
+      );
+    });
+
+    it("C3: emits updated document_id cleanly when switching documents without stale leak", async () => {
+      vi.mocked(chatStreamService.stream).mockResolvedValue();
+
+      // First query with Doc 101
+      await chatActions.sendMessage({
+        chatId: 10,
+        prompt: "Doc A query",
+        documentId: 101,
+      });
+
+      expect(chatStreamService.stream).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          document_id: 101,
+        }),
+        expect.anything(),
+      );
+
+      // Subsequent query with Doc 202
+      await chatActions.sendMessage({
+        chatId: 10,
+        prompt: "Doc B query",
+        documentId: 202,
+      });
+
+      expect(chatStreamService.stream).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          document_id: 202,
+        }),
+        expect.anything(),
+      );
+    });
+
+    it("C4: rejects candidate/unresolved document when documentId is null", async () => {
+      vi.mocked(chatStreamService.stream).mockResolvedValue();
+
+      await chatActions.sendMessage({
+        chatId: 10,
+        prompt: "Prompt with unresolved document",
+        documentId: null,
+      });
+
+      expect(chatStreamService.stream).toHaveBeenCalledWith(
+        expect.not.objectContaining({
+          document_id: expect.anything(),
+        }),
+        expect.anything(),
+      );
+    });
+
+    it("C5: preserves all existing payload fields alongside document_id", async () => {
+      vi.mocked(chatStreamService.stream).mockResolvedValue();
+
+      await chatActions.sendMessage({
+        chatId: 15,
+        prompt: "Multimodal with doc",
+        model: "llama3.2",
+        provider: "openai",
+        imageBase64: ["img-data"],
+        imageMime: ["image/png"],
+        documentId: 99,
+      });
+
+      expect(chatStreamService.stream).toHaveBeenCalledWith(
+        {
+          chat_id: 15,
+          prompt: "Multimodal with doc",
+          model: "llama3.2",
+          provider: "openai",
+          image_base64: ["img-data"],
+          image_mime: ["image/png"],
+          document_id: 99,
+        },
+        expect.anything(),
+      );
+    });
+  });
 });
