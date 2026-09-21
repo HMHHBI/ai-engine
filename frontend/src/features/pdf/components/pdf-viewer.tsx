@@ -17,6 +17,7 @@ import {
 } from "@/features/pdf/utils/pdf-viewer-utils";
 import type { PdfViewerProps } from "@/features/pdf/types/pdf";
 import type { PdfNavigationTarget } from "@/features/pdf/types/navigation";
+import { cn } from "@/lib/utils";
 
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
@@ -37,6 +38,7 @@ function PdfViewerLoaded({
   const [currentPage, setCurrentPage] = useState(1);
   const [numPages, setNumPages] = useState(0);
   const [scale, setScale] = useState(1);
+  const [isPageFocused, setIsPageFocused] = useState(false);
   const [pageDimensions, setPageDimensions] = useState<{
     width: number;
     height: number;
@@ -65,7 +67,22 @@ function PdfViewerLoaded({
     lastNavigationRequestIdRef.current = navigationTarget.requestId;
 
     setCurrentPage(clampPage(navigationTarget.pageNumber, numPages));
+    setIsPageFocused(true);
   }, [navigationTarget, documentId, numPages]);
+
+  useEffect(() => {
+    if (!isPageFocused) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setIsPageFocused(false);
+    }, 1500);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [isPageFocused]);
 
   const handleFitWidth = () => {
     if (!pageDimensions || !viewerContainerRef.current) {
@@ -85,6 +102,14 @@ function PdfViewerLoaded({
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="pdf-viewer">
+      <div
+        aria-live="polite"
+        className="sr-only"
+        data-testid="pdf-navigation-announcement"
+      >
+        {isPageFocused ? `Citation navigated to page ${currentPage}.` : ""}
+      </div>
+
       <PdfToolbar
         currentPage={currentPage}
         numPages={numPages}
@@ -100,7 +125,7 @@ function PdfViewerLoaded({
 
       <div
         ref={viewerContainerRef}
-        className="min-h-0 flex-1 overflow-auto p-4"
+        className="min-h-0 flex-1 overflow-auto p-4 flex justify-center"
       >
         <Document
           file={objectUrl}
@@ -119,17 +144,25 @@ function PdfViewerLoaded({
           }}
         >
           {numPages > 0 && (
-            <PdfPage
-              pageNumber={clampPage(currentPage, numPages)}
-              scale={scale}
-              onLoadSuccess={(page) => {
-                const viewport = page.getViewport({ scale: 1 });
-                setPageDimensions({
-                  width: viewport.width,
-                  height: viewport.height,
-                });
-              }}
-            />
+            <div
+              data-testid="pdf-page-container"
+              className={cn(
+                "rounded-sm transition-all duration-300",
+                isPageFocused && "ring-4 ring-primary/80 ring-offset-2 shadow-lg",
+              )}
+            >
+              <PdfPage
+                pageNumber={clampPage(currentPage, numPages)}
+                scale={scale}
+                onLoadSuccess={(page) => {
+                  const viewport = page.getViewport({ scale: 1 });
+                  setPageDimensions({
+                    width: viewport.width,
+                    height: viewport.height,
+                  });
+                }}
+              />
+            </div>
           )}
         </Document>
       </div>
