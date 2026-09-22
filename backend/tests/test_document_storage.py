@@ -1,7 +1,7 @@
 import io
 import pytest
 from types import SimpleNamespace
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 
 from app.core.security import create_access_token
 from app.db.models import User, DocumentChunk
@@ -68,7 +68,11 @@ def test_storage_failure_before_db_creation(client, db_session):
     mock_storage = MagicMock()
     mock_storage.save.side_effect = IOError("Disk write failed")
 
-    with patch("app.api.chat.get_storage_backend", return_value=mock_storage):
+    with patch("app.api.chat.get_storage_backend", return_value=mock_storage), patch(
+        "app.services.embedding_service.EmbeddingService.generate_embedding",
+        new_callable=AsyncMock,
+        return_value=[0.1] * 768,
+    ):
         response = client.post(
             f"/chat/upload-pdf/{chat.id}",
             files={
@@ -100,6 +104,10 @@ def test_db_creation_failure_cleans_up_storage(client, db_session):
 
     with patch("app.api.chat.get_storage_backend", return_value=mock_storage), patch(
         "app.repositories.document_repo.DocumentRepository.create", return_value=None
+    ), patch(
+        "app.services.embedding_service.EmbeddingService.generate_embedding",
+        new_callable=AsyncMock,
+        return_value=[0.1] * 768,
     ):
         response = client.post(
             f"/chat/upload-pdf/{chat.id}",
@@ -130,6 +138,10 @@ def test_vector_indexing_failure_cleans_storage_and_marks_failed(client, db_sess
     with patch("app.api.chat.get_storage_backend", return_value=mock_storage), patch(
         "app.repositories.vector_repo.VectorRepository.replace_document_chunks",
         side_effect=Exception("DB dead"),
+    ), patch(
+        "app.services.embedding_service.EmbeddingService.generate_embedding",
+        new_callable=AsyncMock,
+        return_value=[0.1] * 768,
     ):
         response = client.post(
             f"/chat/upload-pdf/{chat.id}",
