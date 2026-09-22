@@ -29,6 +29,12 @@ ALLOWED_CONTENT_TYPES = {
     },
 }
 
+ALLOWED_PROFILE_IMAGE_TYPES = {
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+}
+
 
 def sanitize_filename(filename: str | None) -> str:
     """Return a safe bounded display filename."""
@@ -101,3 +107,33 @@ async def read_upload_with_limit(
         )
 
     return content
+
+
+def validate_image_bytes(content: bytes, content_type: str | None) -> None:
+    if (
+        not content_type
+        or content_type.lower().split(";", 1)[0].strip()
+        not in ALLOWED_PROFILE_IMAGE_TYPES
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Unsupported image format. Allowed formats: image/jpeg, image/png, image/webp.",
+        )
+
+    mime = content_type.lower().split(";", 1)[0].strip()
+
+    is_png = content.startswith(b"\x89PNG\r\n\x1a\n")
+    is_jpeg = content.startswith(b"\xff\xd8\xff")
+    is_webp = len(content) >= 12 and content[:4] == b"RIFF" and content[8:12] == b"WEBP"
+
+    valid = (
+        (mime == "image/png" and is_png)
+        or (mime == "image/jpeg" and is_jpeg)
+        or (mime == "image/webp" and is_webp)
+    )
+
+    if not valid:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Image content does not match its declared type.",
+        )

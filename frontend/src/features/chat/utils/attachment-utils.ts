@@ -1,6 +1,6 @@
-export const PDF_MAX_SIZE_BYTES = 20 * 1024 * 1024; // 20 MB
+export const PDF_MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
 export const PDF_MIME_TYPE = "application/pdf";
-export const IMAGE_MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
+export const IMAGE_MAX_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
 export const ALLOWED_IMAGE_TYPES = [
   "image/jpeg",
   "image/png",
@@ -18,7 +18,7 @@ export function validateImage(file: File): string | null {
   }
 
   if (file.size > IMAGE_MAX_SIZE_BYTES) {
-    return "Image is too large. Images must be 10 MB or smaller.";
+    return "Image is too large. Images must be 5 MB or smaller.";
   }
 
   return null;
@@ -34,7 +34,7 @@ export function validatePdf(file: File): string | null {
   }
 
   if (file.size > PDF_MAX_SIZE_BYTES) {
-    return "PDF is too large. PDF files must be 20 MB or smaller.";
+    return "PDF is too large. PDF files must be 10 MB or smaller.";
   }
 
   return null;

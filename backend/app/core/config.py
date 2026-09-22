@@ -69,6 +69,16 @@ class Settings(BaseSettings):
     MAX_CHUNK_EMBEDDINGS: int = 5_000
 
     # ------------------------------------------------------------------
+    # Payload & AI Request Limits
+    # ------------------------------------------------------------------
+
+    MAX_PROMPT_CHARS: int = 32_000
+    MAX_FILE_CONTEXT_CHARS: int = 100_000
+    MAX_IMAGE_COUNT: int = 4
+    MAX_IMAGE_BASE64_CHARS: int = 7_000_000  # ~5 MiB raw binary
+    MAX_TOTAL_IMAGE_BASE64_CHARS: int = 20_000_000  # ~15 MiB aggregate binary
+
+    # ------------------------------------------------------------------
     # AI
     # ------------------------------------------------------------------
 
@@ -191,6 +201,11 @@ class Settings(BaseSettings):
         "MAX_EXTRACTED_TEXT_CHARS",
         "MAX_DOCUMENT_CHUNKS",
         "MAX_CHUNK_EMBEDDINGS",
+        "MAX_PROMPT_CHARS",
+        "MAX_FILE_CONTEXT_CHARS",
+        "MAX_IMAGE_COUNT",
+        "MAX_IMAGE_BASE64_CHARS",
+        "MAX_TOTAL_IMAGE_BASE64_CHARS",
         mode="before",
     )
     @classmethod

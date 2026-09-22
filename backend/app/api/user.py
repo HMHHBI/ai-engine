@@ -19,6 +19,12 @@ from app.core.rate_limiter import limiter
 from app.db.models import User
 from app.db.session import get_db
 from app.repositories.user_repo import UserRepository
+from app.utils.file_validation import (
+    read_upload_with_limit,
+    validate_image_bytes,
+)
+
+PROFILE_IMAGE_MAX_BYTES = 2 * 1024 * 1024  # 2 MiB
 
 logger = logging.getLogger(__name__)
 
@@ -52,8 +58,11 @@ async def update_profile(
 ):
     try:
         image_base64 = None
-        if profile_img:
-            file_content = await profile_img.read()
+        if profile_img and profile_img.filename:
+            file_content = await read_upload_with_limit(
+                profile_img, max_bytes=PROFILE_IMAGE_MAX_BYTES
+            )
+            validate_image_bytes(file_content, profile_img.content_type)
             image_base64 = base64.b64encode(file_content).decode("utf-8")
 
         updated_user = UserRepository.update_profile(
@@ -73,39 +82,4 @@ async def update_profile(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to update profile.",
-        )
-
-
-@router.post("/upgrade-plan")
-@limiter.limit("5/minute")
-async def upgrade_plan(
-    request: Request,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    try:
-        updated_user = UserRepository.upgrade_to_pro(db, current_user.id)
-
-        if not updated_user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found.",
-            )
-
-        return {
-            "success": True,
-            "message": "Welcome to PRO, Hassan! 🚀",
-            "plan": (
-                updated_user.plan.value
-                if hasattr(updated_user.plan, "value")
-                else str(updated_user.plan)
-            ),
-        }
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception("Unexpected plan upgrade failure user_id=%s", current_user.id)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Unable to upgrade plan.",
         )

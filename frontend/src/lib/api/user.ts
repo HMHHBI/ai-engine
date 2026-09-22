@@ -6,10 +6,6 @@ export interface UpdateProfileResponse {
   user?: User;
 }
 
-export interface UpgradeRequestResponse {
-  message: string;
-}
-
 export const userApi = {
   getProfile(): Promise<User> {
     return apiClient.get<User>("/user/me");
@@ -21,12 +17,6 @@ export const userApi = {
     return apiClient.put<UpdateProfileResponse>(
       "/user/update-profile",
       formData,
-    );
-  },
-
-  requestUpgrade(): Promise<UpgradeRequestResponse> {
-    return apiClient.post<UpgradeRequestResponse>(
-      "/user/upgrade-plan",
     );
   },
 };
