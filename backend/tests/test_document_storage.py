@@ -1,3 +1,4 @@
+from botocore.exceptions import ClientError
 import io
 import pytest
 from types import SimpleNamespace
@@ -329,3 +330,40 @@ def test_upload_response_does_not_expose_storage_key(client, db_session):
         assert "document" in payload
         assert "storage_key" not in payload["document"]
         assert "storage_key" not in payload
+
+def test_r2_storage_get_stream_translates_nosuchkey_to_filenotfound():
+    from app.storage.r2 import R2StorageBackend
+
+    with patch("app.storage.r2.boto3.client") as mock_boto:
+        mock_client = MagicMock()
+        mock_boto.return_value = mock_client
+
+        error_response = {"Error": {"Code": "NoSuchKey", "Message": "The specified key does not exist."}}
+        mock_client.get_object.side_effect = ClientError(error_response, "GetObject")
+
+        with patch("app.core.config.settings.R2_ACCOUNT_ID", "acc-123"), \
+             patch("app.core.config.settings.R2_ACCESS_KEY_ID", "key-123"), \
+             patch("app.core.config.settings.R2_SECRET_ACCESS_KEY", "sec-123"), \
+             patch("app.core.config.settings.R2_BUCKET_NAME", "bucket-test"):
+            backend = R2StorageBackend()
+            with pytest.raises(FileNotFoundError):
+                backend.get_stream("raw_pdfs/42/missing.pdf")
+
+
+def test_r2_storage_get_stream_reraises_other_client_errors():
+    from app.storage.r2 import R2StorageBackend
+
+    with patch("app.storage.r2.boto3.client") as mock_boto:
+        mock_client = MagicMock()
+        mock_boto.return_value = mock_client
+
+        error_response = {"Error": {"Code": "AccessDenied", "Message": "Access Denied."}}
+        mock_client.get_object.side_effect = ClientError(error_response, "GetObject")
+
+        with patch("app.core.config.settings.R2_ACCOUNT_ID", "acc-123"), \
+             patch("app.core.config.settings.R2_ACCESS_KEY_ID", "key-123"), \
+             patch("app.core.config.settings.R2_SECRET_ACCESS_KEY", "sec-123"), \
+             patch("app.core.config.settings.R2_BUCKET_NAME", "bucket-test"):
+            backend = R2StorageBackend()
+            with pytest.raises(ClientError):
+                backend.get_stream("raw_pdfs/42/forbidden.pdf")

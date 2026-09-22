@@ -58,12 +58,18 @@ class R2StorageBackend(StorageBackend):
         self,
         key: str,
     ) -> BinaryIO:
-        response = self.client.get_object(
-            Bucket=self.bucket_name,
-            Key=key,
-        )
-        # Genuinely stream body without buffering full file into RAM
-        return response["Body"]
+        try:
+            response = self.client.get_object(
+                Bucket=self.bucket_name,
+                Key=key,
+            )
+            # Genuinely stream body without buffering full file into RAM
+            return response["Body"]
+        except ClientError as exc:
+            error_code = exc.response.get("Error", {}).get("Code")
+            if error_code in {"404", "NoSuchKey", "NotFound"}:
+                raise FileNotFoundError(key) from exc
+            raise
 
     def delete(
         self,
