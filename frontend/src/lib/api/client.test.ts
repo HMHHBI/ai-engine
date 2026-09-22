@@ -18,14 +18,12 @@ describe("apiClient.getBlob", () => {
       type: "application/pdf",
     });
 
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(blob, {
-        status: 200,
-        headers: {
-          "Content-Type": "application/pdf",
-        },
-      }),
-    );
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers({ "Content-Type": "application/pdf" }),
+      blob: async () => blob,
+    } as unknown as Response);
 
     const result = await apiClient.getBlob("/documents/42/file");
 
