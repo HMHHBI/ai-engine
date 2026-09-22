@@ -46,4 +46,13 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    # Invalidate tokens issued before a security change (password reset)
+    token_version = payload.get("v")
+    if token_version is None or token_version != user.token_version:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has been revoked. Please log in again.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     return user

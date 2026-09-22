@@ -250,6 +250,7 @@ class UserRepository:
 
         user.reset_token_hash = None
         user.reset_token_expires_at = None
+        user.token_version = (user.token_version or 1) + 1
 
         try:
             db.commit()
