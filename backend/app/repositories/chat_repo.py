@@ -12,6 +12,7 @@ from app.db.session import session_scope
 
 class RetrievedSource(TypedDict):
     id: int
+    document_id: int | None
     page_number: int | None
     chunk_index: int | None
     distance: float
@@ -31,6 +32,11 @@ def _normalize_sources(raw_sources: Any) -> Optional[list[dict[str, Any]]]:
             continue
         try:
             source_id = int(item["id"])
+            doc_id = (
+                int(item["document_id"])
+                if item.get("document_id") is not None
+                else None
+            )
             page_num = (
                 int(item["page_number"])
                 if item.get("page_number") is not None
@@ -47,6 +53,7 @@ def _normalize_sources(raw_sources: Any) -> Optional[list[dict[str, Any]]]:
             normalized.append(
                 {
                     "id": source_id,
+                    "document_id": doc_id,
                     "page_number": page_num,
                     "chunk_index": chunk_idx,
                     "distance": round(distance, 6),

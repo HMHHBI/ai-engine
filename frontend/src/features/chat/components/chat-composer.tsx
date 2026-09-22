@@ -29,11 +29,12 @@ interface ChatComposerProps {
   chatId: number | null;
   model: AIModel;
   provider: AIProvider;
+  documentId?: number | null;
 }
 
 const TEXTAREA_MAX_HEIGHT = 220;
 
-export function ChatComposer({ chatId, model, provider }: ChatComposerProps) {
+export function ChatComposer({ chatId, model, provider, documentId }: ChatComposerProps) {
   const [prompt, setPrompt] = useState("");
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [pdf, setPdf] = useState<PdfAttachment | null>(null);
@@ -269,6 +270,7 @@ export function ChatComposer({ chatId, model, provider }: ChatComposerProps) {
         provider,
         imageBase64: imageBase64.length > 0 ? imageBase64 : undefined,
         imageMime: imageMime.length > 0 ? imageMime : undefined,
+        documentId,
       });
 
       clearImages();

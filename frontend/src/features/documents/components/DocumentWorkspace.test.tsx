@@ -6,6 +6,16 @@ import { DocumentWorkspace } from "./DocumentWorkspace";
 import { useDocumentStore } from "../document-store";
 import { documentApi } from "@/lib/api/documents";
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+  usePathname: () => "/chat",
+  useSearchParams: () => new URLSearchParams(),
+}));
+
 vi.mock("@/lib/api/documents", () => ({
   documentApi: {
     listForChat: vi.fn(),

@@ -1,20 +1,22 @@
-﻿"use client";
+"use client";
 
 import { Bot, User } from "lucide-react";
 
 import { CitationSources } from "@/features/chat/components/citation-sources";
 import { CopyButton } from "@/features/chat/components/copy-button";
-import type { ChatMessage } from "@/types/api";
+import type { ChatMessage, RetrievedSource } from "@/types/api";
 import { cn } from "@/lib/utils";
 
 interface MessageBubbleProps {
   message: ChatMessage;
   isStreaming?: boolean;
+  onCitationClick?: (source: RetrievedSource) => void;
 }
 
 export function MessageBubble({
   message,
   isStreaming = false,
+  onCitationClick,
 }: MessageBubbleProps) {
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
@@ -84,7 +86,10 @@ export function MessageBubble({
         </div>
 
         {!isUser && !isStreaming && message.sources?.length ? (
-          <CitationSources sources={message.sources} />
+          <CitationSources
+            sources={message.sources}
+            onCitationClick={onCitationClick}
+          />
         ) : null}
 
         {content && (

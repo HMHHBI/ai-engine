@@ -68,9 +68,9 @@ export function DocumentListItem({
           ? "border-blue-500/40 bg-blue-50/50 dark:bg-blue-950/20 shadow-sm"
           : "border-zinc-200 dark:border-zinc-800/80 bg-white dark:bg-zinc-900/40 hover:border-zinc-300 dark:hover:border-zinc-700"
       }`}
-      data-testid={`document-item-${document.id}`}
+      data-testid={`document-item-${document.id}`} data-doc-id={document.id}
     >
-      <div className="flex items-start justify-between gap-3">
+      <div data-testid="document-list-item" data-doc-id={document.id} className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3 flex-1 min-w-0">
           <div className="p-2 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 mt-0.5 shrink-0">
             <FileText className="w-4 h-4" />

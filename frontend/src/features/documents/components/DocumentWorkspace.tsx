@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useMemo, useState } from "react";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { X, FileText, AlertTriangle } from "lucide-react";
 import { useDocumentStore } from "../document-store";
 import {
@@ -31,6 +32,9 @@ export function DocumentWorkspace({
   triggerRef,
 }: DocumentWorkspaceProps) {
   const drawerRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   const [deletingDocumentId, setDeletingDocumentId] = useState<number | null>(
     null,
@@ -174,7 +178,20 @@ export function DocumentWorkspace({
             <DocumentList
               documents={documents}
               selectedDocumentId={selectedDocumentId}
-              onSelectDocument={(doc) => selectDocument(chatId, doc.id)}
+              onSelectDocument={(doc) => {
+                const isSelected = selectedDocumentId === doc.id;
+                selectDocument(chatId, doc.id);
+                if (typeof window !== "undefined") {
+                  const params = new URLSearchParams(searchParams?.toString() ?? "");
+                  if (isSelected) {
+                    params.delete("docId");
+                  } else {
+                    params.set("docId", String(doc.id));
+                  }
+                  const query = params.toString();
+                  router.push(query ? `${pathname}?${query}` : pathname);
+                }
+              }}
               onEditDocument={(doc) => setEditingDocumentId(doc.id)}
               onDeleteDocument={(doc) => setDeletingDocumentId(doc.id)}
             />

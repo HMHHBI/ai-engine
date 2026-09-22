@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Optional
+from typing import List, Optional, Union, Literal
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -151,6 +151,26 @@ class Settings(BaseSettings):
         case_sensitive=True,
         extra="ignore",
     )
+
+    # ------------------------------------------------------------------
+    # Storage Configuration
+    # ------------------------------------------------------------------
+
+    STORAGE_BACKEND: Literal["local", "r2"] = "local"
+    LOCAL_STORAGE_ROOT: str = "./storage"
+
+    R2_ACCOUNT_ID: Optional[str] = None
+    R2_ACCESS_KEY_ID: Optional[str] = None
+    R2_SECRET_ACCESS_KEY: Optional[str] = None
+    R2_BUCKET_NAME: Optional[str] = None
+
+    @field_validator("STORAGE_BACKEND")
+    @classmethod
+    def validate_storage_backend(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in {"local", "r2"}:
+            raise ValueError("STORAGE_BACKEND must be either 'local' or 'r2'.")
+        return normalized
 
     # ------------------------------------------------------------------
     # Provider/model consistency validation

@@ -73,7 +73,10 @@ export function ChatHistoryList({ onSelectChat }: ChatHistoryListProps) {
     return (
       <div className="space-y-2 py-1">
         {Array.from({ length: 6 }).map((_, index) => (
-          <Skeleton key={index} className="h-9 w-full rounded-lg" />
+          <Skeleton
+            key={`skeleton-${index}`}
+            className="h-9 w-full rounded-lg"
+          />
         ))}
       </div>
     );
@@ -109,13 +112,16 @@ export function ChatHistoryList({ onSelectChat }: ChatHistoryListProps) {
   return (
     <>
       <div className="space-y-1">
-        {sessions.map((session) => {
+        {sessions.map((session, index) => {
           const isActive = pathname === `/dashboard/chat/${session.id}`;
           const isMutating = Boolean(mutatingChatIds[session.id]);
+          const itemKey = session.id
+            ? `session-${session.id}`
+            : `session-idx-${index}`;
 
           return (
             <ChatHistoryItem
-              key={session.id}
+              key={itemKey}
               session={session}
               isActive={isActive}
               isMutating={isMutating}

@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { MessageBubble } from "@/features/chat/components/message-bubble";
 import { useChatStore } from "@/features/chat/store/chat-store";
-import type { ChatMessage } from "@/types/api";
+import type { ChatMessage, RetrievedSource } from "@/types/api";
 import { cn } from "@/lib/utils";
 
 const EMPTY_MESSAGES: ChatMessage[] = [];
@@ -13,9 +13,10 @@ const BOTTOM_THRESHOLD = 96;
 
 interface MessageListProps {
   chatId: number | null;
+  onCitationClick?: (source: RetrievedSource) => void;
 }
 
-export function MessageList({ chatId }: MessageListProps) {
+export function MessageList({ chatId, onCitationClick }: MessageListProps) {
   const messages = useChatStore((state) =>
     chatId === null
       ? EMPTY_MESSAGES
@@ -114,6 +115,7 @@ export function MessageList({ chatId }: MessageListProps) {
             key={message.id ?? `${message.role}-${index}`}
             message={message}
             isStreaming={isStreaming && index === messages.length - 1}
+            onCitationClick={onCitationClick}
           />
         ))}
 

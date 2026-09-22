@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 from sqlalchemy import delete, select
 
 from app.db.models import Chat, Document
 from app.db.session import session_scope
+from app.storage import get_storage_backend
 
+logger = logging.getLogger(__name__)
 
 class DocumentRepository:
     """
@@ -89,6 +92,7 @@ class DocumentRepository:
         file_size: Optional[int] = None,
         page_count: Optional[int] = None,
         storage_url: Optional[str] = None,
+        storage_key: Optional[str] = None,
     ) -> Optional[Document]:
         """
         Create a processing document owned by the authenticated user.
@@ -133,6 +137,7 @@ class DocumentRepository:
                 file_size=file_size,
                 page_count=page_count,
                 storage_url=normalized_storage_url,
+                storage_key=storage_key,
                 status="processing",
                 error_message=None,
             )
@@ -399,7 +404,6 @@ class DocumentRepository:
                 return False
 
             db.delete(document)
-
             return True
 
     @staticmethod

@@ -1,3 +1,4 @@
+import { selectDocument } from "@/features/documents/document-actions";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { chatActions } from "./chat-actions";
@@ -7,6 +8,7 @@ import { chatRequestController } from "@/features/chat/stream/chat-request-contr
 import { chatSessionActions } from "@/features/chat/actions/chat-session-actions";
 import { useChatStore } from "@/features/chat/store/chat-store";
 import { useChatSessionStore } from "@/features/chat/store/chat-session-store";
+import { useDocumentStore } from "@/features/documents/document-store";
 import { ApiError } from "@/lib/errors/api-error";
 import type { StreamPayload } from "@/types/api";
 import { chatApi } from "@/lib/api/chat";
@@ -876,5 +878,172 @@ describe("chatActions", () => {
       }),
       expect.anything(),
     );
+  });
+
+  describe("M4.7 Active Resolved Document Streaming Payload (C1-C5)", () => {
+    it("C1: preserves standard payload without document_id when no document is active", async () => {
+      vi.mocked(chatStreamService.stream).mockResolvedValue();
+
+      await chatActions.sendMessage({
+        chatId: 10,
+        prompt: "Standard non-doc prompt",
+      });
+
+      expect(chatStreamService.stream).toHaveBeenCalledWith(
+        expect.not.objectContaining({
+          document_id: expect.anything(),
+        }),
+        expect.anything(),
+      );
+    });
+
+    it("C2: attaches resolved document_id to stream payload when active document is present", async () => {
+      vi.mocked(chatStreamService.stream).mockResolvedValue();
+
+      await chatActions.sendMessage({
+        chatId: 10,
+        prompt: "Analyze section 2",
+        documentId: 42,
+      });
+
+      expect(chatStreamService.stream).toHaveBeenCalledWith(
+        expect.objectContaining({
+          chat_id: 10,
+          prompt: "Analyze section 2",
+          document_id: 42,
+        }),
+        expect.anything(),
+      );
+    });
+
+    it("C3: emits updated document_id cleanly when switching documents without stale leak", async () => {
+      vi.mocked(chatStreamService.stream).mockResolvedValue();
+
+      // First query with Doc 101
+      await chatActions.sendMessage({
+        chatId: 10,
+        prompt: "Doc A query",
+        documentId: 101,
+      });
+
+      expect(chatStreamService.stream).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          document_id: 101,
+        }),
+        expect.anything(),
+      );
+
+      // Subsequent query with Doc 202
+      await chatActions.sendMessage({
+        chatId: 10,
+        prompt: "Doc B query",
+        documentId: 202,
+      });
+
+      expect(chatStreamService.stream).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          document_id: 202,
+        }),
+        expect.anything(),
+      );
+    });
+
+    it("C4: rejects candidate/unresolved document when documentId is null", async () => {
+      vi.mocked(chatStreamService.stream).mockResolvedValue();
+
+      await chatActions.sendMessage({
+        chatId: 10,
+        prompt: "Prompt with unresolved document",
+        documentId: null,
+      });
+
+      expect(chatStreamService.stream).toHaveBeenCalledWith(
+        expect.not.objectContaining({
+          document_id: expect.anything(),
+        }),
+        expect.anything(),
+      );
+    });
+
+    it("C5: preserves all existing payload fields alongside document_id", async () => {
+      vi.mocked(chatStreamService.stream).mockResolvedValue();
+
+      await chatActions.sendMessage({
+        chatId: 15,
+        prompt: "Multimodal with doc",
+        model: "llama3.2",
+        provider: "openai",
+        imageBase64: ["img-data"],
+        imageMime: ["image/png"],
+        documentId: 99,
+      });
+
+      expect(chatStreamService.stream).toHaveBeenCalledWith(
+        {
+          chat_id: 15,
+          prompt: "Multimodal with doc",
+          model: "llama3.2",
+          provider: "openai",
+          image_base64: ["img-data"],
+          image_mime: ["image/png"],
+          document_id: 99,
+        },
+        expect.anything(),
+      );
+    });
+
+    it("C6: workspace close deselects store selection and prevents stale document_id in subsequent messages", async () => {
+      vi.mocked(chatStreamService.stream).mockResolvedValue();
+
+      // Seed document into store with status ready so selectDocument succeeds
+      useDocumentStore.setState((state) => ({
+        documentsByChat: {
+          ...state.documentsByChat,
+          10: [
+            {
+              id: 123,
+              user_id: 1,
+              chat_id: 10,
+              filename: "doc123.pdf",
+              mime_type: "application/pdf",
+              file_size: 1024,
+              page_count: 3,
+              storage_url: null,
+              status: "ready",
+              error_message: null,
+              created_at: "2026-09-20T00:00:00Z",
+              updated_at: "2026-09-20T00:00:00Z",
+            },
+          ],
+        },
+      }));
+
+      selectDocument(10, 123);
+      expect(useDocumentStore.getState().selectedDocumentIdByChat[10]).toBe(123);
+
+      await chatActions.sendMessage({
+        chatId: 10,
+        prompt: "Workspace active query",
+        documentId: 123,
+      });
+
+      expect(chatStreamService.stream).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          document_id: 123,
+        }),
+        expect.anything(),
+      );
+
+      selectDocument(10, null);
+      expect(useDocumentStore.getState().selectedDocumentIdByChat[10]).toBeNull();
+
+      await chatActions.sendMessage({
+        chatId: 10,
+        prompt: "Post-workspace closing standard query",
+      });
+
+      const lastCallPayload = vi.mocked(chatStreamService.stream).mock.calls.at(-1)?.[0];
+      expect(lastCallPayload?.document_id).toBeUndefined();
+    });
   });
 });
