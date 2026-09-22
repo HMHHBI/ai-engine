@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, List, Optional
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.config import settings
 
@@ -74,6 +74,24 @@ class AIRequest(BaseModel):
                 raise ValueError("Unsupported image type.")
 
         return value
+
+    @model_validator(mode="after")
+    def validate_image_payload_parity(self) -> AIRequest:
+        has_images = bool(self.image_base64)
+        has_mimes = bool(self.image_mime)
+
+        if has_images != has_mimes:
+            raise ValueError(
+                "image_base64 and image_mime must both be provided together."
+            )
+
+        if has_images and has_mimes:
+            if len(self.image_base64) != len(self.image_mime):
+                raise ValueError(
+                    "image_base64 and image_mime must contain the exact same number of items."
+                )
+
+        return self
 
 
 # Create Chat Request Schema

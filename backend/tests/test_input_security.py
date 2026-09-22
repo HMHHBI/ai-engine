@@ -43,7 +43,7 @@ def test_stream_rejects_blank_or_whitespace_prompt(client, test_user_and_chat) -
         "/chat/stream",
         json={
             "chat_id": chat.id,
-            "prompt": "     \n   ",
+            "prompt": "   \n\t  ",
         },
         headers=headers,
     )
@@ -57,8 +57,8 @@ def test_stream_rejects_too_many_images(client, test_user_and_chat) -> None:
         "/chat/stream",
         json={
             "chat_id": chat.id,
-            "prompt": "analyze images",
-            "image_base64": ["validstring"] * (settings.MAX_IMAGE_COUNT + 1),
+            "prompt": "test prompt",
+            "image_base64": ["validb64"] * (settings.MAX_IMAGE_COUNT + 1),
             "image_mime": ["image/png"] * (settings.MAX_IMAGE_COUNT + 1),
         },
         headers=headers,
@@ -66,15 +66,15 @@ def test_stream_rejects_too_many_images(client, test_user_and_chat) -> None:
     assert response.status_code == 422
 
 
-def test_stream_rejects_oversized_single_image(client, test_user_and_chat) -> None:
+def test_stream_rejects_oversized_individual_image(client, test_user_and_chat) -> None:
     _, chat, headers = test_user_and_chat
 
     response = client.post(
         "/chat/stream",
         json={
             "chat_id": chat.id,
-            "prompt": "analyze image",
-            "image_base64": ["x" * (settings.MAX_IMAGE_BASE64_CHARS + 1)],
+            "prompt": "test prompt",
+            "image_base64": ["a" * (settings.MAX_IMAGE_BASE64_CHARS + 1)],
             "image_mime": ["image/png"],
         },
         headers=headers,
@@ -89,10 +89,50 @@ def test_stream_rejects_unsupported_image_mime(client, test_user_and_chat) -> No
         "/chat/stream",
         json={
             "chat_id": chat.id,
-            "prompt": "analyze image",
-            "image_base64": ["somebase64data"],
-            "image_mime": ["image/svg+xml"],
+            "prompt": "test prompt",
+            "image_base64": ["validb64"],
+            "image_mime": ["image/bmp"],
         },
         headers=headers,
     )
+    assert response.status_code == 422
+
+
+def test_ai_request_rejects_missing_mime_when_image_present(
+    client, test_user_and_chat
+) -> None:
+    _, chat, headers = test_user_and_chat
+    payload = {
+        "chat_id": chat.id,
+        "prompt": "Hello",
+        "image_base64": ["validbase64string"],
+    }
+    response = client.post("/chat/stream", json=payload, headers=headers)
+    assert response.status_code == 422
+
+
+def test_ai_request_rejects_missing_image_when_mime_present(
+    client, test_user_and_chat
+) -> None:
+    _, chat, headers = test_user_and_chat
+    payload = {
+        "chat_id": chat.id,
+        "prompt": "Hello",
+        "image_mime": ["image/png"],
+    }
+    response = client.post("/chat/stream", json=payload, headers=headers)
+    assert response.status_code == 422
+
+
+def test_ai_request_rejects_mismatched_image_and_mime_lengths(
+    client, test_user_and_chat
+) -> None:
+    _, chat, headers = test_user_and_chat
+    payload = {
+        "chat_id": chat.id,
+        "prompt": "Hello",
+        "image_base64": ["img1", "img2"],
+        "image_mime": ["image/png"],
+    }
+    response = client.post("/chat/stream", json=payload, headers=headers)
     assert response.status_code == 422
