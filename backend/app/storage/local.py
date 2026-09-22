@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import io
 from pathlib import Path
 from typing import BinaryIO
 
@@ -54,7 +53,7 @@ class LocalStorageBackend(StorageBackend):
         path = self._resolve_key(key)
         if not path.is_file():
             raise FileNotFoundError(key)
-        return io.BytesIO(path.read_bytes())
+        return path.open("rb")
 
     def delete(
         self,

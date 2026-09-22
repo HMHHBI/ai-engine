@@ -255,3 +255,31 @@ def test_user_cannot_access_nonexistent_chat(
         headers=auth_headers(user_a),
     )
     assert response.status_code == 404
+
+# ============================================================
+# Inactive user boundary
+# ============================================================
+
+
+def test_inactive_user_token_is_rejected(client, db_session) -> None:
+    ts = int(time.time() * 1000)
+
+    user = UserRepository.create(
+        db_session,
+        name="Inactive User",
+        email=f"inactive-{ts}@example.com",
+        password="Password!123",
+    )
+
+    user.is_active = False
+    db_session.commit()
+
+    token = create_access_token(user_id=user.id)
+
+    response = client.get(
+        "/user/me",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid or inactive account."

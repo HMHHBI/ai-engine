@@ -260,34 +260,3 @@ class UserRepository:
         db.refresh(user)
 
         return user
-
-    # ============================================================
-    # Plan
-    # ============================================================
-
-    @staticmethod
-    def upgrade_to_pro(
-        db: Session,
-        user_id: int,
-    ) -> User | None:
-        user = UserRepository.get_by_id(
-            db,
-            user_id,
-        )
-
-        if not user:
-            return None
-
-        user.plan = UserPlan.PRO
-        user.image_limit = 1000
-        user.search_limit = 5000
-
-        try:
-            db.commit()
-        except Exception:
-            db.rollback()
-            raise
-
-        db.refresh(user)
-
-        return user

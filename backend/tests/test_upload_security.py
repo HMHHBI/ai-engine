@@ -117,3 +117,53 @@ def test_rejects_invalid_utf8(client, user_and_chat):
         headers={"Authorization": f"Bearer {create_access_token(user.id)}"},
     )
     assert response.status_code == 415
+
+
+def test_profile_image_over_limit_is_rejected(client, db_session):
+    user = UserRepository.create(
+        db_session,
+        name="Profile Sec User",
+        email="profile-sec@example.com",
+        password="Password!123",
+    )
+    token = create_access_token(user.id)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    oversized = b"x" * (2 * 1024 * 1024 + 1)
+    response = client.put(
+        "/user/update-profile",
+        files={
+            "profile_img": (
+                "avatar.png",
+                BytesIO(oversized),
+                "image/png",
+            )
+        },
+        headers=headers,
+    )
+    assert response.status_code == 413
+
+
+def test_profile_image_spoofed_mime_is_rejected(client, db_session):
+    user = UserRepository.create(
+        db_session,
+        name="Profile Spoof User",
+        email="profile-spoof@example.com",
+        password="Password!123",
+    )
+    token = create_access_token(user.id)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    corrupt_bytes = b"not-a-real-png-header"
+    response = client.put(
+        "/user/update-profile",
+        files={
+            "profile_img": (
+                "avatar.png",
+                BytesIO(corrupt_bytes),
+                "image/png",
+            )
+        },
+        headers=headers,
+    )
+    assert response.status_code == 422

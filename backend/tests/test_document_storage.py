@@ -367,3 +367,30 @@ def test_r2_storage_get_stream_reraises_other_client_errors():
             backend = R2StorageBackend()
             with pytest.raises(ClientError):
                 backend.get_stream("raw_pdfs/42/forbidden.pdf")
+
+
+def test_local_storage_returns_real_file_stream_without_buffering(tmp_path):
+    storage = LocalStorageBackend(root=tmp_path)
+    payload = b"X" * (128 * 1024)
+
+    storage.save(
+        "test_stream.pdf",
+        io.BytesIO(payload),
+        content_type="application/pdf",
+    )
+
+    stream = storage.get_stream("test_stream.pdf")
+    try:
+        assert not hasattr(stream, "getvalue")
+        assert hasattr(stream, "fileno")
+
+        chunk1 = stream.read(64 * 1024)
+        chunk2 = stream.read(64 * 1024)
+        chunk3 = stream.read(64 * 1024)
+
+        assert len(chunk1) == 64 * 1024
+        assert len(chunk2) == 64 * 1024
+        assert chunk3 == b""
+        assert chunk1 + chunk2 == payload
+    finally:
+        stream.close()

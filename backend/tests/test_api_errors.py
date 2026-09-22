@@ -240,34 +240,6 @@ def test_db_replacement_failure_returns_safe_500(client, user_and_chat):
         assert "Database lock" not in response.text
 
 
-def test_upgrade_plan_not_found_returns_404(client, user_and_chat):
-    user, _ = user_and_chat
-    with patch(
-        "app.repositories.user_repo.UserRepository.upgrade_to_pro", return_value=None
-    ):
-        response = client.post(
-            "/user/upgrade-plan",
-            headers=auth_headers(user),
-        )
-        assert response.status_code == 404
-        assert response.json()["detail"] == "User not found."
-
-
-def test_upgrade_plan_unexpected_exception_returns_500(client, user_and_chat):
-    user, _ = user_and_chat
-    with patch(
-        "app.repositories.user_repo.UserRepository.upgrade_to_pro",
-        side_effect=Exception("Stripe webhook sync crash"),
-    ):
-        response = client.post(
-            "/user/upgrade-plan",
-            headers=auth_headers(user),
-        )
-        assert response.status_code == 500
-        assert response.json()["detail"] == "Unable to upgrade plan."
-        assert "Stripe" not in response.text
-
-
 def test_delete_chat_unexpected_exception_returns_500(client, user_and_chat):
     user, chat = user_and_chat
     with patch(

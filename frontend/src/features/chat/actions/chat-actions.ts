@@ -240,7 +240,7 @@ class ChatActions {
 
       if (error instanceof ApiError) {
         if (error.status === 413) {
-          message = "This PDF is too large (max 20MB).";
+          message = "This PDF is too large (max 10MB).";
         } else if (error.status === 429) {
           message = "Upload limit reached. Try again later.";
         } else if (error.status && error.status >= 500) {
