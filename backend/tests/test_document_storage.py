@@ -295,3 +295,37 @@ def test_db_deletion_failure_preserves_document(client, db_session):
         document_id=doc.id, user_id=user.id
     )
     assert persisted is not None
+
+def test_upload_response_does_not_expose_storage_key(client, db_session):
+    user = UserRepository.create(
+        db_session,
+        name="Security User",
+        email="security-user@example.com",
+        password="Password!123",
+    )
+    chat = ChatRepository.create_chat(user_id=user.id, title="Security Chat")
+
+    mock_storage = MagicMock()
+    mock_storage.save.return_value = "raw_pdfs/sec/secret.pdf"
+
+    with patch("app.api.chat.get_storage_backend", return_value=mock_storage), patch(
+        "app.services.embedding_service.EmbeddingService.generate_embedding",
+        new_callable=AsyncMock,
+        return_value=[0.1] * 768,
+    ):
+        response = client.post(
+            f"/chat/upload-pdf/{chat.id}",
+            files={
+                "file": (
+                    "test.txt",
+                    b"Document content without key leak",
+                    "text/plain",
+                )
+            },
+            headers=auth_headers(user),
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert "document" in payload
+        assert "storage_key" not in payload["document"]
+        assert "storage_key" not in payload

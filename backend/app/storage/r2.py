@@ -62,7 +62,8 @@ class R2StorageBackend(StorageBackend):
             Bucket=self.bucket_name,
             Key=key,
         )
-        return io.BytesIO(response["Body"].read())
+        # Genuinely stream body without buffering full file into RAM
+        return response["Body"]
 
     def delete(
         self,

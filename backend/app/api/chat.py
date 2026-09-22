@@ -1406,8 +1406,6 @@ async def upload_pdf(
         )
 
         if not document:
-            if storage_key:
-                await asyncio.to_thread(storage.delete, storage_key)
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Chat session missing or unauthorized.",
@@ -1447,7 +1445,6 @@ async def upload_pdf(
                 "mime_type": document.mime_type,
                 "file_size": document.file_size,
                 "page_count": document.page_count,
-                "storage_key": document.storage_key,
                 "status": "ready",
             },
         }
@@ -1469,7 +1466,16 @@ async def upload_pdf(
                 pass
         raise
 
-    except BaseException:
+    except asyncio.CancelledError:
+        if storage_key:
+            try:
+                storage = get_storage_backend()
+                await asyncio.to_thread(storage.delete, storage_key)
+            except Exception:
+                pass
+        raise
+
+    except Exception:
         logger.exception(
             "Unexpected error in upload_pdf chat_id=%s user_id=%s",
             chat_id,

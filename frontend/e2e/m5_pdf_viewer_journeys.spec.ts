@@ -634,11 +634,14 @@ test.describe.serial("M5 PDF Viewer Acceptance Suite (M5.11)", () => {
       const response = await route.fetch();
       const body = await response.json();
 
+      let citationIdx = 0;
       for (const message of body) {
         if (!Array.isArray(message.sources)) continue;
         for (const source of message.sources) {
           source.document_id = uploadedDocIdNumber;
-          source.page_number = 1;
+          // Alternate targets: citation 0 -> page 1, citation 1 -> page 2
+          source.page_number = (citationIdx % 2) + 1;
+          citationIdx += 1;
         }
       }
 
@@ -653,21 +656,20 @@ test.describe.serial("M5 PDF Viewer Acceptance Suite (M5.11)", () => {
 
     const citationCards = sharedPage.locator('[data-testid^="citation-source-"]');
     const count = await citationCards.count();
-    expect(count).toBeGreaterThan(0);
+    expect(count).toBeGreaterThan(1);
 
+    // Rapidly trigger navigation target A (page 1) then target B (page 2)
     await citationCards.first().click();
+    await citationCards.nth(1).click();
 
-    if (count > 1) {
-      await citationCards.nth(1).click();
-    }
-
+    // Latest target (target B -> page 2) must prevail
     await expect(
       sharedPage.locator('[data-testid="pdf-current-page"]'),
-    ).toHaveText("1 / 2");
+    ).toHaveText("2 / 2");
 
     await expect(
       sharedPage.locator('[data-testid="pdf-page"]'),
-    ).toHaveAttribute("data-page-number", /\d+/);
+    ).toHaveAttribute("data-page-number", "2");
   });
 
   test("M5.11-RUNTIME — document switching and rapid navigation produce zero runtime errors or unexpected 5xx responses", async () => {

@@ -71,8 +71,8 @@ jobs:
           MAIL_FROM: ci-placeholder@example.com
           MAIL_PORT: 587
           MAIL_SERVER: smtp.example.com
-          DOCUMENT_STORAGE_BACKEND: local
-          LOCAL_DOCUMENT_STORAGE_DIR: /tmp/ai_engine_docs
+          STORAGE_BACKEND: local
+          LOCAL_STORAGE_ROOT: /tmp/ai_engine_docs
           DOCUMENT_ENCRYPTION_KEY: ci-test-encryption-key-32byteslong!
         run: alembic upgrade head
 
@@ -94,8 +94,8 @@ jobs:
           MAIL_FROM: ci-placeholder@example.com
           MAIL_PORT: 587
           MAIL_SERVER: smtp.example.com
-          DOCUMENT_STORAGE_BACKEND: local
-          LOCAL_DOCUMENT_STORAGE_DIR: /tmp/ai_engine_docs
+          STORAGE_BACKEND: local
+          LOCAL_STORAGE_ROOT: /tmp/ai_engine_docs
           DOCUMENT_ENCRYPTION_KEY: ci-test-encryption-key-32byteslong!
         run: pytest
 
