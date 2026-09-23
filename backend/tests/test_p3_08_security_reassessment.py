@@ -1,3 +1,6 @@
+from app.core.security import create_access_token
+from app.core.rate_limiter import user_or_ip_key
+from fastapi import Request
 """
 P3-08: Security & Abuse-Resistance Reassessment Test Suite.
 
@@ -376,6 +379,150 @@ def test_s4_real_limiter_rejects_on_limit_and_blocks_pipeline(monkeypatch):
         blocked_res = client.post("/chat/stream", json={"chat_id": 777, "prompt": "call"})
         assert blocked_res.status_code == 429
         assert pipeline_invocations == invocations_before_429
+    finally:
+        limiter.reset()
+        app.dependency_overrides.clear()
+
+
+def test_s4_user_or_ip_key_fallback_contract():
+    """
+    Step 7 unit contract:
+    user_or_ip_key resolves user:<id> for valid bearer tokens,
+    falling back to ip:<remote_address> for anonymous or invalid tokens.
+    """
+    req_no_auth = Request(
+        scope={
+            "type": "http",
+            "headers": [],
+            "client": ("192.168.1.50", 12345),
+        }
+    )
+    assert user_or_ip_key(req_no_auth) == "ip:192.168.1.50"
+
+    req_malformed = Request(
+        scope={
+            "type": "http",
+            "headers": [(b"authorization", b"Basic xyz123")],
+            "client": ("192.168.1.50", 12345),
+        }
+    )
+    assert user_or_ip_key(req_malformed) == "ip:192.168.1.50"
+
+    req_invalid_jwt = Request(
+        scope={
+            "type": "http",
+            "headers": [(b"authorization", b"Bearer totally.invalid.token")],
+            "client": ("192.168.1.50", 12345),
+        }
+    )
+    assert user_or_ip_key(req_invalid_jwt) == "ip:192.168.1.50"
+
+    token = create_access_token(user_id=888, token_version=1)
+    req_valid = Request(
+        scope={
+            "type": "http",
+            "headers": [(b"authorization", f"Bearer {token}".encode("latin-1"))],
+            "client": ("192.168.1.50", 12345),
+        }
+    )
+    assert user_or_ip_key(req_valid) == "user:888"
+
+
+def test_s4_same_user_different_ips_share_rate_limit_bucket(monkeypatch):
+    """
+    Step 7 invariant:
+    Requests originating from different IP addresses for the same authenticated user
+    are bucketed under user:<id> and exhaust the shared quota.
+    """
+    limiter.reset()
+
+    user_id = 888
+    mock_user = MagicMock(id=user_id)
+    app.dependency_overrides[get_current_user] = lambda: mock_user
+
+    mock_chat = MagicMock(id=777, user_id=user_id, ai_provider="ollama", ai_model="llama3.2")
+    monkeypatch.setattr(ChatRepository, "get_by_id", lambda *args, **kwargs: mock_chat)
+    monkeypatch.setattr(ChatRepository, "add_message", lambda *args, **kwargs: MagicMock(id=1))
+    monkeypatch.setattr(ChatApplicationService, "prepare_chat_turn", AsyncMock(return_value=MagicMock()))
+    monkeypatch.setattr(EmbeddingService, "generate_embedding", AsyncMock(return_value=[0.1] * 768))
+
+    mock_provider = MagicMock()
+    async def mock_stream(*args, **kwargs):
+        yield "Response"
+    mock_provider.generate_stream = mock_stream
+    monkeypatch.setattr(LLMProviderFactory, "get_provider", lambda *args, **kwargs: mock_provider)
+
+    token = create_access_token(user_id=user_id, token_version=1)
+    auth_headers = {"Authorization": f"Bearer {token}"}
+
+    try:
+        client_ip_a = TestClient(app, raise_server_exceptions=False, client=("10.0.0.1", 50000))
+        client_ip_b = TestClient(app, raise_server_exceptions=False, client=("10.0.0.2", 50001))
+
+        for _ in range(15):
+            res = client_ip_a.post("/chat/stream", json={"chat_id": 777, "prompt": "test"}, headers=auth_headers)
+            assert res.status_code in (200, 400)
+
+        blocked_res = client_ip_b.post("/chat/stream", json={"chat_id": 777, "prompt": "test"}, headers=auth_headers)
+        assert blocked_res.status_code == 429
+    finally:
+        limiter.reset()
+        app.dependency_overrides.clear()
+
+
+def test_s4_different_users_same_ip_have_independent_buckets(monkeypatch):
+    """
+    Step 7 invariant:
+    Requests originating from the same IP address for distinct authenticated users
+    are bucketed independently (user:888 vs user:999) and do not deplete each other quota.
+    """
+    limiter.reset()
+
+    current_mock_user = MagicMock(id=888)
+    app.dependency_overrides[get_current_user] = lambda: current_mock_user
+
+    mock_chat = MagicMock(id=777, user_id=888, ai_provider="ollama", ai_model="llama3.2")
+    monkeypatch.setattr(ChatRepository, "get_by_id", lambda *args, **kwargs: mock_chat)
+    monkeypatch.setattr(ChatRepository, "add_message", lambda *args, **kwargs: MagicMock(id=1))
+    monkeypatch.setattr(ChatApplicationService, "prepare_chat_turn", AsyncMock(return_value=MagicMock()))
+    monkeypatch.setattr(EmbeddingService, "generate_embedding", AsyncMock(return_value=[0.1] * 768))
+
+    mock_provider = MagicMock()
+    async def mock_stream(*args, **kwargs):
+        yield "Response"
+    mock_provider.generate_stream = mock_stream
+    monkeypatch.setattr(LLMProviderFactory, "get_provider", lambda *args, **kwargs: mock_provider)
+
+    token_user_a = create_access_token(user_id=888, token_version=1)
+    token_user_b = create_access_token(user_id=999, token_version=1)
+
+    try:
+        shared_ip_client = TestClient(app, raise_server_exceptions=False, client=("192.168.1.100", 50000))
+
+        for _ in range(15):
+            res = shared_ip_client.post(
+                "/chat/stream",
+                json={"chat_id": 777, "prompt": "test"},
+                headers={"Authorization": f"Bearer {token_user_a}"},
+            )
+            assert res.status_code in (200, 400)
+
+        blocked_user_a = shared_ip_client.post(
+            "/chat/stream",
+            json={"chat_id": 777, "prompt": "test"},
+            headers={"Authorization": f"Bearer {token_user_a}"},
+        )
+        assert blocked_user_a.status_code == 429
+
+        current_mock_user.id = 999
+        mock_chat.user_id = 999
+
+        allowed_user_b = shared_ip_client.post(
+            "/chat/stream",
+            json={"chat_id": 777, "prompt": "test"},
+            headers={"Authorization": f"Bearer {token_user_b}"},
+        )
+        assert allowed_user_b.status_code in (200, 400)
     finally:
         limiter.reset()
         app.dependency_overrides.clear()
