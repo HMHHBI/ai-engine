@@ -10,6 +10,10 @@ is_testing = os.getenv("TESTING", "false").lower() == "true"
 
 
 def user_or_ip_key(request: Request) -> str:
+    path = request.scope.get("path", "")
+    if path.startswith("/auth/"):
+        return f"ip:{get_remote_address(request)}"
+
     authorization = request.headers.get("Authorization", "")
     scheme, _, token = authorization.partition(" ")
 

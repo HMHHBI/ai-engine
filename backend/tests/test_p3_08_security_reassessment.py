@@ -447,6 +447,27 @@ def test_s4_user_or_ip_key_fallback_contract():
     )
     assert user_or_ip_key(req_uppercase) == "user:888"
 
+    # 6. Auth endpoints (/auth/*) unconditionally remain IP-keyed even with a valid Bearer token
+    req_auth_login = Request(
+        scope={
+            "type": "http",
+            "path": "/auth/login",
+            "headers": [(b"authorization", f"Bearer {token}".encode("latin-1"))],
+            "client": ("192.168.1.50", 12345),
+        }
+    )
+    assert user_or_ip_key(req_auth_login) == "ip:192.168.1.50"
+
+    req_auth_signup = Request(
+        scope={
+            "type": "http",
+            "path": "/auth/signup",
+            "headers": [(b"authorization", f"Bearer {token}".encode("latin-1"))],
+            "client": ("192.168.1.50", 12345),
+        }
+    )
+    assert user_or_ip_key(req_auth_signup) == "ip:192.168.1.50"
+
 
 def test_s4_same_user_different_ips_share_rate_limit_bucket(monkeypatch):
     """
