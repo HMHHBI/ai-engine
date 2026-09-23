@@ -27,6 +27,16 @@ class DocumentIngestionService:
     """
 
     EMBEDDING_CONCURRENCY = 4
+    _embedding_semaphore: asyncio.Semaphore | None = None
+
+    @classmethod
+    def get_embedding_semaphore(cls) -> asyncio.Semaphore:
+        """
+        Returns a process-level shared semaphore bound to the current event loop.
+        """
+        if cls._embedding_semaphore is None:
+            cls._embedding_semaphore = asyncio.Semaphore(cls.EMBEDDING_CONCURRENCY)
+        return cls._embedding_semaphore
 
     @staticmethod
     async def ingest(
@@ -52,7 +62,7 @@ class DocumentIngestionService:
         if len(chunks) > settings.MAX_CHUNK_EMBEDDINGS:
             raise ValueError("Document exceeds the maximum embedding workload.")
 
-        semaphore = asyncio.Semaphore(DocumentIngestionService.EMBEDDING_CONCURRENCY)
+        semaphore = DocumentIngestionService.get_embedding_semaphore()
 
         async def generate_embedding(chunk: Any):
             async with semaphore:

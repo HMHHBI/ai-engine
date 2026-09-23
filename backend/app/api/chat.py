@@ -32,6 +32,7 @@ from app.schemas.chat_schema import (
     ChatPersonaUpdate,
 )
 from app.services.chat_service import ChatApplicationService
+from app.services.document_ingestion_service import DocumentIngestionService
 from app.services.embedding_service import EmbeddingService
 from app.services.reranker_service import (
     RerankCandidate,
@@ -1335,7 +1336,7 @@ async def upload_pdf(
             chat.embedding_provider or settings.DEFAULT_EMBEDDING_PROVIDER.value
         )
 
-        semaphore = asyncio.Semaphore(4)
+        semaphore = DocumentIngestionService.get_embedding_semaphore()
 
         async def generate_chunk_embedding(chunk):
             async with semaphore:
