@@ -11,13 +11,12 @@ is_testing = os.getenv("TESTING", "false").lower() == "true"
 
 def user_or_ip_key(request: Request) -> str:
     authorization = request.headers.get("Authorization", "")
+    scheme, _, token = authorization.partition(" ")
 
-    if authorization.startswith("Bearer "):
-        token = authorization[7:].strip()
-
+    if scheme.lower() == "bearer":
+        token = token.strip()
         if token:
             payload = decode_token(token)
-
             if payload:
                 user_id = payload.get("user_id")
                 if user_id is not None:

@@ -1,6 +1,3 @@
-from app.core.security import create_access_token
-from app.core.rate_limiter import user_or_ip_key
-from fastapi import Request
 """
 P3-08: Security & Abuse-Resistance Reassessment Test Suite.
 
@@ -15,7 +12,11 @@ Domain coverage:
 import threading
 from unittest.mock import AsyncMock, MagicMock
 import pytest
+from fastapi import Request
 from fastapi.testclient import TestClient
+
+from app.core.rate_limiter import user_or_ip_key
+from app.core.security import create_access_token
 
 from main import app
 from app.api.deps import get_current_user
@@ -427,6 +428,25 @@ def test_s4_user_or_ip_key_fallback_contract():
     )
     assert user_or_ip_key(req_valid) == "user:888"
 
+    # Case-insensitive scheme handling: lowercase "bearer" and uppercase "BEARER"
+    req_lowercase = Request(
+        scope={
+            "type": "http",
+            "headers": [(b"authorization", f"bearer {token}".encode("latin-1"))],
+            "client": ("192.168.1.50", 12345),
+        }
+    )
+    assert user_or_ip_key(req_lowercase) == "user:888"
+
+    req_uppercase = Request(
+        scope={
+            "type": "http",
+            "headers": [(b"authorization", f"BEARER {token}".encode("latin-1"))],
+            "client": ("192.168.1.50", 12345),
+        }
+    )
+    assert user_or_ip_key(req_uppercase) == "user:888"
+
 
 def test_s4_same_user_different_ips_share_rate_limit_bucket(monkeypatch):
     """
@@ -436,26 +456,25 @@ def test_s4_same_user_different_ips_share_rate_limit_bucket(monkeypatch):
     """
     limiter.reset()
 
-    user_id = 888
-    mock_user = MagicMock(id=user_id)
-    app.dependency_overrides[get_current_user] = lambda: mock_user
-
-    mock_chat = MagicMock(id=777, user_id=user_id, ai_provider="ollama", ai_model="llama3.2")
-    monkeypatch.setattr(ChatRepository, "get_by_id", lambda *args, **kwargs: mock_chat)
-    monkeypatch.setattr(ChatRepository, "add_message", lambda *args, **kwargs: MagicMock(id=1))
-    monkeypatch.setattr(ChatApplicationService, "prepare_chat_turn", AsyncMock(return_value=MagicMock()))
-    monkeypatch.setattr(EmbeddingService, "generate_embedding", AsyncMock(return_value=[0.1] * 768))
-
-    mock_provider = MagicMock()
-    async def mock_stream(*args, **kwargs):
-        yield "Response"
-    mock_provider.generate_stream = mock_stream
-    monkeypatch.setattr(LLMProviderFactory, "get_provider", lambda *args, **kwargs: mock_provider)
-
-    token = create_access_token(user_id=user_id, token_version=1)
-    auth_headers = {"Authorization": f"Bearer {token}"}
-
     try:
+        user_id = 888
+        mock_user = MagicMock(id=user_id)
+        app.dependency_overrides[get_current_user] = lambda: mock_user
+
+        mock_chat = MagicMock(id=777, user_id=user_id, ai_provider="ollama", ai_model="llama3.2")
+        monkeypatch.setattr(ChatRepository, "get_by_id", lambda *args, **kwargs: mock_chat)
+        monkeypatch.setattr(ChatRepository, "add_message", lambda *args, **kwargs: MagicMock(id=1))
+        monkeypatch.setattr(ChatApplicationService, "prepare_chat_turn", AsyncMock(return_value=MagicMock()))
+        monkeypatch.setattr(EmbeddingService, "generate_embedding", AsyncMock(return_value=[0.1] * 768))
+
+        mock_provider = MagicMock()
+        async def mock_stream(*args, **kwargs):
+            yield "Response"
+        mock_provider.generate_stream = mock_stream
+        monkeypatch.setattr(LLMProviderFactory, "get_provider", lambda *args, **kwargs: mock_provider)
+
+        token = create_access_token(user_id=user_id, token_version=1)
+        auth_headers = {"Authorization": f"Bearer {token}"}
         client_ip_a = TestClient(app, raise_server_exceptions=False, client=("10.0.0.1", 50000))
         client_ip_b = TestClient(app, raise_server_exceptions=False, client=("10.0.0.2", 50001))
 
@@ -478,25 +497,24 @@ def test_s4_different_users_same_ip_have_independent_buckets(monkeypatch):
     """
     limiter.reset()
 
-    current_mock_user = MagicMock(id=888)
-    app.dependency_overrides[get_current_user] = lambda: current_mock_user
-
-    mock_chat = MagicMock(id=777, user_id=888, ai_provider="ollama", ai_model="llama3.2")
-    monkeypatch.setattr(ChatRepository, "get_by_id", lambda *args, **kwargs: mock_chat)
-    monkeypatch.setattr(ChatRepository, "add_message", lambda *args, **kwargs: MagicMock(id=1))
-    monkeypatch.setattr(ChatApplicationService, "prepare_chat_turn", AsyncMock(return_value=MagicMock()))
-    monkeypatch.setattr(EmbeddingService, "generate_embedding", AsyncMock(return_value=[0.1] * 768))
-
-    mock_provider = MagicMock()
-    async def mock_stream(*args, **kwargs):
-        yield "Response"
-    mock_provider.generate_stream = mock_stream
-    monkeypatch.setattr(LLMProviderFactory, "get_provider", lambda *args, **kwargs: mock_provider)
-
-    token_user_a = create_access_token(user_id=888, token_version=1)
-    token_user_b = create_access_token(user_id=999, token_version=1)
-
     try:
+        current_mock_user = MagicMock(id=888)
+        app.dependency_overrides[get_current_user] = lambda: current_mock_user
+
+        mock_chat = MagicMock(id=777, user_id=888, ai_provider="ollama", ai_model="llama3.2")
+        monkeypatch.setattr(ChatRepository, "get_by_id", lambda *args, **kwargs: mock_chat)
+        monkeypatch.setattr(ChatRepository, "add_message", lambda *args, **kwargs: MagicMock(id=1))
+        monkeypatch.setattr(ChatApplicationService, "prepare_chat_turn", AsyncMock(return_value=MagicMock()))
+        monkeypatch.setattr(EmbeddingService, "generate_embedding", AsyncMock(return_value=[0.1] * 768))
+
+        mock_provider = MagicMock()
+        async def mock_stream(*args, **kwargs):
+            yield "Response"
+        mock_provider.generate_stream = mock_stream
+        monkeypatch.setattr(LLMProviderFactory, "get_provider", lambda *args, **kwargs: mock_provider)
+
+        token_user_a = create_access_token(user_id=888, token_version=1)
+        token_user_b = create_access_token(user_id=999, token_version=1)
         shared_ip_client = TestClient(app, raise_server_exceptions=False, client=("192.168.1.100", 50000))
 
         for _ in range(15):
