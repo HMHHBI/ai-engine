@@ -62,12 +62,14 @@ def verify_password(
 
 def create_access_token(
     user_id: int,
+    token_version: int,
 ) -> str:
     """
     Create a short-lived authenticated access token.
 
     Claims:
         sub: authenticated user ID
+        v: token version / epoch for revocation
         type: access token
         iat: issued-at timestamp
         exp: expiration timestamp
@@ -76,6 +78,8 @@ def create_access_token(
 
     if user_id <= 0:
         raise ValueError("user_id must be a positive integer.")
+    if token_version <= 0:
+        raise ValueError("token_version must be a positive integer.")
 
     now = datetime.now(timezone.utc)
 
@@ -83,6 +87,7 @@ def create_access_token(
 
     payload: dict[str, Any] = {
         "sub": str(user_id),
+        "v": token_version,
         "type": "access",
         "iat": now,
         "exp": expires_at,

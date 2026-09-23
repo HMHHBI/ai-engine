@@ -111,6 +111,13 @@ class User(Base):
         server_default="true",
     )
 
+    token_version = Column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default="1",
+    )
+
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,

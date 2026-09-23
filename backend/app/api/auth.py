@@ -57,7 +57,7 @@ def login(request: Request, data: UserLogin, db: Session = Depends(get_db)):
     if not user or not verify_password(data.password, user.password):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    access_token = create_access_token(user_id=user.id)
+    access_token = create_access_token(user_id=user.id, token_version=user.token_version)
 
     return {
         "access_token": access_token,
@@ -95,7 +95,7 @@ async def google_auth(request: Request, data: dict, db: Session = Depends(get_db
                 profile_image=picture,
             )
 
-        access_token = create_access_token(user_id=user.id)
+        access_token = create_access_token(user_id=user.id, token_version=user.token_version)
         return {
             "access_token": access_token,
             "token_type": "bearer",

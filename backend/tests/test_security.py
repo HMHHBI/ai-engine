@@ -66,7 +66,7 @@ def test_password_verification_handles_empty_values() -> None:
 
 
 def test_create_access_token_contains_required_claims() -> None:
-    token = create_access_token(user_id=123)
+    token = create_access_token(user_id=123, token_version=1)
 
     payload = decode_token(token)
 
@@ -80,7 +80,7 @@ def test_create_access_token_contains_required_claims() -> None:
 
 
 def test_decode_valid_access_token() -> None:
-    token = create_access_token(user_id=123)
+    token = create_access_token(user_id=123, token_version=1)
 
     payload = decode_token(token)
 
@@ -97,7 +97,7 @@ def test_decode_token_rejects_garbage() -> None:
 
 
 def test_decode_token_rejects_tampered_token() -> None:
-    token = create_access_token(user_id=123)
+    token = create_access_token(user_id=123, token_version=1)
 
     parts = token.split(".")
 

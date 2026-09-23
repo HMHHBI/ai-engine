@@ -17,7 +17,7 @@ def test_user_and_chat(db_session):
         password="Password!123",
     )
     chat = ChatRepository.create_chat(user_id=user.id)
-    token = create_access_token(user_id=user.id)
+    token = create_access_token(user_id=user.id, token_version=user.token_version)
     headers = {"Authorization": f"Bearer {token}"}
     return user, chat, headers
 

@@ -80,7 +80,7 @@ def test_successful_replacement_replaces_old_vectors(
     client, setup_user_and_populated_chat
 ):
     user, chat, initial_doc = setup_user_and_populated_chat
-    token = create_access_token(user.id)
+    token = create_access_token(user.id, token_version=user.token_version)
 
     with patch(
         "app.services.embedding_service.EmbeddingService.generate_embedding"
@@ -109,7 +109,7 @@ def test_embedding_failure_preserves_existing_document(
     client, setup_user_and_populated_chat
 ):
     user, chat, initial_doc = setup_user_and_populated_chat
-    token = create_access_token(user.id)
+    token = create_access_token(user.id, token_version=user.token_version)
 
     with patch(
         "app.services.embedding_service.EmbeddingService.generate_embedding"
@@ -134,7 +134,7 @@ def test_partial_embedding_failure_aborts_all_or_nothing(
     client, setup_user_and_populated_chat
 ):
     user, chat, initial_doc = setup_user_and_populated_chat
-    token = create_access_token(user.id)
+    token = create_access_token(user.id, token_version=user.token_version)
 
     long_text = (
         ("Chunk one text paragraph here. " * 30)

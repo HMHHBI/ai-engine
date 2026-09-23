@@ -49,6 +49,7 @@ def two_chats(two_users):
 def auth_headers(user: User) -> dict[str, str]:
     token = create_access_token(
         user_id=user.id,
+        token_version=user.token_version,
     )
 
     return {
@@ -274,7 +275,7 @@ def test_inactive_user_token_is_rejected(client, db_session) -> None:
     user.is_active = False
     db_session.commit()
 
-    token = create_access_token(user_id=user.id)
+    token = create_access_token(user_id=user.id, token_version=user.token_version)
 
     response = client.get(
         "/user/me",

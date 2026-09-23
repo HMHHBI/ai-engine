@@ -27,7 +27,7 @@ def user_and_chat(db_session):
 
 
 def auth_headers(user):
-    token = create_access_token(user.id)
+    token = create_access_token(user.id, token_version=user.token_version)
     return {"Authorization": f"Bearer {token}"}
 
 

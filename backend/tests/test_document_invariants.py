@@ -221,7 +221,7 @@ def test_patch_metadata_cannot_mutate_status_or_ownership(
     client, invariant_environment
 ):
     user_a, user_b, chat_a, _ = invariant_environment
-    token = create_access_token(user_id=user_a.id)
+    token = create_access_token(user_id=user_a.id, token_version=user_a.token_version)
     headers = {"Authorization": f"Bearer {token}"}
 
     doc = DocumentRepository.create(

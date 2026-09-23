@@ -44,7 +44,7 @@ def other_user():
 
 
 def auth_header(user: dict) -> dict[str, str]:
-    token = create_access_token(user_id=user["id"])
+    token = create_access_token(user_id=user["id"], token_version=1)
     return {"Authorization": f"Bearer {token}"}
 
 

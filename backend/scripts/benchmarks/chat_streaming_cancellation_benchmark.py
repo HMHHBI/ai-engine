@@ -202,7 +202,7 @@ async def main():
     print("==========================================================")
 
     user = ensure_bench_user()
-    token = create_access_token(user_id=user.id)
+    token = create_access_token(user_id=user.id, token_version=user.token_version)
 
     # 1. Cancel 1 of 4 streams early
     s1 = await run_cancellation_scenario(user.id, token, "Cancel_1_of_4", cancel_indices=[0])

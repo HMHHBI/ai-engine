@@ -103,7 +103,7 @@ def test_chat_turn_db_failure_rolls_back_and_subsequent_turn_succeeds(
     client, user_and_chat
 ):
     user, _ = user_and_chat
-    token = create_access_token(user_id=user.id)
+    token = create_access_token(user_id=user.id, token_version=user.token_version)
     auth_headers = {"Authorization": f"Bearer {token}"}
 
     # 1. Simulate DB failure during chat creation

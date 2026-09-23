@@ -43,7 +43,7 @@ def two_users_and_documents(db_session):
 
 def test_list_chat_documents_owner_success(client, two_users_and_documents):
     user_a, _, chat_a, _, doc_a, _ = two_users_and_documents
-    token = create_access_token(user_id=user_a.id)
+    token = create_access_token(user_id=user_a.id, token_version=user_a.token_version)
     headers = {"Authorization": f"Bearer {token}"}
 
     res = client.get(f"/documents/chat/{chat_a.id}", headers=headers)
@@ -56,7 +56,7 @@ def test_list_chat_documents_owner_success(client, two_users_and_documents):
 
 def test_list_chat_documents_cross_user_rejected(client, two_users_and_documents):
     _, user_b, chat_a, _, _, _ = two_users_and_documents
-    token = create_access_token(user_id=user_b.id)
+    token = create_access_token(user_id=user_b.id, token_version=user_b.token_version)
     headers = {"Authorization": f"Bearer {token}"}
 
     res = client.get(f"/documents/chat/{chat_a.id}", headers=headers)
@@ -65,7 +65,7 @@ def test_list_chat_documents_cross_user_rejected(client, two_users_and_documents
 
 def test_get_document_owner_success(client, two_users_and_documents):
     user_a, _, _, _, doc_a, _ = two_users_and_documents
-    token = create_access_token(user_id=user_a.id)
+    token = create_access_token(user_id=user_a.id, token_version=user_a.token_version)
     headers = {"Authorization": f"Bearer {token}"}
 
     res = client.get(f"/documents/{doc_a.id}", headers=headers)
@@ -76,7 +76,7 @@ def test_get_document_owner_success(client, two_users_and_documents):
 
 def test_get_document_cross_user_rejected(client, two_users_and_documents):
     _, user_b, _, _, doc_a, _ = two_users_and_documents
-    token = create_access_token(user_id=user_b.id)
+    token = create_access_token(user_id=user_b.id, token_version=user_b.token_version)
     headers = {"Authorization": f"Bearer {token}"}
 
     res = client.get(f"/documents/{doc_a.id}", headers=headers)
@@ -85,7 +85,7 @@ def test_get_document_cross_user_rejected(client, two_users_and_documents):
 
 def test_update_document_owner_success(client, two_users_and_documents):
     user_a, _, _, _, doc_a, _ = two_users_and_documents
-    token = create_access_token(user_id=user_a.id)
+    token = create_access_token(user_id=user_a.id, token_version=user_a.token_version)
     headers = {"Authorization": f"Bearer {token}"}
 
     res = client.patch(
@@ -100,7 +100,7 @@ def test_update_document_owner_success(client, two_users_and_documents):
 
 def test_update_document_cross_user_rejected(client, two_users_and_documents):
     _, user_b, _, _, doc_a, _ = two_users_and_documents
-    token = create_access_token(user_id=user_b.id)
+    token = create_access_token(user_id=user_b.id, token_version=user_b.token_version)
     headers = {"Authorization": f"Bearer {token}"}
 
     res = client.patch(
@@ -113,7 +113,7 @@ def test_update_document_cross_user_rejected(client, two_users_and_documents):
 
 def test_delete_document_owner_success(client, two_users_and_documents):
     user_a, _, _, _, doc_a, _ = two_users_and_documents
-    token = create_access_token(user_id=user_a.id)
+    token = create_access_token(user_id=user_a.id, token_version=user_a.token_version)
     headers = {"Authorization": f"Bearer {token}"}
 
     res = client.delete(f"/documents/{doc_a.id}", headers=headers)
@@ -125,13 +125,13 @@ def test_delete_document_owner_success(client, two_users_and_documents):
 
 def test_delete_document_cross_user_rejected(client, two_users_and_documents):
     _, user_b, _, _, doc_a, _ = two_users_and_documents
-    token = create_access_token(user_id=user_b.id)
+    token = create_access_token(user_id=user_b.id, token_version=user_b.token_version)
     headers = {"Authorization": f"Bearer {token}"}
 
     res = client.delete(f"/documents/{doc_a.id}", headers=headers)
     assert res.status_code == 404
 
-    token_a = create_access_token(user_id=two_users_and_documents[0].id)
+    token_a = create_access_token(user_id=two_users_and_documents[0].id, token_version=two_users_and_documents[0].token_version)
     headers_a = {"Authorization": f"Bearer {token_a}"}
     get_res = client.get(f"/documents/{doc_a.id}", headers=headers_a)
     assert get_res.status_code == 200
