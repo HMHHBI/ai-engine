@@ -1454,10 +1454,9 @@ async def upload_pdf(
     except HTTPException:
         if document:
             await asyncio.to_thread(
-                DocumentRepository.update_status,
+                DocumentRepository.mark_failed_and_cleanup,
                 document_id=document.id,
                 user_id=current_user.id,
-                status="failed",
                 error_message="Document ingestion failed.",
             )
         if storage_key:
@@ -1485,10 +1484,9 @@ async def upload_pdf(
         )
         if document:
             await asyncio.to_thread(
-                DocumentRepository.update_status,
+                DocumentRepository.mark_failed_and_cleanup,
                 document_id=document.id,
                 user_id=current_user.id,
-                status="failed",
                 error_message="Server error during document ingestion.",
             )
         if storage_key:

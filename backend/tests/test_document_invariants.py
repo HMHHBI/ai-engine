@@ -252,3 +252,138 @@ def test_patch_metadata_cannot_mutate_status_or_ownership(
     assert current.status == "processing"
     assert current.user_id == user_a.id
     assert current.chat_id == chat_a.id
+
+
+def test_failed_document_cleanup_removes_persisted_vectors(invariant_environment):
+    """
+    Step 5 invariant:
+    Failing a document cleans up any persisted DocumentChunk rows in the exact same transaction.
+    """
+    user_a, _, chat_a, _ = invariant_environment
+
+    doc = DocumentRepository.create(
+        user_id=user_a.id,
+        chat_id=chat_a.id,
+        filename="failed-cleanup.pdf",
+        mime_type="application/pdf",
+    )
+
+    assert doc is not None
+    assert doc.status == "processing"
+
+    dummy_vec = [0.25] * 768
+
+    VectorRepository.replace_document_chunks(
+        user_id=user_a.id,
+        document_id=doc.id,
+        chunks_with_embeddings=[
+            (
+                DummyChunk("Persisted vector before failure", 1, 0),
+                dummy_vec,
+            )
+        ],
+    )
+
+    with session_scope() as db:
+        chunks_before = (
+            db.execute(
+                select(DocumentChunk).where(
+                    DocumentChunk.document_id == doc.id
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(chunks_before) == 1
+
+    failed = DocumentRepository.mark_failed_and_cleanup(
+        document_id=doc.id,
+        user_id=user_a.id,
+        error_message="Document ingestion failed.",
+    )
+
+    assert failed is not None
+    assert failed.status == "failed"
+    assert failed.error_message == "Document ingestion failed."
+
+    with session_scope() as db:
+        chunks_after = (
+            db.execute(
+                select(DocumentChunk).where(
+                    DocumentChunk.document_id == doc.id
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert chunks_after == []
+
+
+def test_failed_document_cleanup_does_not_delete_other_document_vectors(invariant_environment):
+    """
+    Step 5 isolation:
+    Cleaning up failed document A must not affect persisted vectors for document B in the same chat.
+    """
+    user_a, _, chat_a, _ = invariant_environment
+
+    doc_a = DocumentRepository.create(
+        user_id=user_a.id,
+        chat_id=chat_a.id,
+        filename="doc_a.pdf",
+        mime_type="application/pdf",
+    )
+    doc_b = DocumentRepository.create(
+        user_id=user_a.id,
+        chat_id=chat_a.id,
+        filename="doc_b.pdf",
+        mime_type="application/pdf",
+    )
+
+    dummy_vec = [0.25] * 768
+
+    VectorRepository.replace_document_chunks(
+        user_id=user_a.id,
+        document_id=doc_a.id,
+        chunks_with_embeddings=[
+            (DummyChunk("Doc A Chunk", 1, 0), dummy_vec)
+        ],
+    )
+    VectorRepository.replace_document_chunks(
+        user_id=user_a.id,
+        document_id=doc_b.id,
+        chunks_with_embeddings=[
+            (DummyChunk("Doc B Chunk", 1, 0), dummy_vec)
+        ],
+    )
+
+    # Fail document A
+    failed = DocumentRepository.mark_failed_and_cleanup(
+        document_id=doc_a.id,
+        user_id=user_a.id,
+        error_message="Doc A failed",
+    )
+    assert failed is not None
+    assert failed.status == "failed"
+
+    with session_scope() as db:
+        chunks_a = (
+            db.execute(
+                select(DocumentChunk).where(
+                    DocumentChunk.document_id == doc_a.id
+                )
+            )
+            .scalars()
+            .all()
+        )
+        chunks_b = (
+            db.execute(
+                select(DocumentChunk).where(
+                    DocumentChunk.document_id == doc_b.id
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert chunks_a == []
+        assert len(chunks_b) == 1
+        assert chunks_b[0].content == "Doc B Chunk"
