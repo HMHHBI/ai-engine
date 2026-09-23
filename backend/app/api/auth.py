@@ -81,6 +81,8 @@ async def google_auth(request: Request, data: dict, db: Session = Depends(get_db
         idinfo = id_token.verify_oauth2_token(
             token, google_requests.Request(), settings.GOOGLE_CLIENT_ID
         )
+        if idinfo.get("email_verified") is not True:
+            raise HTTPException(status_code=400, detail="Invalid Google Token")
         email = idinfo["email"]
         name = idinfo.get("name", "User")
         picture = idinfo.get("picture")
