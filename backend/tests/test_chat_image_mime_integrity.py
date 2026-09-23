@@ -123,3 +123,38 @@ async def test_prepare_chat_turn_rejects_empty_decoded_bytes():
                 image_mime_list=["image/jpeg"],
             )
     mock_upload.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_prepare_chat_turn_rejects_multi_image_when_second_is_mismatched_without_upload():
+    valid_b64 = base64.b64encode(JPEG_BYTES).decode("ascii")
+    mismatched_b64 = base64.b64encode(PNG_BYTES).decode("ascii")
+
+    with patch("app.services.chat_service.upload_image_to_cloud") as mock_upload:
+        with pytest.raises(ValueError, match="Image content does not match its declared type"):
+            await ChatApplicationService.prepare_chat_turn(
+                chat_id=1,
+                user_id=1,
+                content="Multi-image turn",
+                image_data_list=[valid_b64, mismatched_b64],
+                image_mime_list=["image/jpeg", "image/jpeg"],
+            )
+    # Valid first image must NEVER be uploaded if subsequent image fails validation
+    mock_upload.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_prepare_chat_turn_rejects_multi_image_when_first_is_mismatched_without_upload():
+    mismatched_b64 = base64.b64encode(PNG_BYTES).decode("ascii")
+    valid_b64 = base64.b64encode(JPEG_BYTES).decode("ascii")
+
+    with patch("app.services.chat_service.upload_image_to_cloud") as mock_upload:
+        with pytest.raises(ValueError, match="Image content does not match its declared type"):
+            await ChatApplicationService.prepare_chat_turn(
+                chat_id=1,
+                user_id=1,
+                content="Multi-image turn reverse",
+                image_data_list=[mismatched_b64, valid_b64],
+                image_mime_list=["image/jpeg", "image/jpeg"],
+            )
+    mock_upload.assert_not_called()
