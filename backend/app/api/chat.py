@@ -20,6 +20,8 @@ from app.core.config import (
 )
 from app.core.error_codes import ErrorCode, SAFE_CLIENT_MESSAGES
 from app.core.rate_limiter import limiter
+from app.core.stream_concurrency import acquire_stream_lease, release_stream_lease
+from starlette.background import BackgroundTask
 from app.db.models import User
 from app.repositories.chat_repo import ChatRepository
 from app.repositories.document_repo import DocumentRepository
@@ -616,6 +618,39 @@ async def ai_stream(
             detail="Prompt cannot be empty.",
         )
 
+    lease_token = await acquire_stream_lease(current_user.id)
+    if not lease_token:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "code": "AI_STREAM_CONCURRENCY_LIMIT",
+                "message": "An AI stream is already active for this user.",
+            },
+        )
+
+    try:
+        return await _execute_ai_stream(
+            request=request,
+            req=req,
+            current_user=current_user,
+            clean_prompt=clean_prompt,
+            lease_token=lease_token,
+            request_started_at=request_started_at,
+        )
+    except Exception:
+        await release_stream_lease(current_user.id, lease_token)
+        raise
+
+
+async def _execute_ai_stream(
+    *,
+    request: Request,
+    req: AIRequest,
+    current_user: User,
+    clean_prompt: str,
+    lease_token: str,
+    request_started_at: float,
+) -> StreamingResponse:
     chat = await asyncio.to_thread(
         ChatRepository.get_by_id,
         chat_id=req.chat_id,
@@ -1225,9 +1260,17 @@ async def ai_stream(
             },
         )
 
+    async def stream_with_lease():
+        try:
+            async for chunk in event_generator():
+                yield chunk
+        finally:
+            await release_stream_lease(current_user.id, lease_token)
+
     return StreamingResponse(
-        event_generator(),
+        stream_with_lease(),
         media_type="text/event-stream",
+        background=BackgroundTask(release_stream_lease, current_user.id, lease_token),
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",

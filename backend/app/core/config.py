@@ -155,6 +155,10 @@ class Settings(BaseSettings):
     REDIS_PORT: int = 6379
     REDIS_URL: str = "redis://localhost:6379"
 
+    # AI Stream Concurrency & Workload Budget
+    MAX_CONCURRENT_STREAMS_PER_USER: int = 1
+    AI_STREAM_LEASE_TTL_SECONDS: int = 180
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
