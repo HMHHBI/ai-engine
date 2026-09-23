@@ -62,7 +62,7 @@ def verify_password(
 
 def create_access_token(
     user_id: int,
-    token_version: int = 1,
+    token_version: int,
 ) -> str:
     """
     Create a short-lived authenticated access token.

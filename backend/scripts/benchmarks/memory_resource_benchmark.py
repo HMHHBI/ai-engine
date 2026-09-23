@@ -605,7 +605,7 @@ def main():
     print("==========================================================")
 
     user = ensure_bench_user()
-    token = create_access_token(user_id=user.id)
+    token = create_access_token(user_id=user.id, token_version=user.token_version)
     auth_headers = {"Authorization": f"Bearer {token}"}
     chat_id, doc_id = seed_rag_fixture(user.id, chunk_count=500)
 

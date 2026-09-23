@@ -49,7 +49,7 @@ def test_rejects_oversized_upload(client, user_and_chat, monkeypatch):
         filename="test.txt",
         content=b"this is definitely larger than 10 bytes",
         content_type="text/plain",
-        headers={"Authorization": f"Bearer {create_access_token(user.id)}"},
+        headers={"Authorization": f"Bearer {create_access_token(user.id, token_version=user.token_version)}"},
     )
     assert response.status_code == 413
 
@@ -62,7 +62,7 @@ def test_rejects_pdf_with_fake_signature(client, user_and_chat):
         filename="malicious.pdf",
         content=b"this is not a pdf file content",
         content_type="application/pdf",
-        headers={"Authorization": f"Bearer {create_access_token(user.id)}"},
+        headers={"Authorization": f"Bearer {create_access_token(user.id, token_version=user.token_version)}"},
     )
     assert response.status_code == 415
 
@@ -75,7 +75,7 @@ def test_rejects_mismatched_mime_type(client, user_and_chat):
         filename="document.pdf",
         content=b"%PDF-1.7\ninvalid test",
         content_type="text/plain",
-        headers={"Authorization": f"Bearer {create_access_token(user.id)}"},
+        headers={"Authorization": f"Bearer {create_access_token(user.id, token_version=user.token_version)}"},
     )
     assert response.status_code == 415
 
@@ -88,7 +88,7 @@ def test_rejects_unsupported_extension(client, user_and_chat):
         filename="payload.exe",
         content=b"MZ\x90\x00",
         content_type="application/octet-stream",
-        headers={"Authorization": f"Bearer {create_access_token(user.id)}"},
+        headers={"Authorization": f"Bearer {create_access_token(user.id, token_version=user.token_version)}"},
     )
     assert response.status_code == 415
 
@@ -101,7 +101,7 @@ def test_rejects_empty_file(client, user_and_chat):
         filename="empty.txt",
         content=b"",
         content_type="text/plain",
-        headers={"Authorization": f"Bearer {create_access_token(user.id)}"},
+        headers={"Authorization": f"Bearer {create_access_token(user.id, token_version=user.token_version)}"},
     )
     assert response.status_code == 400
 
@@ -114,7 +114,7 @@ def test_rejects_invalid_utf8(client, user_and_chat):
         filename="invalid.txt",
         content=b"\xff\xfe\xfd",
         content_type="text/plain",
-        headers={"Authorization": f"Bearer {create_access_token(user.id)}"},
+        headers={"Authorization": f"Bearer {create_access_token(user.id, token_version=user.token_version)}"},
     )
     assert response.status_code == 415
 
@@ -126,7 +126,7 @@ def test_profile_image_over_limit_is_rejected(client, db_session):
         email="profile-sec@example.com",
         password="Password!123",
     )
-    token = create_access_token(user.id)
+    token = create_access_token(user.id, token_version=user.token_version)
     headers = {"Authorization": f"Bearer {token}"}
 
     oversized = b"x" * (2 * 1024 * 1024 + 1)
@@ -151,7 +151,7 @@ def test_profile_image_spoofed_mime_is_rejected(client, db_session):
         email="profile-spoof@example.com",
         password="Password!123",
     )
-    token = create_access_token(user.id)
+    token = create_access_token(user.id, token_version=user.token_version)
     headers = {"Authorization": f"Bearer {token}"}
 
     corrupt_bytes = b"not-a-real-png-header"

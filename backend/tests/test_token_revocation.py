@@ -53,6 +53,53 @@ def test_password_reset_invalidates_preexisting_jwt(client, db_session) -> None:
     assert resp_new.status_code == 200
 
 
+def test_password_reset_api_route_invalidates_jwt(client, db_session) -> None:
+    """End-to-end API test exercising POST /auth/reset-password."""
+    ts = int(time.time() * 1000)
+    email = f"api-revoke-{ts}@example.com"
+    old_pwd = "OldPassword!123"
+    new_pwd = "NewPassword!456"
+
+    user = UserRepository.create(
+        db_session,
+        name="API Revoke User",
+        email=email,
+        password=old_pwd,
+    )
+
+    # Issue token before reset
+    old_token = create_access_token(user_id=user.id, token_version=user.token_version)
+    auth_header = {"Authorization": f"Bearer {old_token}"}
+
+    # Works before reset
+    assert client.get("/user/me", headers=auth_header).status_code == 200
+
+    # Request reset token
+    _, raw_token = UserRepository.create_reset_token(db_session, email)
+
+    # Execute actual API endpoint
+    reset_resp = client.post(
+        "/auth/reset-password",
+        json={"token": raw_token, "new_password": new_pwd},
+    )
+    assert reset_resp.status_code == 200
+    assert reset_resp.json().get("message") == "Password updated successfully"
+
+    # Pre-reset token must be rejected with 401
+    verify_resp = client.get("/user/me", headers=auth_header)
+    assert verify_resp.status_code == 401
+    assert "revoked" in verify_resp.json()["detail"].lower()
+
+    # Login with new password gives working token
+    login_resp = client.post(
+        "/auth/login",
+        json={"email": email, "password": new_pwd},
+    )
+    assert login_resp.status_code == 200
+    fresh_token = login_resp.json()["access_token"]
+    assert client.get("/user/me", headers={"Authorization": f"Bearer {fresh_token}"}).status_code == 200
+
+
 def test_token_without_version_claim_is_rejected(client, db_session) -> None:
     ts = int(time.time() * 1000)
     user = UserRepository.create(

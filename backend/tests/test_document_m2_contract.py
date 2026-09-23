@@ -15,7 +15,7 @@ from types import SimpleNamespace
 
 
 def auth_headers(user: User) -> dict[str, str]:
-    token = create_access_token(user.id)
+    token = create_access_token(user.id, token_version=user.token_version)
     return {"Authorization": f"Bearer {token}"}
 
 

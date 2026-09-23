@@ -96,7 +96,7 @@ def test_get_chat_history_hydrates_sources(client: TestClient, db_session):
         sources=mock_sources,
     )
 
-    token = create_access_token(user_id=user.id)
+    token = create_access_token(user_id=user.id, token_version=user.token_version)
     headers = {"Authorization": f"Bearer {token}"}
 
     response = client.get(
@@ -135,7 +135,7 @@ def test_cross_user_cannot_hydrate_sources(client: TestClient, db_session):
         sources=mock_sources,
     )
 
-    token_b = create_access_token(user_id=user_b.id)
+    token_b = create_access_token(user_id=user_b.id, token_version=user_b.token_version)
     headers_b = {"Authorization": f"Bearer {token_b}"}
 
     response = client.get(
@@ -186,7 +186,7 @@ def test_stream_persists_sources_on_successful_completion(
         mock_provider.generate_stream = mock_stream
         mock_factory.return_value = mock_provider
 
-        token = create_access_token(user_id=user.id)
+        token = create_access_token(user_id=user.id, token_version=user.token_version)
         headers = {"Authorization": f"Bearer {token}"}
 
         response = client.post(
