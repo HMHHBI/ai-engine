@@ -5,6 +5,7 @@ import io
 import json
 import logging
 import time
+from contextlib import suppress
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
@@ -593,6 +594,47 @@ def get_chat_details(
 # ============================================================
 
 
+async def _heartbeat_stream(
+    source: AsyncIterator[str],
+    request: Request,
+    heartbeat_interval: float | None = None,
+) -> StreamingResponse:
+    interval = heartbeat_interval if heartbeat_interval is not None else settings.HEARTBEAT_INTERVAL_SECONDS
+    source_iterator = source.__aiter__()
+    next_task = asyncio.create_task(source_iterator.__anext__())
+
+    try:
+        while True:
+            done, _ = await asyncio.wait(
+                {next_task},
+                timeout=interval,
+            )
+
+            if done:
+                try:
+                    chunk = next_task.result()
+                except StopAsyncIteration:
+                    return
+
+                yield chunk
+                next_task = asyncio.create_task(source_iterator.__anext__())
+                continue
+
+            if await request.is_disconnected():
+                return
+
+            yield ": keep-alive\n\n"
+    finally:
+        if not next_task.done():
+            next_task.cancel()
+
+        with suppress(asyncio.CancelledError, StopAsyncIteration):
+            await next_task
+
+        with suppress(asyncio.CancelledError):
+            await source_iterator.aclose()
+
+
 @router.post("/stream")
 @limiter.limit("15/minute")
 async def ai_stream(
@@ -650,7 +692,7 @@ async def _execute_ai_stream(
     clean_prompt: str,
     lease_token: str,
     request_started_at: float,
-) -> StreamingResponse:
+) -> AsyncIterator[str]:
     chat = await asyncio.to_thread(
         ChatRepository.get_by_id,
         chat_id=req.chat_id,
@@ -1283,7 +1325,7 @@ async def _execute_ai_stream(
             await release_stream_lease(current_user.id, lease_token)
 
     return StreamingResponse(
-        stream_with_lease(),
+        _heartbeat_stream(stream_with_lease(), request),
         media_type="text/event-stream",
         background=BackgroundTask(release_stream_lease, current_user.id, lease_token),
         headers={
