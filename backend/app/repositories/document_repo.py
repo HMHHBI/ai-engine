@@ -5,7 +5,7 @@ from typing import Optional
 
 from sqlalchemy import delete, select
 
-from app.db.models import Chat, Document
+from app.db.models import Chat, Document, DocumentChunk
 from app.db.session import session_scope
 from app.storage import get_storage_backend
 
@@ -279,6 +279,55 @@ class DocumentRepository:
             db.flush()
 
             return document
+
+    @staticmethod
+    def mark_failed_and_cleanup(
+        document_id: int,
+        user_id: int,
+        error_message: str = "Document ingestion failed.",
+    ) -> Optional[Document]:
+        DocumentRepository._validate_ids(
+            user_id=user_id,
+            document_id=document_id,
+        )
+
+        normalized_error_message = (
+            error_message.strip()
+            if error_message and error_message.strip()
+            else "Document ingestion failed."
+        )
+
+        with session_scope() as db:
+            document = db.execute(
+                select(Document)
+                .join(
+                    Chat,
+                    Chat.id == Document.chat_id,
+                )
+                .where(
+                    Document.id == document_id,
+                    Document.user_id == user_id,
+                    Chat.user_id == user_id,
+                )
+            ).scalar_one_or_none()
+
+            if document is None:
+                return None
+
+            document.status = "failed"
+            document.error_message = normalized_error_message
+
+            db.execute(
+                delete(DocumentChunk).where(
+                    DocumentChunk.document_id == document.id,
+                )
+            )
+
+            db.flush()
+
+            return document
+
+
 
     @staticmethod
     def update_metadata(
