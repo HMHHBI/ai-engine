@@ -24,11 +24,9 @@ class DocumentStatusUpdate(BaseModel):
 
 # Document Metadata Update Schema
 class DocumentMetadataUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     filename: Optional[str] = Field(default=None, min_length=1, max_length=255)
-    mime_type: Optional[str] = Field(default=None, min_length=1, max_length=100)
-    file_size: Optional[int] = Field(default=None, ge=0)
-    page_count: Optional[int] = Field(default=None, ge=0)
-    storage_url: Optional[str] = None
 
 
 # Document Output Schema

@@ -90,12 +90,12 @@ def test_update_document_owner_success(client, two_users_and_documents):
 
     res = client.patch(
         f"/documents/{doc_a.id}",
-        json={"filename": "renamed_doc.pdf", "page_count": 12},
+        json={"filename": "renamed_doc.pdf"},
         headers=headers,
     )
     assert res.status_code == 200
     assert res.json()["filename"] == "renamed_doc.pdf"
-    assert res.json()["page_count"] == 12
+    assert res.json()["page_count"] == doc_a.page_count
 
 
 def test_update_document_cross_user_rejected(client, two_users_and_documents):
