@@ -13,7 +13,7 @@ from app.core.stream_concurrency import (
 )
 from app.repositories.chat_repo import ChatRepository
 from app.repositories.user_repo import UserRepository
-from app.services.providers.errors import AIProviderError, AIProviderTimeout
+from app.services.providers.errors import AIProviderTimeout
 
 
 class MockRedis:
@@ -22,25 +22,28 @@ class MockRedis:
     def __init__(self):
         self.store: dict[str, str] = {}
         self.ttls: dict[str, int] = {}
+        self._lock = asyncio.Lock()
 
     async def set(self, key: str, value: str, nx: bool = False, ex: int | None = None):
-        if nx and key in self.store:
-            return None
-        self.store[key] = value
-        if ex is not None:
-            self.ttls[key] = ex
-        return True
+        async with self._lock:
+            if nx and key in self.store:
+                return None
+            self.store[key] = value
+            if ex is not None:
+                self.ttls[key] = ex
+            return True
 
     async def get(self, key: str):
         return self.store.get(key)
 
     async def eval(self, script: str, numkeys: int, key: str, arg: str):
-        current_val = self.store.get(key)
-        if current_val == arg:
-            del self.store[key]
-            self.ttls.pop(key, None)
-            return 1
-        return 0
+        async with self._lock:
+            current_val = self.store.get(key)
+            if current_val == arg:
+                del self.store[key]
+                self.ttls.pop(key, None)
+                return 1
+            return 0
 
 
 @pytest.fixture
@@ -86,7 +89,7 @@ def auth_headers(user):
 
 
 # ==============================================================================
-# Unit Tests for Stream Concurrency Core
+# Unit & Race Condition Tests
 # ==============================================================================
 
 
@@ -105,14 +108,32 @@ async def test_acquire_and_release_stream_lease_happy_path(mock_redis):
 
 
 @pytest.mark.asyncio
-async def test_acquire_stream_lease_rejects_duplicate(mock_redis):
-    """Invariant A & K: Rejection when lease already held."""
-    user_id = 100
-    token1 = await acquire_stream_lease(user_id=user_id, client=mock_redis)
-    assert token1 is not None
+async def test_concurrent_simultaneous_acquisitions_atomic_race(mock_redis):
+    """Blocker 1 & Invariant A: True concurrent race allows exactly 1 winner out of N attempts."""
+    user_id = 101
+    n_concurrent = 10
 
-    token2 = await acquire_stream_lease(user_id=user_id, client=mock_redis)
-    assert token2 is None
+    # Dispatch N concurrent acquisition coroutines simultaneously
+    results = await asyncio.gather(
+        *[acquire_stream_lease(user_id=user_id, client=mock_redis) for _ in range(n_concurrent)]
+    )
+
+    successful_leases = [r for r in results if r is not None]
+    failed_leases = [r for r in results if r is None]
+
+    assert len(successful_leases) == 1
+    assert len(failed_leases) == n_concurrent - 1
+    assert mock_redis.store[build_lease_key(user_id)] == successful_leases[0]
+
+
+@pytest.mark.asyncio
+async def test_stream_duration_vs_lease_ttl_invariant():
+    """Blocker 2: Hard stream duration limit must be strictly lower than lease TTL to prevent overlap."""
+    assert settings.AI_STREAM_CONCURRENCY_LIMIT == 1
+    assert settings.AI_STREAM_MAX_DURATION_SECONDS > 0
+    assert settings.AI_STREAM_LEASE_TTL_SECONDS > settings.AI_STREAM_MAX_DURATION_SECONDS
+    # Safety margin must be at least 30 seconds
+    assert (settings.AI_STREAM_LEASE_TTL_SECONDS - settings.AI_STREAM_MAX_DURATION_SECONDS) >= 30
 
 
 @pytest.mark.asyncio
@@ -138,16 +159,6 @@ async def test_multi_user_isolation(mock_redis):
     assert token_1 != token_2
 
 
-@pytest.mark.asyncio
-async def test_lease_ttl_configured_properly(mock_redis):
-    """Invariant J: TTL is strictly positive and matches configuration."""
-    user_id = 200
-    token = await acquire_stream_lease(user_id=user_id, client=mock_redis)
-    assert token is not None
-    assert mock_redis.ttls[build_lease_key(user_id)] == settings.AI_STREAM_LEASE_TTL_SECONDS
-    assert settings.AI_STREAM_LEASE_TTL_SECONDS == 180
-
-
 # ==============================================================================
 # Endpoint Integration & Lifecycle Invariant Tests
 # ==============================================================================
@@ -157,7 +168,6 @@ def test_ai_stream_concurrency_rejection_http_429(client, user_and_chat, mock_re
     """Invariant A & D: Concurrent request by same user is rejected with 429 and error code."""
     user, chat = user_and_chat
 
-    # Simulate existing active lease held by user
     mock_redis.store[build_lease_key(user.id)] = "existing_active_token"
 
     response = client.post(
@@ -183,7 +193,6 @@ def test_ai_stream_early_failure_releases_lease(client, user_and_chat, mock_redi
     )
 
     assert response.status_code == 404
-    # Lease must be cleaned up immediately, not left dangling
     assert build_lease_key(user.id) not in mock_redis.store
 
 
@@ -208,11 +217,8 @@ def test_ai_stream_lifecycle_release_on_completion(client, user_and_chat, mock_r
             headers=auth_headers(user),
         )
         assert resp1.status_code == 200
-
-        # Lease must have been released after streaming completed
         assert build_lease_key(user.id) not in mock_redis.store
 
-        # A second stream should now succeed cleanly
         resp2 = client.post(
             "/chat/stream",
             json={"chat_id": chat.id, "prompt": "Second sequential message"},
@@ -243,7 +249,6 @@ def test_ai_stream_lifecycle_release_on_disconnect(client, user_and_chat, mock_r
             headers=auth_headers(user),
         )
 
-    # After disconnect, lease must be released
     assert build_lease_key(user.id) not in mock_redis.store
 
 
@@ -269,7 +274,34 @@ def test_ai_stream_lifecycle_release_on_provider_error(client, user_and_chat, mo
         )
         assert resp.status_code == 200
 
-    # Lease must be cleaned up in finally block
+    assert build_lease_key(user.id) not in mock_redis.store
+
+
+def test_ai_stream_lifecycle_release_on_max_duration_exceeded(client, user_and_chat, mock_redis):
+    """Blocker 2 Invariant: Stream exceeding max duration triggers timeout and releases the lease."""
+    user, chat = user_and_chat
+
+    async def mock_slow_stream(*args, **kwargs):
+        yield "Token 1"
+        # Simulate time jump past maximum allowed stream duration
+        await asyncio.sleep(0.01)
+        yield "Token 2"
+
+    mock_provider = MagicMock()
+    mock_provider.generate_stream = mock_slow_stream
+
+    with patch(
+        "app.services.providers.factory.LLMProviderFactory.get_provider",
+        return_value=mock_provider,
+    ), patch("app.core.config.settings.AI_STREAM_MAX_DURATION_SECONDS", 0.001):
+        resp = client.post(
+            "/chat/stream",
+            json={"chat_id": chat.id, "prompt": "Exceed duration"},
+            headers=auth_headers(user),
+        )
+        assert resp.status_code == 200
+        assert "provider_timeout" in resp.text
+
     assert build_lease_key(user.id) not in mock_redis.store
 
 
@@ -280,7 +312,6 @@ def test_ai_stream_multi_user_isolation_endpoint(
     user1, _ = user_and_chat
     user2, chat2 = second_user_and_chat
 
-    # User 1 has an active stream lease
     mock_redis.store[build_lease_key(user1.id)] = "user1_active_lease"
 
     async def mock_stream_ok(*args, **kwargs):
@@ -300,6 +331,5 @@ def test_ai_stream_multi_user_isolation_endpoint(
         )
         assert resp.status_code == 200
 
-    # User 1 lease remains intact while User 2 lease completed cleanly
     assert mock_redis.store.get(build_lease_key(user1.id)) == "user1_active_lease"
     assert build_lease_key(user2.id) not in mock_redis.store

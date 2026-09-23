@@ -156,7 +156,9 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379"
 
     # AI Stream Concurrency & Workload Budget
-    MAX_CONCURRENT_STREAMS_PER_USER: int = 1
+    # Invariant: Concurrency is single-stream mutex (N=1); lease TTL strictly exceeds hard stream timeout.
+    AI_STREAM_CONCURRENCY_LIMIT: int = 1
+    AI_STREAM_MAX_DURATION_SECONDS: int = 120
     AI_STREAM_LEASE_TTL_SECONDS: int = 180
 
     model_config = SettingsConfigDict(

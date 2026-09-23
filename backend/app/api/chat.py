@@ -979,6 +979,21 @@ async def _execute_ai_stream(
                 prompt=clean_prompt,
                 system_prompt=system_prompt,
             ):
+                elapsed_stream_s = time.monotonic() - stream_started_at
+                if elapsed_stream_s > settings.AI_STREAM_MAX_DURATION_SECONDS:
+                    logger.warning(
+                        "ai_stream_max_duration_exceeded",
+                        extra={
+                            "event": "ai_stream_max_duration_exceeded",
+                            "chat_id": req.chat_id,
+                            "elapsed_s": round(elapsed_stream_s, 2),
+                            "max_duration_s": settings.AI_STREAM_MAX_DURATION_SECONDS,
+                        },
+                    )
+                    raise AIProviderTimeout(
+                        f"Stream exceeded maximum allowed duration of {settings.AI_STREAM_MAX_DURATION_SECONDS}s"
+                    )
+
                 if await request.is_disconnected():
                     logger.info(
                         "ai_stream_cancelled",
