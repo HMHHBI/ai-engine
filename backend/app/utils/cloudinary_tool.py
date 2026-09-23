@@ -21,6 +21,7 @@ cloudinary.config(
 def upload_image_to_cloud(
     base64_str: str,
     folder: str = "chats",
+    mime_type: str = "image/png",
 ) -> str | None:
     """
     Upload a base64 image to Cloudinary.
@@ -30,7 +31,7 @@ def upload_image_to_cloud(
     """
     try:
         result = cloudinary.uploader.upload(
-            f"data:image/png;base64,{base64_str}",
+            f"data:{mime_type};base64,{base64_str}",
             folder=f"hassan_ai/{folder}",
             transformation=[
                 {

@@ -216,19 +216,22 @@ async def test_chat_application_service_uploads_images_outside_repository():
             return_value=repository_message,
         ) as repository_mock,
     ):
+        valid_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
         result = await ChatApplicationService.prepare_chat_turn(
             chat_id=123,
             user_id=456,
             content="Image message",
             new_title="Image message",
-            image_data_list=["base64-data"],
+            image_data_list=[valid_b64],
+            image_mime_list=["image/png"],
         )
 
     assert result is repository_message
 
     upload_mock.assert_called_once_with(
-        "base64-data",
+        valid_b64,
         "chat_messages",
+        "image/png",
     )
 
     repository_mock.assert_called_once_with(
@@ -289,12 +292,14 @@ async def test_chat_application_service_does_not_call_repository_when_upload_fai
             "app.services.chat_service.ChatRepository.prepare_chat_turn",
         ) as repository_mock,
     ):
-        with pytest.raises(ValueError):
+        valid_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        with pytest.raises(ValueError, match="Failed to upload chat image"):
             await ChatApplicationService.prepare_chat_turn(
                 chat_id=123,
                 user_id=456,
                 content="Upload failure",
-                image_data_list=["broken-image"],
+                image_data_list=[valid_b64],
+                image_mime_list=["image/png"],
             )
 
     repository_mock.assert_not_called()
