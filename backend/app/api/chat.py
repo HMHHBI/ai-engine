@@ -652,6 +652,7 @@ async def ai_stream(
             content=clean_prompt,
             new_title=new_title,
             image_data_list=req.image_base64,
+            image_mime_list=req.image_mime,
         )
     except ValueError as exc:
         logger.warning(
