@@ -217,9 +217,14 @@ def test_delete_isolation_does_not_affect_other_documents(invariant_environment)
         assert chunks_doc2[0].content == "Chunk Doc 2"
 
 
-def test_patch_metadata_cannot_mutate_status_or_ownership(
+def test_patch_metadata_rejects_server_owned_fields(
     client, invariant_environment
 ):
+    """
+    Step 6 invariant:
+    PATCH /documents/{id} accepts ONLY user-editable filename.
+    Supplying any server-authoritative field yields 422 with zero document mutation.
+    """
     user_a, user_b, chat_a, _ = invariant_environment
     token = create_access_token(user_id=user_a.id, token_version=user_a.token_version)
     headers = {"Authorization": f"Bearer {token}"}
@@ -229,26 +234,79 @@ def test_patch_metadata_cannot_mutate_status_or_ownership(
         chat_id=chat_a.id,
         filename="original.pdf",
         mime_type="application/pdf",
+        file_size=100,
+        page_count=2,
+        storage_url="https://storage.example/original.pdf",
     )
 
-    # Attempt to inject user_id, chat_id, or status via PATCH
     res = client.patch(
         f"/documents/{doc.id}",
         json={
             "filename": "updated.pdf",
+            "mime_type": "text/plain",
+            "file_size": 999999,
+            "page_count": 999,
+            "storage_url": "https://attacker.example/file",
             "status": "ready",
+            "error_message": "attacker-controlled",
             "user_id": user_b.id,
             "chat_id": 9999,
         },
         headers=headers,
     )
-    assert res.status_code == 200
+    assert res.status_code == 422
 
-    # Verify status remained "processing" and ownership untouched
     current = DocumentRepository.get_owned_document(
         document_id=doc.id, user_id=user_a.id
     )
-    assert current.filename == "updated.pdf"
+    assert current.filename == "original.pdf"
+    assert current.mime_type == "application/pdf"
+    assert current.file_size == 100
+    assert current.page_count == 2
+    assert current.storage_url == "https://storage.example/original.pdf"
+    assert current.status == "processing"
+    assert current.user_id == user_a.id
+    assert current.chat_id == chat_a.id
+
+
+def test_patch_metadata_allows_valid_filename_rename(
+    client, invariant_environment
+):
+    """
+    Step 6 positive path:
+    PATCH /documents/{id} with valid filename updates only filename.
+    """
+    user_a, _, chat_a, _ = invariant_environment
+    token = create_access_token(user_id=user_a.id, token_version=user_a.token_version)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    doc = DocumentRepository.create(
+        user_id=user_a.id,
+        chat_id=chat_a.id,
+        filename="old_name.pdf",
+        mime_type="application/pdf",
+        file_size=200,
+        page_count=3,
+        storage_url="https://storage.example/old_name.pdf",
+    )
+
+    res = client.patch(
+        f"/documents/{doc.id}",
+        json={"filename": "new_name.pdf"},
+        headers=headers,
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["filename"] == "new_name.pdf"
+
+    current = DocumentRepository.get_owned_document(
+        document_id=doc.id, user_id=user_a.id
+    )
+    assert current.filename == "new_name.pdf"
+    assert current.mime_type == "application/pdf"
+    assert current.file_size == 200
+    assert current.page_count == 3
+    assert current.storage_url == "https://storage.example/old_name.pdf"
     assert current.status == "processing"
     assert current.user_id == user_a.id
     assert current.chat_id == chat_a.id

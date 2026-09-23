@@ -109,9 +109,6 @@ async def update_document(
         document_id=document_id,
         user_id=current_user.id,
         filename=payload.filename,
-        file_size=payload.file_size,
-        page_count=payload.page_count,
-        storage_url=payload.storage_url,
     )
     return updated
 
