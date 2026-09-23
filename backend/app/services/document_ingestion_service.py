@@ -28,14 +28,18 @@ class DocumentIngestionService:
 
     EMBEDDING_CONCURRENCY = 4
     _embedding_semaphore: asyncio.Semaphore | None = None
+    _embedding_semaphore_loop: asyncio.AbstractEventLoop | None = None
 
     @classmethod
     def get_embedding_semaphore(cls) -> asyncio.Semaphore:
         """
-        Returns a process-level shared semaphore bound to the current event loop.
+        Returns a process-level shared semaphore bound strictly to the current running event loop.
+        Re-initializes cleanly if the running event loop has changed or closed.
         """
-        if cls._embedding_semaphore is None:
+        current_loop = asyncio.get_running_loop()
+        if cls._embedding_semaphore is None or cls._embedding_semaphore_loop is not current_loop:
             cls._embedding_semaphore = asyncio.Semaphore(cls.EMBEDDING_CONCURRENCY)
+            cls._embedding_semaphore_loop = current_loop
         return cls._embedding_semaphore
 
     @staticmethod

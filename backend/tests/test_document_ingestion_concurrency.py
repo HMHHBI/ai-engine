@@ -13,8 +13,10 @@ from app.repositories.vector_repo import VectorRepository
 @pytest.fixture(autouse=True)
 def reset_document_ingestion_semaphore():
     DocumentIngestionService._embedding_semaphore = None
+    DocumentIngestionService._embedding_semaphore_loop = None
     yield
     DocumentIngestionService._embedding_semaphore = None
+    DocumentIngestionService._embedding_semaphore_loop = None
 
 
 @pytest.mark.asyncio
@@ -88,12 +90,34 @@ async def test_document_ingestion_enforces_process_level_concurrency_bound():
 
 
 @pytest.mark.asyncio
-async def test_chat_upload_shares_document_ingestion_semaphore():
+async def test_document_ingestion_semaphore_is_singleton_per_event_loop():
     """
-    Verifies that chat.py retrieves the same singleton semaphore instance 
-    as DocumentIngestionService.
+    Verifies that get_embedding_semaphore returns the same semaphore within the same
+    event loop, but creates a new instance if invoked under a different event loop.
     """
+    current_loop = asyncio.get_running_loop()
     sem1 = DocumentIngestionService.get_embedding_semaphore()
     sem2 = DocumentIngestionService.get_embedding_semaphore()
+
     assert sem1 is sem2
     assert sem1._value == DocumentIngestionService.EMBEDDING_CONCURRENCY
+    assert DocumentIngestionService._embedding_semaphore_loop is current_loop
+
+    def run_in_separate_loop():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            async def get_sem():
+                return DocumentIngestionService.get_embedding_semaphore()
+
+            return loop.run_until_complete(get_sem())
+        finally:
+            loop.close()
+
+    sem_other_loop = await asyncio.to_thread(run_in_separate_loop)
+
+    assert sem_other_loop is not sem1
+    # Verify returning to the primary test loop re-binds cleanly
+    sem_reacquired = DocumentIngestionService.get_embedding_semaphore()
+    assert sem_reacquired is not sem_other_loop
+    assert DocumentIngestionService._embedding_semaphore_loop is current_loop
