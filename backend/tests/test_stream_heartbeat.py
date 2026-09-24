@@ -12,7 +12,6 @@ from app.db.models import Chat
 from app.db.session import SessionLocal
 from app.repositories.chat_repo import ChatRepository
 from app.repositories.user_repo import UserRepository
-from starlette.requests import Request
 
 
 @pytest.fixture
