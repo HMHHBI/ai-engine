@@ -1,0 +1,9 @@
+{
+  "exceptions": [
+    {
+      "package": "transformers",
+      "vuln_id": "PYSEC-2026-2289",
+      "reason": "Transitive dependency of sentence-transformers==3.4.1. Requires breaking major version 5.x bump. Tracked for upcoming ML stack refactor."
+    }
+  ]
+}
