@@ -160,6 +160,7 @@ class Settings(BaseSettings):
     AI_STREAM_CONCURRENCY_LIMIT: int = 1
     AI_STREAM_MAX_DURATION_SECONDS: int = 120
     AI_STREAM_LEASE_TTL_SECONDS: int = 180
+    HEARTBEAT_INTERVAL_SECONDS: float = 15.0
 
     model_config = SettingsConfigDict(
         env_file=".env",

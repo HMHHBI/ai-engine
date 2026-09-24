@@ -5,6 +5,7 @@ import io
 import json
 import logging
 import time
+from contextlib import suppress
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
@@ -593,6 +594,47 @@ def get_chat_details(
 # ============================================================
 
 
+async def _heartbeat_stream(
+    source: AsyncIterator[str],
+    request: Request,
+    heartbeat_interval: float | None = None,
+) -> AsyncIterator[str]:
+    interval = heartbeat_interval if heartbeat_interval is not None else settings.HEARTBEAT_INTERVAL_SECONDS
+    source_iterator = source.__aiter__()
+    next_task = asyncio.create_task(source_iterator.__anext__())
+
+    try:
+        while True:
+            done, _ = await asyncio.wait(
+                {next_task},
+                timeout=interval,
+            )
+
+            if done:
+                try:
+                    chunk = next_task.result()
+                except StopAsyncIteration:
+                    return
+
+                yield chunk
+                next_task = asyncio.create_task(source_iterator.__anext__())
+                continue
+
+            if await request.is_disconnected():
+                return
+
+            yield ": keep-alive\n\n"
+    finally:
+        if not next_task.done():
+            next_task.cancel()
+
+        with suppress(asyncio.CancelledError, StopAsyncIteration):
+            await next_task
+
+        with suppress(asyncio.CancelledError):
+            await source_iterator.aclose()
+
+
 @router.post("/stream")
 @limiter.limit("15/minute")
 async def ai_stream(
@@ -650,7 +692,7 @@ async def _execute_ai_stream(
     clean_prompt: str,
     lease_token: str,
     request_started_at: float,
-) -> StreamingResponse:
+) -> AsyncIterator[str]:
     chat = await asyncio.to_thread(
         ChatRepository.get_by_id,
         chat_id=req.chat_id,
@@ -717,15 +759,52 @@ async def _execute_ai_stream(
             detail="Chat not found.",
         )
 
-    context_chunks: list[dict[str, Any]] = []
-
+    active_document = None
     if chat.pdf_context:
-        query_vector = await EmbeddingService.generate_embedding(
-            clean_prompt,
-            model_provider=embedding_provider.value,
-        )
+        if req.document_id is not None:
+            active_document = await asyncio.to_thread(
+                DocumentRepository.get_ready_for_chat,
+                document_id=req.document_id,
+                chat_id=req.chat_id,
+                user_id=current_user.id,
+            )
+            if active_document is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Document not found.",
+                )
+        else:
+            active_document = await asyncio.to_thread(
+                DocumentRepository.get_active_for_chat,
+                chat_id=req.chat_id,
+                user_id=current_user.id,
+            )
 
-        if query_vector:
+    logger.info(
+        "ai_provider_selected",
+        extra={
+            "event": "ai_provider_selected",
+            "chat_id": req.chat_id,
+            "provider": ai_provider.value,
+            "model": ai_model.value,
+            "persona": getattr(chat, "persona", "default"),
+        },
+    )
+
+    # --------------------------------------------------------
+    # Structured SSE stream
+    # --------------------------------------------------------
+
+    async def event_generator():
+        full_text = ""
+        chunk_count = 0
+        first_token_at: float | None = None
+        stream_started_at = time.monotonic()
+
+        context_chunks: list[dict[str, Any]] = []
+        has_legacy_context = bool(getattr(chat, "pdf_context", None))
+
+        if chat.pdf_context and (active_document is not None or has_legacy_context):
             rag_started_at = time.monotonic()
 
             logger.info(
@@ -737,111 +816,87 @@ async def _execute_ai_stream(
             )
 
             try:
-                if req.document_id is not None:
-                    active_document = await asyncio.to_thread(
-                        DocumentRepository.get_ready_for_chat,
-                        document_id=req.document_id,
-                        chat_id=req.chat_id,
+                doc_id = (
+                    active_document.id
+                    if active_document is not None
+                    else req.chat_id
+                )
+
+                query_vector = await EmbeddingService.generate_embedding(
+                    clean_prompt,
+                    model_provider=embedding_provider.value,
+                )
+
+                if query_vector:
+                    retrieval_top_k = (
+                        RERANK_INITIAL_K
+                        if settings.ENABLE_RERANKING
+                        else RERANK_FINAL_K
+                    )
+
+                    context_chunks = await asyncio.to_thread(
+                        VectorRepository.search_hybrid_chunks,
                         user_id=current_user.id,
+                        document_id=doc_id,
+                        query_text=req.prompt,
+                        query_vector=query_vector,
+                        top_k=retrieval_top_k,
+                        max_distance=0.70,
+                        adaptive_margin=0.15,
                     )
 
-                    if active_document is None:
-                        raise HTTPException(
-                            status_code=status.HTTP_404_NOT_FOUND,
-                            detail="Document not found.",
-                        )
-                else:
-                    active_document = await asyncio.to_thread(
-                        DocumentRepository.get_active_for_chat,
-                        chat_id=req.chat_id,
-                        user_id=current_user.id,
-                    )
-
-                has_legacy_context = bool(getattr(chat, "pdf_context", None))
-                context_chunks = []
-
-                if active_document is not None or has_legacy_context:
-                    doc_id = (
-                        active_document.id
-                        if active_document is not None
-                        else req.chat_id
-                    )
-
-                    query_vector = await EmbeddingService.generate_embedding(
-                        req.prompt,
-                        model_provider=embedding_provider.value,
-                    )
-
-                    if query_vector:
-                        retrieval_top_k = (
-                            RERANK_INITIAL_K
-                            if settings.ENABLE_RERANKING
-                            else RERANK_FINAL_K
-                        )
-
-                        context_chunks = await asyncio.to_thread(
-                            VectorRepository.search_hybrid_chunks,
-                            user_id=current_user.id,
-                            document_id=doc_id,
-                            query_text=req.prompt,
-                            query_vector=query_vector,
-                            top_k=retrieval_top_k,
-                            max_distance=0.70,
-                            adaptive_margin=0.15,
-                        )
-
-                        if settings.ENABLE_RERANKING and context_chunks:
-                            rerank_candidates = _build_rerank_candidates(context_chunks)
-                            try:
-                                reranker = RerankerService(
-                                    provider=create_reranker_provider()
+                    if settings.ENABLE_RERANKING and context_chunks:
+                        rerank_candidates = _build_rerank_candidates(context_chunks)
+                        try:
+                            reranker = RerankerService(
+                                provider=create_reranker_provider()
+                            )
+                            reranked_candidates = await asyncio.to_thread(
+                                reranker.rerank,
+                                req.prompt,
+                                rerank_candidates,
+                                RERANK_FINAL_K,
+                            )
+                            reranked_chunks: list[dict[str, Any]] = []
+                            for candidate in reranked_candidates:
+                                metadata = dict(candidate.metadata or {})
+                                reranked_chunks.append(
+                                    {
+                                        "id": int(metadata["id"]),
+                                        "document_id": metadata.get("document_id"),
+                                        "content": candidate.content,
+                                        "page_number": metadata.get("page_number"),
+                                        "chunk_index": metadata.get("chunk_index"),
+                                        "distance": float(
+                                            metadata.get("distance", 0.0)
+                                        ),
+                                        "rrf_score": metadata.get("rrf_score"),
+                                        "score": candidate.score,
+                                    }
                                 )
-                                reranked_candidates = await asyncio.to_thread(
-                                    reranker.rerank,
-                                    req.prompt,
-                                    rerank_candidates,
-                                    RERANK_FINAL_K,
-                                )
-                                reranked_chunks: list[dict[str, Any]] = []
-                                for candidate in reranked_candidates:
-                                    metadata = dict(candidate.metadata or {})
-                                    reranked_chunks.append(
-                                        {
-                                            "id": int(metadata["id"]),
-                                            "document_id": metadata.get("document_id"),
-                                            "content": candidate.content,
-                                            "page_number": metadata.get("page_number"),
-                                            "chunk_index": metadata.get("chunk_index"),
-                                            "distance": float(
-                                                metadata.get("distance", 0.0)
-                                            ),
-                                            "rrf_score": metadata.get("rrf_score"),
-                                            "score": candidate.score,
-                                        }
-                                    )
-                                context_chunks = reranked_chunks
+                            context_chunks = reranked_chunks
 
-                                logger.info(
-                                    "rag_reranking_completed",
-                                    extra={
-                                        "event": "rag_reranking_completed",
-                                        "chat_id": req.chat_id,
-                                        "candidate_count": len(rerank_candidates),
-                                        "final_count": len(context_chunks),
-                                        "strategy": "hybrid_rerank",
-                                    },
-                                )
-                            except Exception as rerank_err:
-                                logger.warning(
-                                    "rag_reranking_fallback_triggered",
-                                    extra={
-                                        "event": "rag_reranking_fallback_triggered",
-                                        "chat_id": req.chat_id,
-                                        "error": str(rerank_err),
-                                        "fallback_strategy": "hybrid_top_k",
-                                    },
-                                )
-                                context_chunks = context_chunks[:RERANK_FINAL_K]
+                            logger.info(
+                                "rag_reranking_completed",
+                                extra={
+                                    "event": "rag_reranking_completed",
+                                    "chat_id": req.chat_id,
+                                    "candidate_count": len(rerank_candidates),
+                                    "final_count": len(context_chunks),
+                                    "strategy": "hybrid_rerank",
+                                },
+                            )
+                        except Exception as rerank_err:
+                            logger.warning(
+                                "rag_reranking_fallback_triggered",
+                                extra={
+                                    "event": "rag_reranking_fallback_triggered",
+                                    "chat_id": req.chat_id,
+                                    "error": str(rerank_err),
+                                    "fallback_strategy": "hybrid_top_k",
+                                },
+                            )
+                            context_chunks = context_chunks[:RERANK_FINAL_K]
 
             except Exception:
                 logger.exception(
@@ -870,58 +925,38 @@ async def _execute_ai_stream(
                 },
             )
 
-    context_str = None
-    if context_chunks:
-        context_parts: list[str] = []
-        for chunk in context_chunks:
-            page_info = (
-                f" (Page {chunk['page_number']})"
-                if chunk.get("page_number") is not None
-                else ""
-            )
-            source_block = f"[Document Passage{page_info}]\n{chunk['content']}"
-            context_parts.append(source_block)
+        context_str = None
+        if context_chunks:
+            context_parts: list[str] = []
+            for chunk in context_chunks:
+                page_info = (
+                    f" (Page {chunk['page_number']})"
+                    if chunk.get("page_number") is not None
+                    else ""
+                )
+                source_block = f"[Document Passage{page_info}]\n{chunk['content']}"
+                context_parts.append(source_block)
 
-        context_str = "\n\n---\n\n".join(context_parts)
+            context_str = "\n\n---\n\n".join(context_parts)
 
-    # Dynamic Layered System Prompt
-    system_prompt = _build_system_prompt(
-        persona=getattr(chat, "persona", "default"),
-        custom_instructions=getattr(chat, "custom_instructions", None),
-        context_str=context_str if (chat.pdf_context and context_chunks) else None,
-    )
-
-    try:
-        provider = LLMProviderFactory.get_provider(
-            provider=ai_provider,
-            model=ai_model,
+        # Dynamic Layered System Prompt
+        system_prompt = _build_system_prompt(
+            persona=getattr(chat, "persona", "default"),
+            custom_instructions=getattr(chat, "custom_instructions", None),
+            context_str=context_str if (chat.pdf_context and context_chunks) else None,
         )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=str(exc),
-        ) from exc
 
-    logger.info(
-        "ai_provider_selected",
-        extra={
-            "event": "ai_provider_selected",
-            "chat_id": req.chat_id,
-            "provider": ai_provider.value,
-            "model": ai_model.value,
-            "persona": getattr(chat, "persona", "default"),
-        },
-    )
+        try:
+            provider = LLMProviderFactory.get_provider(
+                provider=ai_provider,
+                model=ai_model,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=str(exc),
+            ) from exc
 
-    # --------------------------------------------------------
-    # Structured SSE stream
-    # --------------------------------------------------------
-
-    async def event_generator():
-        full_text = ""
-        chunk_count = 0
-        first_token_at: float | None = None
-        stream_started_at = time.monotonic()
 
         logger.info(
             "ai_stream_started",
@@ -1283,7 +1318,7 @@ async def _execute_ai_stream(
             await release_stream_lease(current_user.id, lease_token)
 
     return StreamingResponse(
-        stream_with_lease(),
+        _heartbeat_stream(stream_with_lease(), request),
         media_type="text/event-stream",
         background=BackgroundTask(release_stream_lease, current_user.id, lease_token),
         headers={
