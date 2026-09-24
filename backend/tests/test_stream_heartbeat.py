@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from app.api.chat import _heartbeat_stream
 from app.core.config import settings
 from app.core.security import create_access_token
+from app.db.models import Chat
+from app.db.session import SessionLocal
 from app.repositories.chat_repo import ChatRepository
 from app.repositories.user_repo import UserRepository
 from starlette.requests import Request
@@ -48,7 +50,7 @@ class DummyRequest:
 
 @pytest.mark.asyncio
 async def test_heartbeat_emitted_when_source_is_idle():
-    """Invariant: Emits exact ': keep-alive\\n\\n' comment when source delay exceeds interval."""
+    """Invariant: Emits exact ': keep-alive\n\n' comment when source delay exceeds interval."""
     async def slow_source() -> AsyncIterator[str]:
         await asyncio.sleep(0.06)
         yield "data: chunk 1\n\n"
@@ -60,7 +62,6 @@ async def test_heartbeat_emitted_when_source_is_idle():
 
     assert ": keep-alive\n\n" in chunks
     assert "data: chunk 1\n\n" in chunks
-    # Ensure keep-alive preceded the data chunk
     assert chunks.index(": keep-alive\n\n") < chunks.index("data: chunk 1\n\n")
 
 
@@ -100,7 +101,6 @@ async def test_payload_byte_integrity_preserved():
     async for item in _heartbeat_stream(standard_source(), req, heartbeat_interval=0.05):
         emitted.append(item)
 
-    # Filter out heartbeats and assert byte-for-byte exact equality
     data_events = [e for e in emitted if e != ": keep-alive\n\n"]
     assert data_events == original_events
 
@@ -121,7 +121,6 @@ async def test_consumer_cancellation_cleans_up_tasks():
     req = DummyRequest()
     stream = _heartbeat_stream(long_source(), req, heartbeat_interval=0.01)
 
-    # Consume first heartbeat then cancel iteration
     iterator = stream.__aiter__()
     first = await iterator.__anext__()
     assert first == ": keep-alive\n\n"
@@ -180,18 +179,29 @@ def test_heartbeat_configuration_validity():
 # ==============================================================================
 
 
-def test_heartbeat_protects_idle_stream_generation(client, user_and_chat):
-    """Invariant: Heartbeat frames are emitted while provider stream is idle."""
+def test_heartbeat_protects_rag_embedding_retrieval_delay(client, user_and_chat):
+    """Invariant: Heartbeat frames are emitted during slow RAG retrieval before first SSE event."""
     user, chat = user_and_chat
 
-    async def slow_generator(*args, **kwargs):
-        await asyncio.sleep(0.08)
+    # Persist pdf_context=True in the database
+    with SessionLocal() as session:
+        session.query(Chat).filter(Chat.id == chat.id).update({"pdf_context": True})
+        session.commit()
+
+    async def slow_generate_embedding(*args, **kwargs):
+        await asyncio.sleep(0.06)
+        return [0.1] * 768
+
+    async def fast_stream(*args, **kwargs):
         yield "done"
 
     mock_provider = MagicMock()
-    mock_provider.generate_stream = slow_generator
+    mock_provider.generate_stream = fast_stream
 
     with patch(
+        "app.services.embedding_service.EmbeddingService.generate_embedding",
+        side_effect=slow_generate_embedding,
+    ), patch(
         "app.services.providers.factory.LLMProviderFactory.get_provider",
         return_value=mock_provider,
     ), patch(
@@ -200,14 +210,19 @@ def test_heartbeat_protects_idle_stream_generation(client, user_and_chat):
     ):
         response = client.post(
             "/chat/stream",
-            json={"chat_id": chat.id, "prompt": "Prompt with delay"},
+            json={"chat_id": chat.id, "prompt": "RAG delay prompt"},
             headers=auth_headers(user),
         )
 
         assert response.status_code == 200
         text = response.text
         assert ": keep-alive\n\n" in text
-        assert 'event: chunk\ndata: {"text":"done"}\n\n' in text
+        assert "event: stream_started" in text
+
+        # Verify heartbeat arrived before the first real SSE frame
+        first_keep_alive_idx = text.index(": keep-alive\n\n")
+        stream_started_idx = text.index("event: stream_started")
+        assert first_keep_alive_idx < stream_started_idx
 
 
 def test_heartbeat_does_not_mutate_telemetry_chunk_count(client, user_and_chat):
@@ -238,12 +253,10 @@ def test_heartbeat_does_not_mutate_telemetry_chunk_count(client, user_and_chat):
         assert response.status_code == 200
         assert ": keep-alive\n\n" in response.text
 
-        # Inspect ai_stream_completed log call
         completion_calls = [
             call for call in mock_logger.call_args_list
             if len(call[0]) > 0 and call[0][0] == "ai_stream_completed"
         ]
         assert len(completion_calls) == 1
         extra = completion_calls[0][1]["extra"]
-        # chunk_count must strictly reflect real tokens (2), never heartbeat pings
         assert extra["chunk_count"] == 2
