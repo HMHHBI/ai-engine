@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from app.api.chat import _heartbeat_stream
@@ -188,9 +188,11 @@ def test_heartbeat_protects_rag_embedding_retrieval_delay(client, user_and_chat)
         session.query(Chat).filter(Chat.id == chat.id).update({"pdf_context": True})
         session.commit()
 
-    async def slow_generate_embedding(*args, **kwargs):
+    async def slow_embed_fn(*args, **kwargs):
         await asyncio.sleep(0.06)
         return [0.1] * 768
+
+    mock_embed = AsyncMock(side_effect=slow_embed_fn)
 
     async def fast_stream(*args, **kwargs):
         yield "done"
@@ -200,7 +202,7 @@ def test_heartbeat_protects_rag_embedding_retrieval_delay(client, user_and_chat)
 
     with patch(
         "app.services.embedding_service.EmbeddingService.generate_embedding",
-        side_effect=slow_generate_embedding,
+        new=mock_embed,
     ), patch(
         "app.services.providers.factory.LLMProviderFactory.get_provider",
         return_value=mock_provider,
@@ -219,7 +221,10 @@ def test_heartbeat_protects_rag_embedding_retrieval_delay(client, user_and_chat)
         assert ": keep-alive\n\n" in text
         assert "event: stream_started" in text
 
-        # Verify heartbeat arrived before the first real SSE frame
+        # Invariant 1: Exactly one embedding generation execution per RAG request
+        assert mock_embed.await_count == 1
+
+        # Invariant 2: Heartbeat arrived before the first real SSE frame
         first_keep_alive_idx = text.index(": keep-alive\n\n")
         stream_started_idx = text.index("event: stream_started")
         assert first_keep_alive_idx < stream_started_idx
