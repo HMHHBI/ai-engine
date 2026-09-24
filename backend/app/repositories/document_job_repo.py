@@ -105,10 +105,20 @@ class DocumentJobRepository:
         )
 
     def transition_to_processing(self, job_id: int, worker_id: str) -> DocumentJob:
+        """
+        Atomically claims a queued job for execution by locking the job row via SELECT FOR UPDATE.
+        Guarantees that exactly one worker succeeds in transitioning a queued job to processing.
+        """
         if not worker_id or not worker_id.strip():
             raise ValueError("worker_id must be provided to transition to processing")
 
-        job = self.get_by_id(job_id)
+        # Atomic lock on the specific job row to eliminate check-then-update race conditions
+        job = (
+            self.db.query(DocumentJob)
+            .filter(DocumentJob.id == job_id)
+            .with_for_update()
+            .first()
+        )
         if not job:
             raise ValueError(f"Job {job_id} not found")
 
@@ -198,6 +208,11 @@ class DocumentJobRepository:
         return job
 
     def request_cancellation(self, job_id: int, user_id: int) -> DocumentJob:
+        """
+        User/API control plane method: records cancellation intent.
+        - If still queued (unclaimed), immediately transitions to cancelled.
+        - If processing (claimed by worker), sets cancel_requested_at for worker to acknowledge.
+        """
         job = self.get_owned_job(job_id, user_id)
         if not job:
             raise ValueError(f"Job {job_id} not found for user {user_id}")
@@ -211,7 +226,6 @@ class DocumentJobRepository:
         job.cancel_requested_at = now
         job.updated_at = now
 
-        # If job is still queued (no worker has claimed it), immediately transition to cancelled
         if job.status == DocumentJobStatus.QUEUED.value:
             job.status = DocumentJobStatus.CANCELLED.value
             job.finished_at = now
@@ -224,6 +238,10 @@ class DocumentJobRepository:
         return job
 
     def mark_cancelled(self, job_id: int) -> DocumentJob:
+        """
+        Worker acknowledgement / internal transition method:
+        Transitions a processing (or queued) job into the terminal CANCELLED state.
+        """
         job = self.get_by_id(job_id)
         if not job:
             raise ValueError(f"Job {job_id} not found")

@@ -7,6 +7,7 @@ from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     Enum,
@@ -93,10 +94,6 @@ class User(Base):
         server_default="10",
     )
 
-    # ----------------------------------------------------------
-    # Password reset
-    # ----------------------------------------------------------
-
     reset_token_hash = Column(
         String(64),
         nullable=True,
@@ -108,10 +105,6 @@ class User(Base):
         DateTime(timezone=True),
         nullable=True,
     )
-
-    # ----------------------------------------------------------
-    # Account status
-    # ----------------------------------------------------------
 
     is_active = Column(
         Boolean,
@@ -133,10 +126,6 @@ class User(Base):
         default=lambda: datetime.now(timezone.utc),
         server_default="now()",
     )
-
-    # ----------------------------------------------------------
-    # Relationships
-    # ----------------------------------------------------------
 
     chats = relationship(
         "Chat",
@@ -372,7 +361,6 @@ class DocumentJob(Base):
     id = Column(
         BigInteger,
         primary_key=True,
-        index=True,
     )
 
     document_id = Column(
@@ -420,7 +408,6 @@ class DocumentJob(Base):
         String(128),
         nullable=False,
         unique=True,
-        index=True,
     )
 
     worker_id = Column(
@@ -485,6 +472,22 @@ class DocumentJob(Base):
     )
 
     __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued', 'processing', 'ready', 'failed', 'cancelled')",
+            name="ck_document_jobs_valid_status",
+        ),
+        CheckConstraint(
+            "attempt >= 0",
+            name="ck_document_jobs_attempt_non_negative",
+        ),
+        CheckConstraint(
+            "max_attempts >= 1",
+            name="ck_document_jobs_max_attempts_positive",
+        ),
+        CheckConstraint(
+            "attempt <= max_attempts",
+            name="ck_document_jobs_attempt_lte_max",
+        ),
         Index(
             "ix_document_jobs_user_id_status",
             "user_id",
