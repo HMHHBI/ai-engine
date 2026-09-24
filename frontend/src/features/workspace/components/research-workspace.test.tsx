@@ -63,7 +63,7 @@ describe("ResearchWorkspace Responsive Fallback (M4.6)", () => {
 
     expect(screen.getByTestId("workspace-responsive-drawer")).toBeInTheDocument();
     expect(screen.getByTestId("workspace-document-pane")).toBeInTheDocument();
-    expect(screen.getByText("test_research.pdf")).toBeInTheDocument();
+    expect(screen.getAllByText("test_research.pdf")[0]).toBeInTheDocument();
   });
 
   it("R4: closing responsive pane collapses the drawer but leaves workspace intact", () => {

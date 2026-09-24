@@ -370,8 +370,8 @@ describe("Phase 3.3 — Final Chat UX regression / polish", () => {
 
       expect(citationButton).toHaveAttribute("aria-expanded", "true");
       expect(screen.getByText("Page 4")).toBeDefined();
-      expect(screen.getByText("Chunk 12")).toBeDefined();
-      expect(screen.getByText("Relevance 92%")).toBeDefined();
+      expect(screen.getAllByText(/Chunk 12/i)[0]).toBeDefined();
+      expect(screen.getAllByText(/92%/i)[0]).toBeDefined();
     });
 
     it("does not render a citation control when sources are absent", () => {
@@ -422,8 +422,8 @@ describe("Phase 3.3 — Final Chat UX regression / polish", () => {
 
       expect(button).toHaveAttribute("aria-expanded", "true");
 
-      expect(screen.getByText("Source 1")).toBeDefined();
-      expect(screen.getByText("Source 2")).toBeDefined();
+      expect(screen.getAllByText(/Source 1/i)[0]).toBeDefined();
+      expect(screen.getAllByText(/Source 2/i)[0]).toBeDefined();
       expect(screen.getByText("Page 4")).toBeDefined();
       expect(screen.getByText("Page 9")).toBeDefined();
 

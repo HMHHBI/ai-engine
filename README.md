@@ -1,12 +1,12 @@
-# AI Engine
+# Hassan AI Engine — AI Research Copilot
 
-Production-grade full-stack AI application with authenticated chat, multi-provider LLM streaming, PDF/RAG retrieval, vector search, persisted citations, multimodal input, document workspace management, chat personas, custom instructions, and operational observability.
+Production-grade AI Research Copilot with evidence-grounded research workspaces, authenticated chat, multi-provider LLM streaming, PDF/RAG retrieval, vector search, persisted citations, multimodal input, document workspace management, chat personas, custom instructions, and operational observability.
 
 **Branch:** `main`
 
 **Backend:** FastAPI / Python 3.11
 
-**Frontend:** Next.js 16 / React 19 / TypeScript
+**Frontend:** Next.js 15 / React 19 / TypeScript
 
 **Database:** PostgreSQL + pgvector
 
