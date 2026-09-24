@@ -23,7 +23,7 @@
     "pdfjs-dist": "^5.4.296",
     "postcss": "^8.5.28",
     "react": "19.2.8",
-    "react-dom": "19.2.8",
+    "react-dom": "19.3.0",
     "react-pdf": "^10.4.1",
     "tailwind-merge": "^3.6.0",
     "zustand": "^5.0.15"
