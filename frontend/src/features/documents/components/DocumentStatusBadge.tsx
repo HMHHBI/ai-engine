@@ -3,7 +3,6 @@ import {
   AlertCircle,
   CheckCircle2,
   FileSearch,
-  FileText,
   Loader2,
   Upload,
 } from "lucide-react";
@@ -17,26 +16,12 @@ interface DocumentStatusBadgeProps {
   onRetry?: () => void;
 }
 
-type BadgeStage = DocumentPreparationStage;
-
-function normalizeStage(
-  status: DocumentStatus | DocumentPreparationStage,
-): BadgeStage {
-  if (status === "processing") {
-    return "indexing";
-  }
-
-  return status;
-}
-
 export function DocumentStatusBadge({
   status,
   className = "",
   onRetry,
 }: DocumentStatusBadgeProps) {
-  const stage = normalizeStage(status);
-
-  switch (stage) {
+  switch (status) {
     case "uploading":
       return (
         <span
@@ -48,25 +33,16 @@ export function DocumentStatusBadge({
         </span>
       );
 
+    case "processing":
+    case "indexing":
     case "extracting":
       return (
         <span
           className={`inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400 ${className}`}
-          data-testid="status-badge-extracting"
-        >
-          <FileText className="h-3 w-3" />
-          Extracting Text
-        </span>
-      );
-
-    case "indexing":
-      return (
-        <span
-          className={`inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400 ${className}`}
-          data-testid="status-badge-indexing"
+          data-testid="status-badge-processing"
         >
           <Loader2 className="h-3 w-3 animate-spin" />
-          Indexing Evidence
+          Preparing Document
         </span>
       );
 

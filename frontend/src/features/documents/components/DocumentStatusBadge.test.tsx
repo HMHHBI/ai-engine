@@ -14,28 +14,12 @@ describe("DocumentStatusBadge", () => {
     ).toHaveTextContent("Uploading");
   });
 
-  it("renders extracting state", () => {
-    render(<DocumentStatusBadge status="extracting" />);
-
-    expect(
-      screen.getByTestId("status-badge-extracting"),
-    ).toHaveTextContent("Extracting Text");
-  });
-
-  it("renders indexing state", () => {
-    render(<DocumentStatusBadge status="indexing" />);
-
-    expect(
-      screen.getByTestId("status-badge-indexing"),
-    ).toHaveTextContent("Indexing Evidence");
-  });
-
-  it("maps the existing backend processing state to indexing evidence", () => {
+  it("renders processing state as preparing document", () => {
     render(<DocumentStatusBadge status="processing" />);
 
     expect(
-      screen.getByTestId("status-badge-indexing"),
-    ).toHaveTextContent("Indexing Evidence");
+      screen.getByTestId("status-badge-processing"),
+    ).toHaveTextContent("Preparing Document");
   });
 
   it("renders ready state", () => {
