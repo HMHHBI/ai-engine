@@ -15,6 +15,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
@@ -26,6 +27,14 @@ class UserPlan(str, enum.Enum):
     FREE = "FREE"
     STANDARD = "STANDARD"
     PRO = "PRO"
+
+
+class DocumentJobStatus(str, enum.Enum):
+    QUEUED = "queued"
+    PROCESSING = "processing"
+    READY = "ready"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 class User(Base):
@@ -138,6 +147,13 @@ class User(Base):
 
     documents = relationship(
         "Document",
+        back_populates="owner",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    jobs = relationship(
+        "DocumentJob",
         back_populates="owner",
         cascade="all, delete-orphan",
         passive_deletes=True,
@@ -334,11 +350,161 @@ class Document(Base):
         passive_deletes=True,
     )
 
+    jobs = relationship(
+        "DocumentJob",
+        back_populates="document",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
     __table_args__ = (
         Index(
             "ix_documents_chat_id_id",
             "chat_id",
             "id",
+        ),
+    )
+
+
+class DocumentJob(Base):
+    __tablename__ = "document_jobs"
+
+    id = Column(
+        BigInteger,
+        primary_key=True,
+        index=True,
+    )
+
+    document_id = Column(
+        Integer,
+        ForeignKey(
+            "documents.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+
+    user_id = Column(
+        Integer,
+        ForeignKey(
+            "users.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+
+    status = Column(
+        String(20),
+        nullable=False,
+        default=DocumentJobStatus.QUEUED.value,
+        server_default=DocumentJobStatus.QUEUED.value,
+    )
+
+    attempt = Column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+
+    max_attempts = Column(
+        Integer,
+        nullable=False,
+        default=3,
+        server_default="3",
+    )
+
+    idempotency_key = Column(
+        String(128),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+
+    worker_id = Column(
+        String(128),
+        nullable=True,
+    )
+
+    queued_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default="now()",
+    )
+
+    started_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    heartbeat_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    finished_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    cancel_requested_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    error_message = Column(
+        Text,
+        nullable=True,
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default="now()",
+    )
+
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default="now()",
+    )
+
+    owner = relationship(
+        "User",
+        back_populates="jobs",
+    )
+
+    document = relationship(
+        "Document",
+        back_populates="jobs",
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_document_jobs_user_id_status",
+            "user_id",
+            "status",
+        ),
+        Index(
+            "ix_document_jobs_status_queued_at",
+            "status",
+            "queued_at",
+        ),
+        Index(
+            "ix_document_jobs_status_heartbeat_at",
+            "status",
+            "heartbeat_at",
+        ),
+        Index(
+            "uq_document_jobs_active_per_document",
+            "document_id",
+            unique=True,
+            postgresql_where=text("status IN ('queued', 'processing')"),
         ),
     )
 
