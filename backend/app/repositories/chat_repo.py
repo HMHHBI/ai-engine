@@ -35,7 +35,7 @@ def normalize_source_snippet(value: Any) -> str | None:
     if len(normalized) <= SOURCE_SNIPPET_MAX_CHARS:
         return normalized
 
-    return normalized[:SOURCE_SNIPPET_MAX_CHARS].rstrip() + "…"
+    return normalized[: SOURCE_SNIPPET_MAX_CHARS - 1].rstrip() + "…"
 
 
 def _normalize_sources(raw_sources: Any) -> Optional[list[dict[str, Any]]]:

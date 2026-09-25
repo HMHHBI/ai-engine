@@ -37,9 +37,9 @@ def test_source_snippet_is_bounded():
     snippet = normalize_source_snippet(value)
 
     assert snippet is not None
-    assert len(snippet) == SOURCE_SNIPPET_MAX_CHARS + 1
+    assert len(snippet) == SOURCE_SNIPPET_MAX_CHARS
     assert snippet.endswith("…")
-    assert snippet[:-1] == "x" * SOURCE_SNIPPET_MAX_CHARS
+    assert snippet[:-1] == "x" * (SOURCE_SNIPPET_MAX_CHARS - 1)
 
 
 def test_missing_chunk_content_produces_no_snippet():
