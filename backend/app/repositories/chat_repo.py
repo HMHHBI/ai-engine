@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Optional, TypedDict
 
 from sqlalchemy import delete, select
@@ -10,12 +11,31 @@ from app.db.models import AILog, Chat, Message
 from app.db.session import session_scope
 
 
+SOURCE_SNIPPET_MAX_CHARS = 800
+
+
 class RetrievedSource(TypedDict):
     id: int
     document_id: int | None
     page_number: int | None
     chunk_index: int | None
     distance: float
+    snippet: str | None
+
+
+def normalize_source_snippet(value: Any) -> str | None:
+    if value is None:
+        return None
+
+    normalized = re.sub(r"\s+", " ", str(value)).strip()
+
+    if not normalized:
+        return None
+
+    if len(normalized) <= SOURCE_SNIPPET_MAX_CHARS:
+        return normalized
+
+    return normalized[: SOURCE_SNIPPET_MAX_CHARS - 1].rstrip() + "…"
 
 
 def _normalize_sources(raw_sources: Any) -> Optional[list[dict[str, Any]]]:
@@ -27,9 +47,11 @@ def _normalize_sources(raw_sources: Any) -> Optional[list[dict[str, Any]]]:
         return None
 
     normalized: list[dict[str, Any]] = []
+
     for item in raw_sources:
         if not isinstance(item, dict):
             continue
+
         try:
             source_id = int(item["id"])
             doc_id = (
@@ -48,8 +70,11 @@ def _normalize_sources(raw_sources: Any) -> Optional[list[dict[str, Any]]]:
                 else None
             )
             distance = (
-                float(item["distance"]) if item.get("distance") is not None else 0.0
+                float(item["distance"])
+                if item.get("distance") is not None
+                else 0.0
             )
+
             normalized.append(
                 {
                     "id": source_id,
@@ -57,6 +82,7 @@ def _normalize_sources(raw_sources: Any) -> Optional[list[dict[str, Any]]]:
                     "page_number": page_num,
                     "chunk_index": chunk_idx,
                     "distance": round(distance, 6),
+                    "snippet": normalize_source_snippet(item.get("snippet")),
                 }
             )
         except (KeyError, TypeError, ValueError):
@@ -111,6 +137,7 @@ class ChatRepository:
         normalized_persona = (
             persona.strip().lower() if persona else "default"
         ) or "default"
+
         normalized_instructions = (
             custom_instructions.strip()
             if custom_instructions and custom_instructions.strip()
@@ -224,14 +251,6 @@ class ChatRepository:
     ) -> Optional[Message]:
         """
         Atomically prepare a new chat turn.
-
-        The transaction verifies chat ownership, locks the chat row,
-        conditionally initializes the title, and inserts the user
-        message.
-
-        External image uploads must already have been completed by
-        the application layer. This repository only persists the
-        resulting URLs.
         """
         normalized_content = content.strip()
 
@@ -266,9 +285,7 @@ class ChatRepository:
                 if not image_value.startswith(("http://", "https://")):
                     raise ValueError("image_urls must contain absolute URLs only.")
 
-                normalized_image_urls.append(
-                    image_value,
-                )
+                normalized_image_urls.append(image_value)
 
         db_image_data = (
             json.dumps(normalized_image_urls) if normalized_image_urls else None
@@ -323,7 +340,7 @@ class ChatRepository:
             "assistant",
         }:
             raise ValueError(
-                "Invalid message role. " "Expected 'user', 'ai', or 'assistant'."
+                "Invalid message role. Expected 'user', 'ai', or 'assistant'."
             )
 
         if not content.strip():
@@ -336,7 +353,9 @@ class ChatRepository:
                 try:
                     images = json.loads(image_data_list)
                 except json.JSONDecodeError as exc:
-                    raise ValueError("image_data_list contains invalid JSON.") from exc
+                    raise ValueError(
+                        "image_data_list contains invalid JSON."
+                    ) from exc
             else:
                 images = image_data_list
 
@@ -351,9 +370,7 @@ class ChatRepository:
             ):
                 raise ValueError("image_data_list must contain URLs only.")
 
-            db_image_data = json.dumps(
-                normalized_images,
-            )
+            db_image_data = json.dumps(normalized_images)
 
         db_sources = _normalize_sources(sources)
 
@@ -467,8 +484,6 @@ class ChatRepository:
     ) -> bool:
         """
         Delete messages from a given zero-based message index onward.
-
-        user_id is verified through the chat ownership check.
         """
         if after_index < 0:
             raise ValueError("after_index cannot be negative.")

@@ -25,6 +25,7 @@ export interface RetrievedSource {
   page_number: number | null;
   chunk_index: number | null;
   distance: number;
+  snippet?: string | null;
 }
 
 export interface User {

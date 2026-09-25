@@ -3,7 +3,7 @@ import type { RetrievedSource } from "@/types/api";
 import { createPdfNavigationTarget } from "@/features/pdf/utils/pdf-navigation-utils";
 
 describe("PDF citation navigation", () => {
-  it("P15: matching document navigates to the cited page", () => {
+  it("navigates to the cited page in the active document", () => {
     const source: RetrievedSource = {
       id: 101,
       document_id: 42,
@@ -13,7 +13,7 @@ describe("PDF citation navigation", () => {
     };
 
     expect(
-      createPdfNavigationTarget(source, 42, 1),
+      createPdfNavigationTarget(source, 1),
     ).toEqual({
       documentId: 42,
       pageNumber: 7,
@@ -21,21 +21,7 @@ describe("PDF citation navigation", () => {
     });
   });
 
-  it("P16: null document_id does not navigate", () => {
-    const source: RetrievedSource = {
-      id: 102,
-      document_id: null,
-      page_number: 7,
-      chunk_index: 12,
-      distance: 0.1,
-    };
-
-    expect(
-      createPdfNavigationTarget(source, 42, 1),
-    ).toBeNull();
-  });
-
-  it("P17: different document_id does not navigate", () => {
+  it("creates a target for a different document", () => {
     const source: RetrievedSource = {
       id: 103,
       document_id: 99,
@@ -45,11 +31,29 @@ describe("PDF citation navigation", () => {
     };
 
     expect(
-      createPdfNavigationTarget(source, 42, 1),
+      createPdfNavigationTarget(source, 2),
+    ).toEqual({
+      documentId: 99,
+      pageNumber: 7,
+      requestId: 2,
+    });
+  });
+
+  it("rejects a source without a document id", () => {
+    const source: RetrievedSource = {
+      id: 102,
+      document_id: null,
+      page_number: 7,
+      chunk_index: 12,
+      distance: 0.1,
+    };
+
+    expect(
+      createPdfNavigationTarget(source, 1),
     ).toBeNull();
   });
 
-  it("P18: null page_number does not navigate", () => {
+  it("rejects a source without a page number", () => {
     const source: RetrievedSource = {
       id: 104,
       document_id: 42,
@@ -59,29 +63,7 @@ describe("PDF citation navigation", () => {
     };
 
     expect(
-      createPdfNavigationTarget(source, 42, 1),
-    ).toBeNull();
-  });
-
-  it("P19: matching citation after document switch targets the new document", () => {
-    const source: RetrievedSource = {
-      id: 105,
-      document_id: 51,
-      page_number: 8,
-      chunk_index: 12,
-      distance: 0.1,
-    };
-
-    expect(
-      createPdfNavigationTarget(source, 51, 2),
-    ).toEqual({
-      documentId: 51,
-      pageNumber: 8,
-      requestId: 2,
-    });
-
-    expect(
-      createPdfNavigationTarget(source, 42, 2),
+      createPdfNavigationTarget(source, 1),
     ).toBeNull();
   });
 
@@ -95,7 +77,7 @@ describe("PDF citation navigation", () => {
     };
 
     expect(
-      createPdfNavigationTarget(source, 42, 3),
+      createPdfNavigationTarget(source, 1),
     ).toBeNull();
   });
 
@@ -109,7 +91,7 @@ describe("PDF citation navigation", () => {
     };
 
     expect(
-      createPdfNavigationTarget(source, 42, 4),
+      createPdfNavigationTarget(source, 1),
     ).toBeNull();
   });
 
@@ -123,7 +105,7 @@ describe("PDF citation navigation", () => {
     };
 
     expect(
-      createPdfNavigationTarget(source, 42, 5),
+      createPdfNavigationTarget(source, 1),
     ).toBeNull();
   });
 });

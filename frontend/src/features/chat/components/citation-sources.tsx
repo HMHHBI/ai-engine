@@ -41,20 +41,9 @@ function formatChunkIndex(chunkIndex: number | null): string {
 }
 
 function getSourceQuote(source: RetrievedSource): string | null {
-  const candidate = source as RetrievedSource & {
-    quote?: unknown;
-    snippet?: unknown;
-    content?: unknown;
-  };
+  const snippet = source.snippet?.trim();
 
-  const value =
-    candidate.quote ??
-    candidate.snippet ??
-    candidate.content;
-
-  return typeof value === "string" && value.trim()
-    ? value.trim()
-    : null;
+  return snippet ? snippet : null;
 }
 
 export function CitationSources({
@@ -182,7 +171,10 @@ export function CitationSources({
                         />
 
                         {quote ? (
-                          <blockquote className="text-xs leading-5 text-foreground">
+                          <blockquote
+                            data-testid="citation-snippet"
+                            className="text-xs leading-5 text-foreground"
+                          >
                             “{quote}”
                           </blockquote>
                         ) : (
@@ -225,8 +217,9 @@ export function CitationSources({
                       </summary>
 
                       <div className="grid grid-cols-2 gap-x-4 gap-y-1 border-t border-border/70 px-3 py-2 text-[11px] text-muted-foreground">
-                        {/* Hidden consolidated text node for legacy test matchers */}
-                        <span className="sr-only">Relevance {relevanceFormatted}</span>
+                        <span className="sr-only">
+                          Relevance {relevanceFormatted}
+                        </span>
 
                         <span>Relevance</span>
                         <span className="text-right text-foreground">

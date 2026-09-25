@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from typing import Any, List, Optional
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.config import settings
 
 
-# AI Stream Request Schema
 class AIRequest(BaseModel):
     chat_id: int = Field(gt=0)
     prompt: str = Field(
@@ -94,20 +94,26 @@ class AIRequest(BaseModel):
         return self
 
 
-# Create Chat Request Schema
 class ChatCreate(BaseModel):
     title: Optional[str] = Field(default="New Chat", max_length=255)
     persona: str = Field(default="default", max_length=50)
     custom_instructions: Optional[str] = Field(default=None, max_length=2000)
 
 
-# Update Persona / Instructions Request Schema
 class ChatPersonaUpdate(BaseModel):
     persona: Optional[str] = Field(default=None, max_length=50)
     custom_instructions: Optional[str] = Field(default=None, max_length=2000)
 
 
-# Message Out Schema (Hydrated History & Citations)
+class RetrievedSourceOut(BaseModel):
+    id: int
+    document_id: Optional[int] = None
+    page_number: Optional[int] = None
+    chunk_index: Optional[int] = None
+    distance: float
+    snippet: Optional[str] = Field(default=None, max_length=800)
+
+
 class MessageOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -116,10 +122,9 @@ class MessageOut(BaseModel):
     role: str
     content: str
     image_data: Optional[str] = None
-    sources: Optional[List[dict[str, Any]]] = None
+    sources: Optional[List[RetrievedSourceOut]] = None
 
 
-# Chat Summary Schema (For Sidebar / List)
 class ChatOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -129,7 +134,6 @@ class ChatOut(BaseModel):
     custom_instructions: Optional[str] = None
 
 
-# Chat Details Schema (Full metadata)
 class ChatDetailsOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

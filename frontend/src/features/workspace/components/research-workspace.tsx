@@ -20,6 +20,8 @@ import { createPdfNavigationTarget } from "@/features/pdf/utils/pdf-navigation-u
 interface ResearchWorkspaceProps {
   document: WorkspaceDoc;
   onClose?: () => void;
+  navigationTarget?: PdfNavigationTarget | null;
+  onDocumentNavigation?: (target: PdfNavigationTarget) => void;
 }
 
 const RESPONSIVE_BREAKPOINT_PX = 1024;
@@ -27,6 +29,8 @@ const RESPONSIVE_BREAKPOINT_PX = 1024;
 export function ResearchWorkspace({
   document: activeDoc,
   onClose,
+  navigationTarget,
+  onDocumentNavigation,
 }: ResearchWorkspaceProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const isDraggingRef = useRef(false);
@@ -41,9 +45,17 @@ export function ResearchWorkspace({
   );
 
   const [isNarrow, setIsNarrow] = useState<boolean>(false);
-  const [pdfNavigationTarget, setPdfNavigationTarget] =
+  const [internalTarget, setInternalTarget] =
     useState<PdfNavigationTarget | null>(null);
   const navigationRequestIdRef = useRef(0);
+
+  // Compute effective target: prefer recent internal target, fallback to passed target
+  const effectiveNavigationTarget =
+    internalTarget && internalTarget.documentId === activeDoc.id
+      ? internalTarget
+      : navigationTarget && navigationTarget.documentId === activeDoc.id
+        ? navigationTarget
+        : null;
 
   useEffect(() => {
     function checkWidth() {
@@ -141,7 +153,7 @@ export function ResearchWorkspace({
     try {
       (e.target as HTMLElement).releasePointerCapture(e.pointerId);
     } catch {
-      // Pointer capture may already have been released.
+      return;
     }
 
     if (typeof window !== "undefined") {
@@ -164,7 +176,6 @@ export function ResearchWorkspace({
 
       const target = createPdfNavigationTarget(
         source,
-        activeDoc.id,
         navigationRequestIdRef.current,
       );
 
@@ -172,13 +183,23 @@ export function ResearchWorkspace({
         return;
       }
 
-      setPdfNavigationTarget(target);
+      if (target.documentId !== activeDoc.id) {
+        onDocumentNavigation?.(target);
+      } else {
+        setInternalTarget(target);
 
-      if (isNarrow && isCollapsed) {
-        setCollapsed(false);
+        if (isNarrow && isCollapsed) {
+          setCollapsed(false);
+        }
       }
     },
-    [activeDoc.id, isNarrow, isCollapsed, setCollapsed],
+    [
+      activeDoc.id,
+      isNarrow,
+      isCollapsed,
+      onDocumentNavigation,
+      setCollapsed,
+    ],
   );
 
   return (
@@ -273,7 +294,7 @@ export function ResearchWorkspace({
             <DocumentPane
               document={activeDoc}
               onClose={handleResponsiveClose}
-              navigationTarget={pdfNavigationTarget}
+              navigationTarget={effectiveNavigationTarget}
             />
           </div>
         </>
@@ -301,7 +322,7 @@ export function ResearchWorkspace({
             <DocumentPane
               document={activeDoc}
               onClose={onClose}
-              navigationTarget={pdfNavigationTarget}
+              navigationTarget={effectiveNavigationTarget}
             />
           </div>
         </>

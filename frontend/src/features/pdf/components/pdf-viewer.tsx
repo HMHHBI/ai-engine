@@ -45,6 +45,7 @@ function PdfViewerLoaded({
   } | null>(null);
 
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
+  const pageFocusRef = useRef<HTMLDivElement | null>(null);
   const lastNavigationRequestIdRef = useRef<number | null>(null);
 
   const goToPage = (page: number) => {
@@ -75,11 +76,18 @@ function PdfViewerLoaded({
       return;
     }
 
+    const frame = window.requestAnimationFrame(() => {
+      pageFocusRef.current?.focus({
+        preventScroll: true,
+      });
+    });
+
     const timeout = window.setTimeout(() => {
       setIsPageFocused(false);
     }, 1500);
 
     return () => {
+      window.cancelAnimationFrame(frame);
       window.clearTimeout(timeout);
     };
   }, [isPageFocused]);
@@ -88,16 +96,30 @@ function PdfViewerLoaded({
     if (!pageDimensions || !viewerContainerRef.current) {
       return;
     }
+
     const container = viewerContainerRef.current;
-    setScale(calculateFitWidthScale(pageDimensions.width, container.clientWidth - 32));
+
+    setScale(
+      calculateFitWidthScale(
+        pageDimensions.width,
+        container.clientWidth - 32,
+      ),
+    );
   };
 
   const handleFitHeight = () => {
     if (!pageDimensions || !viewerContainerRef.current) {
       return;
     }
+
     const container = viewerContainerRef.current;
-    setScale(calculateFitHeightScale(pageDimensions.height, container.clientHeight - 32));
+
+    setScale(
+      calculateFitHeightScale(
+        pageDimensions.height,
+        container.clientHeight - 32,
+      ),
+    );
   };
 
   return (
@@ -107,7 +129,9 @@ function PdfViewerLoaded({
         className="sr-only"
         data-testid="pdf-navigation-announcement"
       >
-        {isPageFocused ? `Citation navigated to page ${currentPage}.` : ""}
+        {isPageFocused
+          ? `Citation navigated to page ${currentPage}.`
+          : ""}
       </div>
 
       <PdfToolbar
@@ -145,10 +169,15 @@ function PdfViewerLoaded({
         >
           {numPages > 0 && (
             <div
+              ref={pageFocusRef}
               data-testid="pdf-page-container"
+              tabIndex={-1}
+              role="region"
+              aria-label={`PDF page ${clampPage(currentPage, numPages)}`}
               className={cn(
                 "rounded-sm transition-all duration-300",
-                isPageFocused && "ring-4 ring-primary/80 ring-offset-2 shadow-lg",
+                isPageFocused &&
+                  "ring-4 ring-primary/80 ring-offset-2 shadow-lg",
               )}
             >
               <PdfPage
@@ -156,6 +185,7 @@ function PdfViewerLoaded({
                 scale={scale}
                 onLoadSuccess={(page) => {
                   const viewport = page.getViewport({ scale: 1 });
+
                   setPageDimensions({
                     width: viewport.width,
                     height: viewport.height,
@@ -170,7 +200,10 @@ function PdfViewerLoaded({
   );
 }
 
-export function PdfViewer({ documentId, navigationTarget }: PdfViewerProps) {
+export function PdfViewer({
+  documentId,
+  navigationTarget,
+}: PdfViewerProps) {
   const { status, objectUrl, error } = usePdfDocument(documentId);
 
   if (documentId === null) {

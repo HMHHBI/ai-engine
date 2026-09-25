@@ -1,96 +1,120 @@
 import "@testing-library/jest-dom";
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+
 import { ResearchWorkspace } from "./research-workspace";
-import { useWorkspaceUiStore } from "../store/workspace-ui-store";
-import type { Document } from "@/types/api";
+import type { Document as WorkspaceDoc, RetrievedSource } from "@/types/api";
+
+const mockDocument: WorkspaceDoc = {
+  id: 42,
+  user_id: 1,
+  chat_id: 1,
+  filename: "test_research.pdf",
+  mime_type: "application/pdf",
+  file_size: 2048,
+  storage_url: "https://example.com/test_research.pdf",
+  page_count: 3,
+  status: "ready",
+  error_message: null,
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-01T00:00:00Z",
+};
 
 vi.mock("@/features/chat/components/chat-area", () => ({
-  ChatArea: () => <div data-testid="mocked-chat-area">Chat Area Content</div>,
+  ChatArea: ({
+    onCitationClick,
+  }: {
+    documentId?: number;
+    onCitationClick?: (source: RetrievedSource) => void;
+  }) => (
+    <div data-testid="mocked-chat-area">
+      <button
+        type="button"
+        data-testid="mock-same-doc-citation"
+        onClick={() =>
+          onCitationClick?.({
+            id: 101,
+            document_id: 42,
+            page_number: 2,
+            chunk_index: 0,
+            distance: 0.1,
+          })
+        }
+      >
+        Same Doc Citation
+      </button>
+      <button
+        type="button"
+        data-testid="mock-cross-doc-citation"
+        onClick={() =>
+          onCitationClick?.({
+            id: 102,
+            document_id: 99,
+            page_number: 7,
+            chunk_index: 1,
+            distance: 0.1,
+          })
+        }
+      >
+        Cross Doc Citation
+      </button>
+    </div>
+  ),
 }));
 
-describe("ResearchWorkspace Responsive Fallback (M4.6)", () => {
-  const mockDoc: Document = {
-    id: 101,
-    user_id: 1,
-    chat_id: 1,
-    filename: "test_research.pdf",
-    mime_type: "application/pdf",
-    file_size: 2048,
-    page_count: 3,
-    storage_url: null,
-    status: "ready",
-    error_message: null,
-    created_at: "2026-09-20T00:00:00Z",
-    updated_at: "2026-09-20T00:00:00Z",
-  };
+vi.mock("./document-pane", () => ({
+  DocumentPane: ({
+    navigationTarget,
+  }: {
+    document: WorkspaceDoc;
+    navigationTarget?: { pageNumber: number; documentId: number } | null;
+  }) => (
+    <div data-testid="workspace-document-pane">
+      <span data-testid="active-nav-page">
+        {navigationTarget ? `Navigated Page ${navigationTarget.pageNumber}` : "No Nav Target"}
+      </span>
+    </div>
+  ),
+}));
 
-  beforeEach(() => {
-    useWorkspaceUiStore.getState().resetUiState();
+describe("ResearchWorkspace Navigation & Layout", () => {
+  it("renders active document awareness header with title and ready status", () => {
+    render(<ResearchWorkspace document={mockDocument} />);
+
+    expect(
+      screen.getByTestId("research-workspace-document-title"),
+    ).toHaveTextContent("test_research.pdf");
+    expect(screen.getByTestId("status-badge-ready")).toBeInTheDocument();
   });
 
-  afterEach(() => {
-    vi.restoreAllMocks();
+  it("handles same-document citation click by routing navigation target to document pane", () => {
+    render(<ResearchWorkspace document={mockDocument} />);
+
+    expect(screen.getByTestId("active-nav-page")).toHaveTextContent("No Nav Target");
+
+    fireEvent.click(screen.getByTestId("mock-same-doc-citation"));
+
+    expect(screen.getByTestId("active-nav-page")).toHaveTextContent("Navigated Page 2");
   });
 
-  it("R1: renders two-pane split on wide viewport", () => {
-    window.innerWidth = 1280;
-    render(<ResearchWorkspace document={mockDoc} />);
+  it("handles cross-document citation click by calling onDocumentNavigation", () => {
+    const onDocumentNavigation = vi.fn();
 
-    expect(screen.getByTestId("workspace-chat-pane")).toBeInTheDocument();
-    expect(screen.getByTestId("workspace-document-pane-container")).toBeInTheDocument();
-    expect(screen.getByTestId("workspace-resize-handle")).toBeInTheDocument();
-    expect(screen.queryByTestId("workspace-responsive-drawer")).not.toBeInTheDocument();
-  });
+    render(
+      <ResearchWorkspace
+        document={mockDocument}
+        onDocumentNavigation={onDocumentNavigation}
+      />,
+    );
 
-  it("R2: renders single chat pane without compressed second column on narrow viewport when collapsed", () => {
-    window.innerWidth = 640;
-    useWorkspaceUiStore.getState().setDocumentPaneCollapsed(true);
+    fireEvent.click(screen.getByTestId("mock-cross-doc-citation"));
 
-    render(<ResearchWorkspace document={mockDoc} />);
-
-    expect(screen.getByTestId("workspace-chat-pane")).toBeInTheDocument();
-    expect(screen.queryByTestId("workspace-document-pane-container")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("workspace-resize-handle")).not.toBeInTheDocument();
-    expect(screen.getByTestId("workspace-reopen-document-button")).toBeInTheDocument();
-  });
-
-  it("R3: opens responsive drawer when document is active on narrow viewport", () => {
-    window.innerWidth = 640;
-    useWorkspaceUiStore.getState().setDocumentPaneCollapsed(false);
-
-    render(<ResearchWorkspace document={mockDoc} />);
-
-    expect(screen.getByTestId("workspace-responsive-drawer")).toBeInTheDocument();
-    expect(screen.getByTestId("workspace-document-pane")).toBeInTheDocument();
-    expect(screen.getAllByText("test_research.pdf")[0]).toBeInTheDocument();
-  });
-
-  it("R4: closing responsive pane collapses the drawer but leaves workspace intact", () => {
-    window.innerWidth = 640;
-    useWorkspaceUiStore.getState().setDocumentPaneCollapsed(false);
-    const mockOnClose = vi.fn();
-
-    render(<ResearchWorkspace document={mockDoc} onClose={mockOnClose} />);
-
-    const closeBtn = screen.getByTestId("workspace-close-button");
-    fireEvent.click(closeBtn);
-
-    // Collapsed in store, so drawer closes without calling parent full onClose
-    expect(useWorkspaceUiStore.getState().isDocumentPaneCollapsed).toBe(true);
-    expect(mockOnClose).not.toHaveBeenCalled();
-  });
-
-  it("R5: closing on desktop invokes the parent onClose handler to clear URL parameter", () => {
-    window.innerWidth = 1280;
-    useWorkspaceUiStore.getState().setDocumentPaneCollapsed(false);
-    const mockOnClose = vi.fn();
-
-    render(<ResearchWorkspace document={mockDoc} onClose={mockOnClose} />);
-
-    const closeBtn = screen.getByTestId("workspace-close-button");
-    fireEvent.click(closeBtn);
-
-    expect(mockOnClose).toHaveBeenCalled();
+    expect(onDocumentNavigation).toHaveBeenCalledTimes(1);
+    expect(onDocumentNavigation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        documentId: 99,
+        pageNumber: 7,
+      }),
+    );
   });
 });

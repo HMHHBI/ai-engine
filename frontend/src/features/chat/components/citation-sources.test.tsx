@@ -32,6 +32,7 @@ const sources: RetrievedSource[] = [
     page_number: 4,
     chunk_index: 12,
     distance: 0.08,
+    snippet: "The model achieves strong results on translation tasks.",
   },
   {
     id: 102,
@@ -39,6 +40,7 @@ const sources: RetrievedSource[] = [
     page_number: 7,
     chunk_index: 18,
     distance: 0.2,
+    snippet: "The evaluation compares several established baselines.",
   },
 ];
 
@@ -68,46 +70,7 @@ describe("CitationSources", () => {
     expect(content).toHaveAttribute("hidden");
   });
 
-  it("expands into evidence cards", () => {
-    render(<CitationSources sources={sources} />);
-
-    const toggle = screen.getByRole("button", {
-      name: /2 sources/i,
-    });
-
-    fireEvent.click(toggle);
-
-    expect(
-      screen.getByText(
-        "[1] Attention Is All You Need.pdf",
-      ),
-    ).toBeInTheDocument();
-
-    expect(
-      screen.getByText("[2] Research Methods.pdf"),
-    ).toBeInTheDocument();
-
-    expect(screen.getByText("Page 4")).toBeInTheDocument();
-    expect(screen.getByText("Page 7")).toBeInTheDocument();
-  });
-
-  it("collapses again when the source button is clicked", () => {
-    render(<CitationSources sources={sources} />);
-
-    const toggle = screen.getByRole("button", {
-      name: /2 sources/i,
-    });
-
-    fireEvent.click(toggle);
-
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
-
-    fireEvent.click(toggle);
-
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-  });
-
-  it("renders primary evidence presentation cleanly", () => {
+  it("renders the genuine retrieved snippets as quotations", () => {
     render(<CitationSources sources={sources} />);
 
     fireEvent.click(
@@ -117,33 +80,48 @@ describe("CitationSources", () => {
     );
 
     expect(
-      screen.getByText("[1] Attention Is All You Need.pdf"),
-    ).toBeInTheDocument();
-    expect(screen.getByText("Page 4")).toBeInTheDocument();
+      screen.getAllByTestId("citation-snippet")[0],
+    ).toHaveTextContent(
+      "“The model achieves strong results on translation tasks.”",
+    );
+
+    expect(
+      screen.getAllByTestId("citation-snippet")[1],
+    ).toHaveTextContent(
+      "“The evaluation compares several established baselines.”",
+    );
   });
 
-  it("exposes technical retrieval details through the optional details section", () => {
-    render(<CitationSources sources={sources} />);
+  it("renders a truthful fallback when snippet is absent", () => {
+    render(
+      <CitationSources
+        sources={[
+          {
+            id: 103,
+            document_id: 101,
+            page_number: 9,
+            chunk_index: 22,
+            distance: 0.15,
+            snippet: null,
+          },
+        ]}
+      />,
+    );
 
     fireEvent.click(
       screen.getByRole("button", {
-        name: /2 sources/i,
+        name: /1 source/i,
       }),
     );
 
-    expect(screen.getAllByText("Technical details")).toHaveLength(2);
-
-    const details = screen.getAllByText("Technical details")[0];
-    fireEvent.click(details);
-
-    expect(screen.getAllByText("Relevance")[0]).toBeInTheDocument();
-    expect(screen.getByText("92%")).toBeInTheDocument();
-    expect(screen.getAllByTestId("citation-chunk")[0]).toHaveTextContent(
-      "Chunk 12",
+    expect(
+      screen.getByTestId("citation-evidence-location"),
+    ).toHaveTextContent(
+      "Evidence is available on Page 9",
     );
   });
 
-  it("provides an actionable document navigation control", () => {
+  it("supports independent navigation for multiple citations", () => {
     const onCitationClick = vi.fn();
 
     render(
@@ -166,61 +144,47 @@ describe("CitationSources", () => {
     expect(openButtons).toHaveLength(2);
 
     fireEvent.click(openButtons[0]);
+    fireEvent.click(openButtons[1]);
 
-    expect(onCitationClick).toHaveBeenCalledWith(sources[0]);
+    expect(onCitationClick).toHaveBeenNthCalledWith(1, sources[0]);
+    expect(onCitationClick).toHaveBeenNthCalledWith(2, sources[1]);
   });
 
-  it("renders a truthful fallback when source text is not exposed by the API", () => {
-    render(
-      <CitationSources
-        sources={[
-          {
-            id: 103,
-            document_id: 101,
-            page_number: 9,
-            chunk_index: 22,
-            distance: 0.15,
-          },
-        ]}
-      />,
-    );
+  it("collapses again when the source button is clicked", () => {
+    render(<CitationSources sources={sources} />);
+
+    const toggle = screen.getByRole("button", {
+      name: /2 sources/i,
+    });
+
+    fireEvent.click(toggle);
+
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.click(toggle);
+
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("exposes technical retrieval details through the optional details section", () => {
+    render(<CitationSources sources={sources} />);
 
     fireEvent.click(
       screen.getByRole("button", {
-        name: /1 source/i,
+        name: /2 sources/i,
       }),
     );
 
-    expect(
-      screen.getByTestId("citation-evidence-location"),
-    ).toHaveTextContent(
-      "Evidence is available on Page 9",
-    );
-  });
+    expect(screen.getAllByText("Technical details")).toHaveLength(2);
 
-  it("renders an optional source quote when the API supplies one", () => {
-    const source = {
-      id: 104,
-      document_id: 101,
-      page_number: 12,
-      chunk_index: 31,
-      distance: 0.05,
-      snippet: "The model achieves strong results on translation tasks.",
-    } as RetrievedSource;
+    fireEvent.click(screen.getAllByText("Technical details")[0]);
 
-    render(<CitationSources sources={[source]} />);
-
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: /1 source/i,
-      }),
-    );
+    expect(screen.getAllByText("Relevance")[0]).toBeInTheDocument();
+    expect(screen.getByText("92%")).toBeInTheDocument();
 
     expect(
-      screen.getByText(
-        /The model achieves strong results on translation tasks/,
-      ),
-    ).toBeInTheDocument();
+      screen.getAllByTestId("citation-chunk")[0],
+    ).toHaveTextContent("Chunk 12");
   });
 
   it("renders unavailable page navigation safely", () => {
@@ -233,6 +197,7 @@ describe("CitationSources", () => {
             page_number: null,
             chunk_index: null,
             distance: 0.15,
+            snippet: null,
           },
         ]}
       />,
@@ -251,7 +216,7 @@ describe("CitationSources", () => {
     ).toBeInTheDocument();
   });
 
-  it("clamps invalid relevance values safely inside technical details", () => {
+  it("clamps invalid relevance values safely", () => {
     render(
       <CitationSources
         sources={[
@@ -261,6 +226,7 @@ describe("CitationSources", () => {
             page_number: 1,
             chunk_index: 1,
             distance: 2,
+            snippet: null,
           },
           {
             id: 107,
@@ -268,6 +234,7 @@ describe("CitationSources", () => {
             page_number: 2,
             chunk_index: 2,
             distance: -1,
+            snippet: null,
           },
         ]}
       />,
@@ -283,11 +250,9 @@ describe("CitationSources", () => {
       screen.getAllByText("Technical details");
 
     fireEvent.click(detailSummaries[0]);
-
     expect(screen.getByText("0%")).toBeInTheDocument();
 
     fireEvent.click(detailSummaries[1]);
-
     expect(screen.getByText("100%")).toBeInTheDocument();
   });
 });
