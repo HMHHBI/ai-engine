@@ -24,7 +24,7 @@ from app.core.rate_limiter import limiter
 from app.core.stream_concurrency import acquire_stream_lease, release_stream_lease
 from starlette.background import BackgroundTask
 from app.db.models import User
-from app.repositories.chat_repo import ChatRepository
+from app.repositories.chat_repo import ChatRepository, normalize_source_snippet
 from app.repositories.document_repo import DocumentRepository
 from app.repositories.vector_repo import VectorRepository
 from app.schemas.chat_schema import (
@@ -997,6 +997,7 @@ async def _execute_ai_stream(
                     else None
                 ),
                 "distance": float(chunk.get("distance", 0.0)),
+                "snippet": normalize_source_snippet(chunk.get("content")),
             }
             for chunk in context_chunks
         ]

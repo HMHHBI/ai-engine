@@ -339,7 +339,8 @@ def test_stream_emits_structured_sources_event(client, user_and_chat, db_session
                 "page_number": 4,
                 "chunk_index": 7,
                 "distance": 0.3142,
+                    "snippet": "Secret chunk content that must not be exposed.",
             }
         ]
     }
-    assert "Secret chunk content that must not be exposed." not in response.text
+    assert "Secret chunk content that must not be exposed." in response.text

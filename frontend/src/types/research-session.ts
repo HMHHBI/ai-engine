@@ -41,6 +41,29 @@ export interface ResearchEvidence {
   };
 }
 
+export function toResearchEvidence(
+  source: RetrievedSource,
+  documentTitle = "Research document",
+): ResearchEvidence {
+  const normalizedSnippet =
+    typeof source.snippet === "string" && source.snippet.trim()
+      ? source.snippet.trim()
+      : null;
+
+  return {
+    id: `${source.id}-${source.chunk_index ?? "unknown"}`,
+    source,
+    documentId: source.document_id ?? null,
+    documentTitle,
+    pageNumber: source.page_number,
+    quote: normalizedSnippet,
+    technicalDetails: {
+      chunkIndex: source.chunk_index,
+      distance: source.distance,
+    },
+  };
+}
+
 export interface ResearchSessionState {
   chat: ChatSession | null;
   documents: ResearchDocument[];
