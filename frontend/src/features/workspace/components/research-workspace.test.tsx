@@ -12,6 +12,7 @@ const mockDocument: WorkspaceDoc = {
   filename: "test_research.pdf",
   mime_type: "application/pdf",
   file_size: 2048,
+  storage_url: "https://example.com/test_research.pdf",
   page_count: 3,
   status: "ready",
   error_message: null,
