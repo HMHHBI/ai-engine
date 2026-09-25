@@ -20,6 +20,8 @@ vi.mock("@/lib/api/documents", () => ({
   documentApi: {
     listForChat: vi.fn(),
     get: vi.fn(),
+    upload: vi.fn(),
+    retry: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
   },

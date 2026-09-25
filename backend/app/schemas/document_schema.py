@@ -6,7 +6,6 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
-# Document Create Request Schema
 class DocumentCreate(BaseModel):
     chat_id: int
     filename: str = Field(..., min_length=1, max_length=255)
@@ -16,20 +15,21 @@ class DocumentCreate(BaseModel):
     storage_url: Optional[str] = None
 
 
-# Document Status Update Schema
 class DocumentStatusUpdate(BaseModel):
     status: str = Field(..., min_length=1, max_length=20)
     error_message: Optional[str] = None
 
 
-# Document Metadata Update Schema
 class DocumentMetadataUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    filename: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    filename: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=255,
+    )
 
 
-# Document Output Schema
 class DocumentOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -47,7 +47,6 @@ class DocumentOut(BaseModel):
     updated_at: datetime
 
 
-# Document Summary Schema
 class DocumentSummaryOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -58,5 +57,22 @@ class DocumentSummaryOut(BaseModel):
     file_size: Optional[int] = None
     page_count: Optional[int] = None
     status: str
+    error_message: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+
+
+class DocumentJobOut(BaseModel):
+    id: int
+    document_id: int
+    status: str
+    attempt: int
+    max_attempts: int
+    error_message: Optional[str] = None
+    queued_at: datetime
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+
+
+class DocumentLifecycleOut(DocumentOut):
+    job: Optional[DocumentJobOut] = None

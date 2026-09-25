@@ -17,7 +17,25 @@ export type ChatPersona =
   | "legal"
   | "simple";
 
-  export type DocumentStatus = "processing" | "ready" | "failed";
+  export type DocumentStatus =
+  | "uploading"
+  | "processing"
+  | "extracting"
+  | "indexing"
+  | "ready"
+  | "failed";
+
+export interface DocumentJob {
+  id: number;
+  document_id: number;
+  status: "queued" | "processing" | "ready" | "failed" | "cancelled";
+  attempt: number;
+  max_attempts: number;
+  error_message: string | null;
+  queued_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
 
 export interface RetrievedSource {
   id: number;
@@ -132,6 +150,7 @@ export interface DocumentSummary {
   file_size: number | null;
   page_count: number | null;
   status: DocumentStatus;
+  error_message?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -154,4 +173,8 @@ export interface PdfUploadResponse {
   embedding_provider: string;
   message: string;
   document?: DocumentSummary | Document;
+}
+
+export interface DocumentLifecycleResponse extends Document {
+  job: DocumentJob | null;
 }

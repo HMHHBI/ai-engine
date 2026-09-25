@@ -1,52 +1,153 @@
-import type { Document, DocumentStatus, DocumentSummary } from "@/types/api";
+import type {
+  Document,
+  DocumentStatus,
+  DocumentSummary,
+} from "@/types/api";
 
-const VALID_STATUSES: Set<DocumentStatus> = new Set(["processing", "ready", "failed"]);
+const VALID_STATUSES: Set<DocumentStatus> = new Set([
+  "uploading",
+  "processing",
+  "extracting",
+  "indexing",
+  "ready",
+  "failed",
+]);
 
-export function normalizeDocumentStatus(status: unknown): DocumentStatus {
-  if (typeof status === "string" && VALID_STATUSES.has(status as DocumentStatus)) {
+export function normalizeDocumentStatus(
+  status: unknown,
+): DocumentStatus {
+  if (
+    typeof status === "string" &&
+    VALID_STATUSES.has(status as DocumentStatus)
+  ) {
     return status as DocumentStatus;
   }
+
   return "processing";
 }
 
-export function normalizeDocument(raw: Record<string, unknown>): Document {
+export function normalizeDocument(
+  raw: Record<string, unknown>,
+): Document {
   return {
     id: Number(raw.id),
     user_id: Number(raw.user_id),
     chat_id: Number(raw.chat_id),
     filename: String(raw.filename ?? ""),
-    mime_type: String(raw.mime_type ?? "application/octet-stream"),
-    file_size: raw.file_size !== null && raw.file_size !== undefined ? Number(raw.file_size) : null,
-    page_count: raw.page_count !== null && raw.page_count !== undefined ? Number(raw.page_count) : null,
-    storage_url: typeof raw.storage_url === "string" ? raw.storage_url : null,
+    mime_type: String(
+      raw.mime_type ?? "application/octet-stream",
+    ),
+    file_size:
+      raw.file_size !== null &&
+      raw.file_size !== undefined
+        ? Number(raw.file_size)
+        : null,
+    page_count:
+      raw.page_count !== null &&
+      raw.page_count !== undefined
+        ? Number(raw.page_count)
+        : null,
+    storage_url:
+      typeof raw.storage_url === "string"
+        ? raw.storage_url
+        : null,
     status: normalizeDocumentStatus(raw.status),
-    error_message: typeof raw.error_message === "string" ? raw.error_message : null,
-    created_at: String(raw.created_at ?? new Date().toISOString()),
-    updated_at: String(raw.updated_at ?? new Date().toISOString()),
+    error_message:
+      typeof raw.error_message === "string"
+        ? raw.error_message
+        : null,
+    created_at: String(
+      raw.created_at ?? new Date().toISOString(),
+    ),
+    updated_at: String(
+      raw.updated_at ?? new Date().toISOString(),
+    ),
   };
 }
 
-export function normalizeDocumentSummary(raw: Record<string, unknown>): DocumentSummary {
+export function normalizeDocumentSummary(
+  raw: Record<string, unknown>,
+): DocumentSummary {
   return {
     id: Number(raw.id),
     chat_id: Number(raw.chat_id),
     filename: String(raw.filename ?? ""),
-    mime_type: String(raw.mime_type ?? "application/octet-stream"),
-    file_size: raw.file_size !== null && raw.file_size !== undefined ? Number(raw.file_size) : null,
-    page_count: raw.page_count !== null && raw.page_count !== undefined ? Number(raw.page_count) : null,
+    mime_type: String(
+      raw.mime_type ?? "application/octet-stream",
+    ),
+    file_size:
+      raw.file_size !== null &&
+      raw.file_size !== undefined
+        ? Number(raw.file_size)
+        : null,
+    page_count:
+      raw.page_count !== null &&
+      raw.page_count !== undefined
+        ? Number(raw.page_count)
+        : null,
     status: normalizeDocumentStatus(raw.status),
-    created_at: String(raw.created_at ?? new Date().toISOString()),
-    updated_at: String(raw.updated_at ?? new Date().toISOString()),
+    error_message:
+      typeof raw.error_message === "string"
+        ? raw.error_message
+        : null,
+    created_at: String(
+      raw.created_at ?? new Date().toISOString(),
+    ),
+    updated_at: String(
+      raw.updated_at ?? new Date().toISOString(),
+    ),
   };
 }
 
-export function formatFileSize(bytes: number | null | undefined): string | null {
-  if (bytes === null || bytes === undefined || isNaN(bytes) || bytes < 0) {
+export function formatFileSize(
+  bytes: number | null | undefined,
+): string | null {
+  if (
+    bytes === null ||
+    bytes === undefined ||
+    Number.isNaN(bytes) ||
+    bytes < 0
+  ) {
     return null;
   }
-  if (bytes < 1024) return `${bytes} B`;
+
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
   const kb = bytes / 1024;
-  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+
+  if (kb < 1024) {
+    return `${kb.toFixed(1)} KB`;
+  }
+
   const mb = kb / 1024;
   return `${mb.toFixed(1)} MB`;
+}
+
+export function getDocumentLifecycleLabel(
+  status: DocumentStatus,
+): string {
+  switch (status) {
+    case "uploading":
+      return "Uploading";
+
+    case "extracting":
+      return "Extracting Text";
+
+    case "indexing":
+      return "Indexing Evidence";
+
+    case "processing":
+      return "Preparing Document";
+
+    case "ready":
+      return "Ready";
+
+    case "failed":
+      return "Failed";
+
+    default:
+      return "Preparing Document";
+  }
 }
