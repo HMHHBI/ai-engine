@@ -7,9 +7,9 @@ from sqlalchemy import delete, select
 
 from app.db.models import Chat, Document, DocumentChunk
 from app.db.session import session_scope
-from app.storage import get_storage_backend
 
 logger = logging.getLogger(__name__)
+
 
 class DocumentRepository:
     """
@@ -22,6 +22,9 @@ class DocumentRepository:
 
     VALID_STATUSES = {
         "processing",
+        "uploading",
+        "extracting",
+        "indexing",
         "ready",
         "failed",
     }
@@ -77,8 +80,9 @@ class DocumentRepository:
 
         if normalized_status not in cls.VALID_STATUSES:
             raise ValueError(
-                "Invalid document status. "
-                "Expected 'processing', 'ready', or 'failed'."
+                "Invalid document status. Expected one of "
+                "'uploading', 'processing', 'extracting', 'indexing', "
+                "'ready', or 'failed'."
             )
 
         return normalized_status
@@ -93,13 +97,8 @@ class DocumentRepository:
         page_count: Optional[int] = None,
         storage_url: Optional[str] = None,
         storage_key: Optional[str] = None,
+        status: str = "processing",
     ) -> Optional[Document]:
-        """
-        Create a processing document owned by the authenticated user.
-
-        The chat ownership check is performed before the document is
-        inserted.
-        """
         DocumentRepository._validate_ids(
             user_id=user_id,
             chat_id=chat_id,
@@ -117,6 +116,7 @@ class DocumentRepository:
         normalized_storage_url = (
             storage_url.strip() if storage_url and storage_url.strip() else None
         )
+        normalized_status = DocumentRepository._validate_status(status)
 
         with session_scope() as db:
             chat_exists = db.execute(
@@ -138,7 +138,7 @@ class DocumentRepository:
                 page_count=page_count,
                 storage_url=normalized_storage_url,
                 storage_key=storage_key,
-                status="processing",
+                status=normalized_status,
                 error_message=None,
             )
 
@@ -148,15 +148,7 @@ class DocumentRepository:
             return document
 
     @staticmethod
-    def get_by_id(
-        document_id: int,
-    ) -> Optional[Document]:
-        """
-        Retrieve a document by primary key without applying user ownership.
-
-        This method is intended for trusted internal workflows. User-facing
-        operations must use get_owned_document().
-        """
+    def get_by_id(document_id: int) -> Optional[Document]:
         if document_id <= 0:
             raise ValueError("document_id must be a positive integer.")
 
@@ -172,9 +164,6 @@ class DocumentRepository:
         document_id: int,
         user_id: int,
     ) -> Optional[Document]:
-        """
-        Retrieve a document only when it belongs to the authenticated user.
-        """
         DocumentRepository._validate_ids(
             user_id=user_id,
             document_id=document_id,
@@ -183,10 +172,7 @@ class DocumentRepository:
         with session_scope() as db:
             return db.execute(
                 select(Document)
-                .join(
-                    Chat,
-                    Chat.id == Document.chat_id,
-                )
+                .join(Chat, Chat.id == Document.chat_id)
                 .where(
                     Document.id == document_id,
                     Document.user_id == user_id,
@@ -199,9 +185,6 @@ class DocumentRepository:
         chat_id: int,
         user_id: int,
     ) -> list[Document]:
-        """
-        List all documents belonging to a chat owned by the authenticated user.
-        """
         DocumentRepository._validate_ids(
             user_id=user_id,
             chat_id=chat_id,
@@ -236,12 +219,6 @@ class DocumentRepository:
         status: str,
         error_message: Optional[str] = None,
     ) -> Optional[Document]:
-        """
-        Update document processing status with ownership verification.
-
-        A non-empty error message is persisted only for failed documents.
-        Successful documents clear any previous error message.
-        """
         DocumentRepository._validate_ids(
             user_id=user_id,
             document_id=document_id,
@@ -250,7 +227,9 @@ class DocumentRepository:
         normalized_status = DocumentRepository._validate_status(status)
 
         normalized_error_message = (
-            error_message.strip() if error_message and error_message.strip() else None
+            error_message.strip()
+            if error_message and error_message.strip()
+            else None
         )
 
         if normalized_status != "failed":
@@ -259,10 +238,7 @@ class DocumentRepository:
         with session_scope() as db:
             document = db.execute(
                 select(Document)
-                .join(
-                    Chat,
-                    Chat.id == Document.chat_id,
-                )
+                .join(Chat, Chat.id == Document.chat_id)
                 .where(
                     Document.id == document_id,
                     Document.user_id == user_id,
@@ -300,10 +276,7 @@ class DocumentRepository:
         with session_scope() as db:
             document = db.execute(
                 select(Document)
-                .join(
-                    Chat,
-                    Chat.id == Document.chat_id,
-                )
+                .join(Chat, Chat.id == Document.chat_id)
                 .where(
                     Document.id == document_id,
                     Document.user_id == user_id,
@@ -327,8 +300,6 @@ class DocumentRepository:
 
             return document
 
-
-
     @staticmethod
     def update_metadata(
         document_id: int,
@@ -339,11 +310,6 @@ class DocumentRepository:
         page_count: Optional[int] = None,
         storage_url: Optional[str] = None,
     ) -> Optional[Document]:
-        """
-        Update document metadata with ownership verification.
-
-        Only explicitly supplied fields are modified.
-        """
         DocumentRepository._validate_ids(
             user_id=user_id,
             document_id=document_id,
@@ -386,10 +352,7 @@ class DocumentRepository:
         with session_scope() as db:
             document = db.execute(
                 select(Document)
-                .join(
-                    Chat,
-                    Chat.id == Document.chat_id,
-                )
+                .join(Chat, Chat.id == Document.chat_id)
                 .where(
                     Document.id == document_id,
                     Document.user_id == user_id,
@@ -424,12 +387,6 @@ class DocumentRepository:
         document_id: int,
         user_id: int,
     ) -> bool:
-        """
-        Delete a document owned by the authenticated user.
-
-        DocumentChunk rows are removed by the database ON DELETE CASCADE
-        constraint on document_chunks.document_id.
-        """
         DocumentRepository._validate_ids(
             user_id=user_id,
             document_id=document_id,
@@ -438,10 +395,7 @@ class DocumentRepository:
         with session_scope() as db:
             document = db.execute(
                 select(Document)
-                .join(
-                    Chat,
-                    Chat.id == Document.chat_id,
-                )
+                .join(Chat, Chat.id == Document.chat_id)
                 .where(
                     Document.id == document_id,
                     Document.user_id == user_id,
@@ -460,16 +414,6 @@ class DocumentRepository:
         chat_id: int,
         user_id: int,
     ) -> Optional[Document]:
-        """
-        Retrieve the latest ready document for a chat owned by the user.
-
-        Requires dual ownership:
-            Chat.id == chat_id AND Chat.user_id == user_id
-            Document.chat_id == chat_id AND Document.user_id == user_id
-            Document.status == 'ready'
-
-        Ordered deterministically by created_at DESC, id DESC.
-        """
         DocumentRepository._validate_ids(
             user_id=user_id,
             chat_id=chat_id,
@@ -478,10 +422,7 @@ class DocumentRepository:
         with session_scope() as db:
             return db.execute(
                 select(Document)
-                .join(
-                    Chat,
-                    Chat.id == Document.chat_id,
-                )
+                .join(Chat, Chat.id == Document.chat_id)
                 .where(
                     Document.chat_id == chat_id,
                     Document.user_id == user_id,
@@ -502,18 +443,6 @@ class DocumentRepository:
         chat_id: int,
         user_id: int,
     ) -> Optional[Document]:
-        """
-        Retrieve an explicitly selected document only when:
-
-        - the document exists
-        - the document belongs to the authenticated user
-        - the document belongs to the requested chat
-        - the owning chat belongs to the authenticated user
-        - the document is ready
-
-        Explicit document selection must never silently fall back to
-        another document.
-        """
         DocumentRepository._validate_ids(
             user_id=user_id,
             chat_id=chat_id,
@@ -523,10 +452,7 @@ class DocumentRepository:
         with session_scope() as db:
             return db.execute(
                 select(Document)
-                .join(
-                    Chat,
-                    Chat.id == Document.chat_id,
-                )
+                .join(Chat, Chat.id == Document.chat_id)
                 .where(
                     Document.id == document_id,
                     Document.chat_id == chat_id,
