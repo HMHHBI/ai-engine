@@ -10,7 +10,7 @@ import {
 import type { DocumentStatus } from "@/types/api";
 
 interface DocumentStatusBadgeProps {
-  status: DocumentStatus;
+  status: DocumentStatus | "uploading";
   className?: string;
   onRetry?: () => void;
   retryDisabled?: boolean;

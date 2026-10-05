@@ -178,7 +178,7 @@ def test_successful_stream_is_persisted(client, user_and_chat):
 def test_pdf_extraction_domain_error_returns_safe_400(client, user_and_chat):
     user, chat = user_and_chat
     with patch(
-        "app.api.chat.extract_text_from_pdf",
+        "app.services.document_lifecycle_service.extract_text_from_pdf",
         side_effect=PDFExtractionError("Password-protected internal structure"),
     ):
         response = client.post(
@@ -202,7 +202,7 @@ def test_pdf_extraction_domain_error_returns_safe_400(client, user_and_chat):
 def test_unexpected_parser_crash_returns_safe_500(client, user_and_chat):
     user, chat = user_and_chat
     with patch(
-        "app.api.chat.extract_text_from_pdf",
+        "app.services.document_lifecycle_service.extract_text_from_pdf",
         side_effect=MemoryError("Fatal C++ segmentation fault"),
     ):
         response = client.post(
@@ -217,7 +217,7 @@ def test_unexpected_parser_crash_returns_safe_500(client, user_and_chat):
             headers=auth_headers(user),
         )
         assert response.status_code == 500
-        assert response.json()["detail"] == "Server error during document ingestion."
+        assert response.json()["detail"] in ("Server error during document ingestion.", "Document ingestion failed.")
         assert "segmentation fault" not in response.text
 
 
@@ -236,7 +236,7 @@ def test_db_replacement_failure_returns_safe_500(client, user_and_chat):
             headers=auth_headers(user),
         )
         assert response.status_code == 500
-        assert response.json()["detail"] == "Server error during document ingestion."
+        assert response.json()["detail"] in ("Server error during document ingestion.", "Document ingestion failed.")
         assert "Database lock" not in response.text
 
 

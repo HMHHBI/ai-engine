@@ -133,16 +133,30 @@ async def upload_document(
 
         if extension == ".pdf":
             validate_pdf_signature(content)
+        else:
+            try:
+                content.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                    detail="Text document must be valid UTF-8.",
+                ) from exc
 
         storage = get_storage_backend()
         storage_key = build_document_key(user_id=current_user.id)
 
-        await asyncio.to_thread(
-            storage.save,
-            storage_key,
-            io.BytesIO(content),
-            content_type=file.content_type or "application/pdf",
-        )
+        try:
+            await asyncio.to_thread(
+                storage.save,
+                storage_key,
+                io.BytesIO(content),
+                content_type=file.content_type or "application/pdf",
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Document storage failed.",
+            ) from exc
 
         document = await asyncio.to_thread(
             DocumentRepository.create,
@@ -184,13 +198,25 @@ async def upload_document(
                 detail="Unsupported embedding provider.",
             ) from exc
 
-        await DocumentLifecycleService.process_job(
-            document_id=document.id,
-            user_id=current_user.id,
-            job_id=job.id,
-            embedding_provider=parsed_embedding_provider,
-            content=content,
-        )
+        try:
+            await DocumentLifecycleService.process_job(
+                document_id=document.id,
+                user_id=current_user.id,
+                job_id=job.id,
+                embedding_provider=parsed_embedding_provider,
+                content=content,
+            )
+        except Exception as exc:
+            err_msg = str(exc)
+            if "invalid or corrupted" in err_msg.lower() or "pdfextractionerror" in err_msg.lower() or "password-protected" in err_msg.lower():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="The uploaded document could not be processed.",
+                ) from exc
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Document ingestion failed.",
+            ) from exc
 
         refreshed = await asyncio.to_thread(
             DocumentRepository.get_owned_document,

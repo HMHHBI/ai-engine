@@ -5,7 +5,6 @@ import type {
 } from "@/types/api";
 
 const VALID_STATUSES: Set<DocumentStatus> = new Set([
-  "uploading",
   "processing",
   "extracting",
   "indexing",
@@ -129,9 +128,6 @@ export function getDocumentLifecycleLabel(
   status: DocumentStatus,
 ): string {
   switch (status) {
-    case "uploading":
-      return "Uploading";
-
     case "extracting":
       return "Extracting Text";
 

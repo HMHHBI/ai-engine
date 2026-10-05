@@ -18,7 +18,6 @@ export type ChatPersona =
   | "simple";
 
   export type DocumentStatus =
-  | "uploading"
   | "processing"
   | "extracting"
   | "indexing"
