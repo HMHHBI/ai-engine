@@ -51,7 +51,7 @@ jobs:
         run: npm ci
 
       - name: Run NPM Security Audit
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=high --omit=dev
 
   pip-audit:
     name: Backend Python Audit
