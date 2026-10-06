@@ -75,8 +75,14 @@ function makeSession(
     created_at: timestamp,
     updated_at: timestamp,
     has_pdf: false,
+    persona: "default",
+    custom_instructions: null,
+    attached_documents_count: 0,
+    primary_document_title: null,
+    message_count: 0,
+    last_active_at: null,
     ...overrides,
-  };
+  } as unknown as ChatSession;
 }
 
 function seedChat(

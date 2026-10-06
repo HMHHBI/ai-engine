@@ -5,6 +5,7 @@ import { chatApi } from "@/lib/api/chat";
 import { chatRequestController } from "@/features/chat/stream/chat-request-controller";
 import { useChatStore } from "@/features/chat/store/chat-store";
 import { useChatSessionStore } from "@/features/chat/store/chat-session-store";
+import { useDocumentStore } from "@/features/documents/document-store";
 import type { ChatMessage, ChatSession } from "@/types/api";
 
 vi.mock("@/lib/api/chat", () => ({
@@ -24,6 +25,7 @@ describe("chatSessionActions", () => {
   beforeEach(() => {
     useChatStore.getState().reset();
     useChatSessionStore.getState().reset();
+    useDocumentStore.getState().reset();
 
     // Ensure every test starts with a fresh hydration generation.
     chatSessionActions.invalidateHydration?.();
@@ -44,6 +46,12 @@ describe("chatSessionActions", () => {
         created_at: "2026-01-01T00:00:00Z",
         updated_at: "2026-01-01T10:00:00Z",
         has_pdf: false,
+        persona: "default",
+        custom_instructions: null,
+        attached_documents_count: 0,
+        primary_document_title: null,
+        message_count: 0,
+        last_active_at: null,
       },
       {
         id: 2,
@@ -52,6 +60,12 @@ describe("chatSessionActions", () => {
         created_at: "2026-01-02T00:00:00Z",
         updated_at: "2026-01-02T10:00:00Z",
         has_pdf: false,
+        persona: "default",
+        custom_instructions: null,
+        attached_documents_count: 0,
+        primary_document_title: null,
+        message_count: 0,
+        last_active_at: null,
       },
     ];
 
@@ -326,6 +340,12 @@ describe("chatSessionActions", () => {
       created_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-01T00:00:00Z",
       has_pdf: false,
+        persona: "default",
+        custom_instructions: null,
+        attached_documents_count: 0,
+        primary_document_title: null,
+        message_count: 0,
+        last_active_at: null,
     };
 
     useChatSessionStore.getState().setSessions([session]);
@@ -524,6 +544,12 @@ describe("chatSessionActions", () => {
           created_at: "2026-01-01T00:00:00Z",
           updated_at: "2026-01-01T00:00:00Z",
           has_pdf: false,
+        persona: "default",
+        custom_instructions: null,
+        attached_documents_count: 0,
+        primary_document_title: null,
+        message_count: 0,
+        last_active_at: null,
         },
       ],
     });
@@ -562,6 +588,12 @@ describe("chatSessionActions", () => {
           created_at: "2026-01-01T00:00:00Z",
           updated_at: "2026-01-01T00:00:00Z",
           has_pdf: false,
+        persona: "default",
+        custom_instructions: null,
+        attached_documents_count: 0,
+        primary_document_title: null,
+        message_count: 0,
+        last_active_at: null,
         },
       ],
     });
@@ -598,6 +630,12 @@ describe("chatSessionActions", () => {
           created_at: "2026-01-01T00:00:00Z",
           updated_at: "2026-01-01T00:00:00Z",
           has_pdf: false,
+        persona: "default",
+        custom_instructions: null,
+        attached_documents_count: 0,
+        primary_document_title: null,
+        message_count: 0,
+        last_active_at: null,
         },
       ],
     });
@@ -622,6 +660,10 @@ describe("chatSessionActions", () => {
       created_at: "2026-09-06T10:00:00.000Z",
       updated_at: "2026-09-06T10:00:00.000Z",
       has_pdf: false,
+      attached_documents_count: 0,
+      primary_document_title: null,
+      message_count: 0,
+      last_active_at: null,
     });
 
     vi.spyOn(chatApi, "updatePersona").mockResolvedValueOnce({
@@ -633,14 +675,18 @@ describe("chatSessionActions", () => {
       has_pdf: false,
       persona: "developer",
       custom_instructions: "Keep answers concise.",
+      attached_documents_count: 0,
+      primary_document_title: null,
+      message_count: 0,
+      last_active_at: null,
     });
 
     await chatSessionActions.updatePersona(chatId, "developer", "  Keep answers concise.  ");
 
-    expect(chatApi.updatePersona).toHaveBeenCalledWith(chatId, {
+    expect(chatApi.updatePersona).toHaveBeenCalledWith(chatId, expect.objectContaining({
       persona: "developer",
       custom_instructions: "Keep answers concise.",
-    });
+    }));
 
     const session = useChatSessionStore
       .getState()
@@ -659,6 +705,10 @@ describe("chatSessionActions", () => {
       created_at: "2026-09-06T10:00:00.000Z",
       updated_at: "2026-09-06T10:00:00.000Z",
       has_pdf: false,
+      attached_documents_count: 0,
+      primary_document_title: null,
+      message_count: 0,
+      last_active_at: null,
     });
 
     vi.spyOn(chatApi, "updatePersona").mockResolvedValueOnce({
@@ -670,13 +720,384 @@ describe("chatSessionActions", () => {
       has_pdf: false,
       persona: "academic",
       custom_instructions: null,
+      attached_documents_count: 0,
+      primary_document_title: null,
+      message_count: 0,
+      last_active_at: null,
     });
 
     await chatSessionActions.updatePersona(chatId, "academic", "    ");
 
-    expect(chatApi.updatePersona).toHaveBeenCalledWith(chatId, {
+    expect(chatApi.updatePersona).toHaveBeenCalledWith(chatId, expect.objectContaining({
       persona: "academic",
       custom_instructions: null,
+    }));
+  });
+
+  it("hydrates metadata, messages, and documents atomically", async () => {
+    const session: ChatSession = {
+      id: 42,
+      user_id: 1,
+      title: "Research Paper",
+      created_at: "2026-10-01T10:00:00Z",
+      updated_at: "2026-10-06T10:00:00Z",
+      has_pdf: true,
+      persona: "academic",
+      custom_instructions: null,
+      attached_documents_count: 2,
+      primary_document_title: "paper.pdf",
+      message_count: 4,
+      last_active_at: "2026-10-06T10:00:00Z",
+    };
+  
+    useChatSessionStore
+      .getState()
+      .setSessions([session]);
+  
+    vi.mocked(chatApi.getDetails).mockResolvedValue({
+      ...session,
+      persona: "default",
+      custom_instructions: session.custom_instructions ?? null,
+      pdf_context: null,
+      ai_provider: "ollama",
+      ai_model: "llama3.2",
+      embedding_provider: "local",
     });
+  
+    vi.mocked(chatApi.get).mockResolvedValue([
+      {
+        id: 1,
+        chat_id: 42,
+        role: "user",
+        content: "What is the methodology?",
+      },
+      {
+        id: 2,
+        chat_id: 42,
+        role: "ai",
+        content: "The methodology is described on page 4.",
+        sources: [
+          {
+            id: 10,
+            document_id: 2,
+            page_number: 4,
+            chunk_index: 2,
+            distance: 0.12,
+            snippet: "Methodology passage.",
+          },
+        ],
+      },
+    ]);
+  
+    const documents = [
+      {
+        id: 1,
+        user_id: 1,
+        chat_id: 42,
+        filename: "old.pdf",
+        mime_type: "application/pdf",
+        file_size: 100,
+        page_count: 2,
+        storage_url: null,
+        status: "ready" as const,
+        error_message: null,
+        created_at: "2026-10-01T00:00:00Z",
+        updated_at: "2026-10-01T00:00:00Z",
+      },
+      {
+        id: 2,
+        user_id: 1,
+        chat_id: 42,
+        filename: "paper.pdf",
+        mime_type: "application/pdf",
+        file_size: 200,
+        page_count: 5,
+        storage_url: null,
+        status: "ready" as const,
+        error_message: null,
+        created_at: "2026-10-02T00:00:00Z",
+        updated_at: "2026-10-06T00:00:00Z",
+      },
+    ];
+  
+    const { documentApi } =
+      await import("@/lib/api/documents");
+  
+    vi.spyOn(
+      documentApi,
+      "listForChat",
+    ).mockResolvedValue(documents);
+  
+    const result =
+      await chatSessionActions.hydrateSession(42);
+  
+    expect(result).toBe(true);
+  
+    expect(
+      useChatStore.getState().activeChatId,
+    ).toBe(42);
+  
+    expect(
+      useChatStore.getState()
+        .messagesByChat[42],
+    ).toHaveLength(2);
+  
+    expect(
+      useDocumentStore.getState()
+        .documentsByChat[42],
+    ).toEqual(documents);
+  
+    expect(
+      useDocumentStore.getState()
+        .selectedDocumentIdByChat[42],
+    ).toBe(2);
+  
+    expect(
+      useChatSessionStore.getState()
+        .sessions[0].message_count,
+    ).toBe(4);
+  });
+  
+  it("restores zero-document sessions without selecting a PDF", async () => {
+    const session: ChatSession = {
+      id: 50,
+      user_id: 1,
+      title: "Open Research",
+      created_at: "2026-10-01T10:00:00Z",
+      updated_at: "2026-10-06T10:00:00Z",
+      has_pdf: false,
+      persona: "default",
+      custom_instructions: null,
+      attached_documents_count: 0,
+      primary_document_title: null,
+      message_count: 2,
+      last_active_at: "2026-10-06T10:00:00Z",
+    };
+  
+    useChatSessionStore
+      .getState()
+      .setSessions([session]);
+  
+    vi.mocked(chatApi.getDetails).mockResolvedValue({
+      ...session,
+      persona: "default",
+      custom_instructions: session.custom_instructions ?? null,
+      pdf_context: null,
+      ai_provider: "ollama",
+      ai_model: "llama3.2",
+      embedding_provider: "local",
+    });
+  
+    vi.mocked(chatApi.get).mockResolvedValue([]);
+  
+    const { documentApi } =
+      await import("@/lib/api/documents");
+  
+    vi.spyOn(
+      documentApi,
+      "listForChat",
+    ).mockResolvedValue([]);
+  
+    const result =
+      await chatSessionActions.hydrateSession(50);
+  
+    expect(result).toBe(true);
+  
+    expect(
+      useDocumentStore.getState()
+        .documentsByChat[50],
+    ).toEqual([]);
+  
+    expect(
+      useDocumentStore.getState()
+        .selectedDocumentIdByChat[50],
+    ).toBeNull();
+  
+    expect(
+      useChatStore.getState().activeChatId,
+    ).toBe(50);
+  });
+  
+  it("prevents stale session A hydration from overwriting session B", async () => {
+    let resolveDetailsA!: (
+      value: Awaited<
+        ReturnType<typeof chatApi.getDetails>
+      >,
+    ) => void;
+  
+    let resolveMessagesA!: (
+      value: ChatMessage[],
+    ) => void;
+  
+    let resolveDocumentsA!: (
+      value: Awaited<
+        ReturnType<
+          typeof import("@/lib/api/documents").documentApi.listForChat
+        >
+      >,
+    ) => void;
+  
+    const detailsAPromise =
+      new Promise<
+        Awaited<
+          ReturnType<typeof chatApi.getDetails>
+        >
+      >((resolve) => {
+        resolveDetailsA = resolve;
+      });
+  
+    const messagesAPromise =
+      new Promise<ChatMessage[]>(
+        (resolve) => {
+          resolveMessagesA = resolve;
+        },
+      );
+  
+    const documentsAPromise =
+      new Promise<
+        Awaited<
+          ReturnType<
+            typeof import("@/lib/api/documents").documentApi.listForChat
+          >
+        >
+      >((resolve) => {
+        resolveDocumentsA = resolve;
+      });
+  
+    vi.mocked(chatApi.getDetails).mockReturnValueOnce(
+      detailsAPromise,
+    );
+  
+    vi.mocked(chatApi.get).mockReturnValueOnce(
+      messagesAPromise,
+    );
+  
+    const { documentApi } =
+      await import("@/lib/api/documents");
+  
+    vi.spyOn(
+      documentApi,
+      "listForChat",
+    ).mockReturnValueOnce(
+      documentsAPromise,
+    );
+  
+    const loadA =
+      chatSessionActions.hydrateSession(42);
+  
+    vi.mocked(chatApi.getDetails).mockResolvedValueOnce({
+      id: 43,
+      title: "Session B",
+      pdf_context: null,
+      ai_provider: "ollama",
+      ai_model: "llama3.2",
+      embedding_provider: "local",
+      persona: "developer",
+      custom_instructions: null,
+      created_at: "2026-10-01T00:00:00Z",
+      updated_at: "2026-10-06T00:00:00Z",
+      attached_documents_count: 1,
+      primary_document_title: "B.pdf",
+      message_count: 1,
+      last_active_at: "2026-10-06T00:00:00Z",
+    });
+  
+    vi.mocked(chatApi.get).mockResolvedValueOnce([
+      {
+        id: 43,
+        role: "user",
+        content: "B message",
+      },
+    ]);
+  
+    vi.spyOn(
+      documentApi,
+      "listForChat",
+    ).mockResolvedValueOnce([
+      {
+        id: 430,
+        user_id: 1,
+        chat_id: 43,
+        filename: "B.pdf",
+        mime_type: "application/pdf",
+        file_size: 100,
+        page_count: 1,
+        storage_url: null,
+        status: "ready",
+        error_message: null,
+        created_at: "2026-10-06T00:00:00Z",
+        updated_at: "2026-10-06T00:00:00Z",
+      },
+    ]);
+  
+    const loadB =
+      chatSessionActions.hydrateSession(43);
+  
+    resolveDetailsA({
+      id: 42,
+      title: "Session A",
+      pdf_context: null,
+      ai_provider: "ollama",
+      ai_model: "llama3.2",
+      embedding_provider: "local",
+      persona: "academic",
+      custom_instructions: null,
+      created_at: "2026-10-01T00:00:00Z",
+      updated_at: "2026-10-01T00:00:00Z",
+      attached_documents_count: 1,
+      primary_document_title: "A.pdf",
+      message_count: 1,
+      last_active_at: "2026-10-01T00:00:00Z",
+    });
+  
+    resolveMessagesA([
+      {
+        id: 42,
+        role: "user",
+        content: "A message",
+      },
+    ]);
+  
+    resolveDocumentsA([
+      {
+        id: 420,
+        user_id: 1,
+        chat_id: 42,
+        filename: "A.pdf",
+        mime_type: "application/pdf",
+        file_size: 100,
+        page_count: 1,
+        storage_url: null,
+        status: "ready",
+        error_message: null,
+        created_at: "2026-10-01T00:00:00Z",
+        updated_at: "2026-10-01T00:00:00Z",
+      },
+    ]);
+  
+    const resultA = await loadA;
+    const resultB = await loadB;
+  
+    expect(resultA).toBe(false);
+    expect(resultB).toBe(true);
+  
+    expect(
+      useChatStore.getState().activeChatId,
+    ).toBe(43);
+  
+    expect(
+      useChatStore.getState()
+        .messagesByChat[43]?.[0].content,
+    ).toBe("B message");
+  
+    expect(
+      useDocumentStore.getState()
+        .selectedDocumentIdByChat[43],
+    ).toBe(430);
+  
+    expect(
+      useDocumentStore.getState()
+        .selectedDocumentIdByChat[42],
+    ).toBeUndefined();
   });
 });

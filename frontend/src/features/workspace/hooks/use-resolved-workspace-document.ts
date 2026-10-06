@@ -2,9 +2,15 @@
 
 import { useEffect, useState } from "react";
 import type { Document } from "@/types/api";
-import { documentApi } from "@/lib/api/documents";
+import { useChatStore } from "@/features/chat/store/chat-store";
+import { useDocumentStore } from "@/features/documents/document-store";
 
-export type DocumentResolutionStatus = "idle" | "loading" | "resolved" | "not_found" | "error";
+export type DocumentResolutionStatus =
+  | "idle"
+  | "loading"
+  | "resolved"
+  | "not_found"
+  | "error";
 
 export interface DocumentResolutionState {
   status: DocumentResolutionStatus;
@@ -12,77 +18,28 @@ export interface DocumentResolutionState {
   error: string | null;
 }
 
+const EMPTY_DOCS: Document[] = [];
+
 export function useResolvedWorkspaceDocument(
   candidateDocId: number | null
 ): DocumentResolutionState {
-  const [internalState, setInternalState] = useState<{
-    resolvedCandidateId: number | null;
-    status: DocumentResolutionStatus;
-    document: Document | null;
-    error: string | null;
-  }>({
-    resolvedCandidateId: candidateDocId,
-    status: candidateDocId ? "loading" : "idle",
-    document: null,
-    error: null,
-  });
+  const activeChatId = useChatStore((state) => state.activeChatId);
+
+  const documents = useDocumentStore((state) =>
+    activeChatId === null
+      ? EMPTY_DOCS
+      : state.documentsByChat[activeChatId] ?? EMPTY_DOCS
+  );
+
+  const [resolvedCandidateId, setResolvedCandidateId] =
+    useState<number | null>(candidateDocId);
 
   useEffect(() => {
-    let isMounted = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setResolvedCandidateId(candidateDocId);
+  }, [candidateDocId, activeChatId]);
 
-    if (!candidateDocId) {
-      return;
-    }
-
-    documentApi
-      .get(candidateDocId)
-      .then((doc) => {
-        if (!isMounted) return;
-        if (doc && doc.id === candidateDocId) {
-          setInternalState({
-            resolvedCandidateId: candidateDocId,
-            status: "resolved",
-            document: doc,
-            error: null,
-          });
-        } else {
-          setInternalState({
-            resolvedCandidateId: candidateDocId,
-            status: "not_found",
-            document: null,
-            error: "Document not found or inaccessible.",
-          });
-        }
-      })
-      .catch((err: unknown) => {
-        if (!isMounted) return;
-        const statusCode =
-          (err as { status?: number; response?: { status?: number } })?.status ??
-          (err as { response?: { status?: number } })?.response?.status;
-
-        if (statusCode === 404 || statusCode === 403) {
-          setInternalState({
-            resolvedCandidateId: candidateDocId,
-            status: "not_found",
-            document: null,
-            error: "Document not found or access denied.",
-          });
-        } else {
-          setInternalState({
-            resolvedCandidateId: candidateDocId,
-            status: "error",
-            document: null,
-            error: err instanceof Error ? err.message : "Failed to load document.",
-          });
-        }
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [candidateDocId]);
-
-  if (!candidateDocId) {
+  if (activeChatId === null || candidateDocId === null) {
     return {
       status: "idle",
       document: null,
@@ -90,8 +47,7 @@ export function useResolvedWorkspaceDocument(
     };
   }
 
-  // Prevent stale document from previous candidate leaking into current render
-  if (internalState.resolvedCandidateId !== candidateDocId) {
+  if (resolvedCandidateId !== candidateDocId) {
     return {
       status: "loading",
       document: null,
@@ -99,9 +55,24 @@ export function useResolvedWorkspaceDocument(
     };
   }
 
+  const document = documents.find(
+    (item) =>
+      item.id === candidateDocId &&
+      item.chat_id === activeChatId &&
+      item.status === "ready"
+  );
+
+  if (!document) {
+    return {
+      status: "not_found",
+      document: null,
+      error: "Document not found in the active research session.",
+    };
+  }
+
   return {
-    status: internalState.status,
-    document: internalState.document,
-    error: internalState.error,
+    status: "resolved",
+    document,
+    error: null,
   };
 }

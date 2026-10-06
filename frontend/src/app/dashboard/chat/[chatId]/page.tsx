@@ -16,7 +16,9 @@ interface ChatPageProps {
 
 function ChatPageContent({ params }: ChatPageProps) {
   const { chatId: rawChatId } = use(params);
+
   const router = useRouter();
+
   const parsedId = Number(rawChatId);
 
   const activeChatId = useChatStore((state) => state.activeChatId);
@@ -32,16 +34,16 @@ function ChatPageContent({ params }: ChatPageProps) {
       return;
     }
 
-    const existingMessages = useChatStore.getState().messagesByChat[parsedId];
-
-    if (existingMessages) {
-      useChatStore.getState().setActiveChat(parsedId);
-      return;
-    }
-
-    void chatSessionActions.loadChat(parsedId).catch(() => {
-      router.replace("/dashboard");
-    });
+    void chatSessionActions
+      .hydrateSession(parsedId)
+      .then((loaded) => {
+        if (!loaded) {
+          return;
+        }
+      })
+      .catch(() => {
+        router.replace("/dashboard");
+      });
   }, [parsedId, activeChatId, router]);
 
   return <AppShell />;

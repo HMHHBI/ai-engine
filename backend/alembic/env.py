@@ -1,3 +1,12 @@
+def include_object(object, name, type_, reflected, compare_to):
+    if type_ == "index" and name in ["ix_document_chunks_content_fts"]:
+        return False
+    if type_ == "unique_constraint" and name in ["uq_document_chunks_doc_chunk_idx"]:
+        return False
+    if type_ == "table" and name in ["spatial_ref_sys"]:
+        return False
+    return True
+
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config
@@ -44,6 +53,7 @@ def run_migrations_offline() -> None:
     """
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
+            include_object=include_object,
         url=url,
         target_metadata=target_metadata,
         literal_binds=True,
@@ -69,6 +79,7 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
+            include_object=include_object,
             connection=connection, target_metadata=target_metadata
         )
 

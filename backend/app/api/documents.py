@@ -177,6 +177,13 @@ async def upload_document(
                 detail="Chat session missing or unauthorized.",
             )
 
+        await asyncio.to_thread(
+            ChatRepository.infer_and_set_title_from_document,
+            chat_id=chat.id,
+            user_id=current_user.id,
+            filename=safe_filename,
+        )
+
         job = await asyncio.to_thread(
             DocumentLifecycleService.create_job,
             document_id=document.id,

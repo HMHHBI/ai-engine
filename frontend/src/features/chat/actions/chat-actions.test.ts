@@ -765,6 +765,10 @@ describe("chatActions", () => {
           created_at: "2026-01-01T00:00:00Z",
           updated_at: "2026-01-01T00:00:00Z",
           has_pdf: false,
+          attached_documents_count: 0,
+          primary_document_title: null,
+          message_count: 0,
+          last_active_at: null,
         },
       ],
     });
@@ -796,6 +800,10 @@ describe("chatActions", () => {
           created_at: "2026-01-01T00:00:00Z",
           updated_at: "2026-01-01T00:00:00Z",
           has_pdf: false,
+          attached_documents_count: 0,
+          primary_document_title: null,
+          message_count: 0,
+          last_active_at: null,
         },
       ],
     });
@@ -813,7 +821,7 @@ describe("chatActions", () => {
     });
 
     expect(useChatSessionStore.getState().sessions[0].title).toBe(
-      "Explain how retrieval aug...",
+      "Explain how retrieval augmented generation works",
     );
   });
 
@@ -827,6 +835,10 @@ describe("chatActions", () => {
           created_at: "2026-01-01T00:00:00Z",
           updated_at: "2026-01-01T00:00:00Z",
           has_pdf: false,
+          attached_documents_count: 0,
+          primary_document_title: null,
+          message_count: 0,
+          last_active_at: null,
         },
         {
           id: 1,
@@ -835,6 +847,10 @@ describe("chatActions", () => {
           created_at: "2026-01-02T00:00:00Z",
           updated_at: "2026-01-02T10:00:00Z",
           has_pdf: false,
+          attached_documents_count: 0,
+          primary_document_title: null,
+          message_count: 0,
+          last_active_at: null,
         },
       ],
     });

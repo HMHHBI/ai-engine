@@ -21,22 +21,30 @@ export function ChatHistoryList({ onSelectChat }: ChatHistoryListProps) {
   const pathname = usePathname();
 
   const sessions = useChatSessionStore((state) => state.sessions);
+
   const isLoading = useChatSessionStore((state) => state.isLoading);
+
   const error = useChatSessionStore((state) => state.error);
+
   const mutatingChatIds = useChatSessionStore((state) => state.mutatingChatIds);
 
   const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
+
   const [retrying, setRetrying] = useState(false);
+
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     void chatSessionActions.loadChats().catch(() => {});
   }, []);
 
-  const targetSession = sessions.find((s) => s.id === deleteTargetId);
+  const targetSession = sessions.find(
+    (session) => session.id === deleteTargetId,
+  );
 
   async function handleRetry() {
     setRetrying(true);
+
     try {
       await chatSessionActions.loadChats();
     } finally {
@@ -46,9 +54,12 @@ export function ChatHistoryList({ onSelectChat }: ChatHistoryListProps) {
 
   async function handleCreateChat() {
     setCreating(true);
+
     try {
       const newId = await chatSessionActions.createChat();
+
       onSelectChat?.();
+
       router.push(`/dashboard/chat/${newId}`);
     } finally {
       setCreating(false);
@@ -56,11 +67,15 @@ export function ChatHistoryList({ onSelectChat }: ChatHistoryListProps) {
   }
 
   async function handleDeleteConfirm() {
-    if (deleteTargetId === null) return;
+    if (deleteTargetId === null) {
+      return;
+    }
 
     try {
       const wasActive = await chatSessionActions.deleteChat(deleteTargetId);
+
       setDeleteTargetId(null);
+
       if (wasActive) {
         router.replace("/dashboard");
       }
@@ -72,10 +87,10 @@ export function ChatHistoryList({ onSelectChat }: ChatHistoryListProps) {
   if (isLoading) {
     return (
       <div className="space-y-2 py-1">
-        {Array.from({ length: 6 }).map((_, index) => (
+        {Array.from({ length: 5 }).map((_, index) => (
           <Skeleton
             key={`skeleton-${index}`}
-            className="h-9 w-full rounded-lg"
+            className="h-19.5 w-full rounded-xl"
           />
         ))}
       </div>
@@ -85,7 +100,7 @@ export function ChatHistoryList({ onSelectChat }: ChatHistoryListProps) {
   if (error) {
     return (
       <ErrorState
-        title="Unable to load chats"
+        title="Unable to load research sessions"
         message={error}
         actionLabel="Retry"
         retrying={retrying}
@@ -99,9 +114,9 @@ export function ChatHistoryList({ onSelectChat }: ChatHistoryListProps) {
     return (
       <EmptyState
         icon={<MessageSquareDashed className="size-4" />}
-        title="No conversations yet"
-        description="Start a new conversation with AI Engine."
-        actionLabel="New chat"
+        title="No research sessions yet"
+        description="Start a new research session with AI Engine."
+        actionLabel="New research"
         actionLoading={creating}
         onAction={() => void handleCreateChat()}
         className="px-1 py-6"
@@ -111,10 +126,12 @@ export function ChatHistoryList({ onSelectChat }: ChatHistoryListProps) {
 
   return (
     <>
-      <div className="space-y-1">
+      <div className="space-y-1.5">
         {sessions.map((session, index) => {
           const isActive = pathname === `/dashboard/chat/${session.id}`;
+
           const isMutating = Boolean(mutatingChatIds[session.id]);
+
           const itemKey = session.id
             ? `session-${session.id}`
             : `session-idx-${index}`;
@@ -127,6 +144,7 @@ export function ChatHistoryList({ onSelectChat }: ChatHistoryListProps) {
               isMutating={isMutating}
               onSelect={() => {
                 onSelectChat?.();
+
                 router.push(`/dashboard/chat/${session.id}`);
               }}
               onRename={async (newTitle) => {
@@ -140,7 +158,7 @@ export function ChatHistoryList({ onSelectChat }: ChatHistoryListProps) {
 
       {deleteTargetId !== null && (
         <ChatDeleteDialog
-          chatTitle={targetSession?.title ?? "this chat"}
+          chatTitle={targetSession?.title ?? "this research session"}
           isDeleting={Boolean(mutatingChatIds[deleteTargetId])}
           onConfirm={() => void handleDeleteConfirm()}
           onCancel={() => setDeleteTargetId(null)}

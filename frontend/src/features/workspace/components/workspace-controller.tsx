@@ -1,10 +1,6 @@
 "use client";
 
-import {
-  useSearchParams,
-  useRouter,
-  usePathname,
-} from "next/navigation";
+import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useCallback, useState } from "react";
 
 import { ChatArea } from "@/features/chat/components/chat-area";
@@ -22,10 +18,8 @@ export function WorkspaceController() {
 
   const candidateDocId = parseCandidateDocId(searchParams);
 
-  const {
-    status,
-    document: resolvedDocument,
-  } = useResolvedWorkspaceDocument(candidateDocId);
+  const { status, document: resolvedDocument } =
+    useResolvedWorkspaceDocument(candidateDocId);
 
   const [pendingNavigationTarget, setPendingNavigationTarget] =
     useState<PdfNavigationTarget | null>(null);
@@ -33,29 +27,26 @@ export function WorkspaceController() {
   const handleCloseDocument = useCallback(() => {
     const currentChatId = useChatStore.getState().activeChatId;
 
-    if (currentChatId) {
+    if (currentChatId !== null) {
       selectDocument(currentChatId, null);
     }
 
     setPendingNavigationTarget(null);
 
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(searchParams?.toString() ?? "");
-      params.delete("docId");
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
 
-      const query = params.toString();
+    params.delete("docId");
 
-      router.push(query ? `${pathname}?${query}` : pathname);
-    }
+    const query = params.toString();
+
+    router.push(query ? `${pathname}?${query}` : pathname);
   }, [router, pathname, searchParams]);
 
   const handleDocumentNavigation = useCallback(
     (target: PdfNavigationTarget) => {
       setPendingNavigationTarget(target);
 
-      const params = new URLSearchParams(
-        searchParams?.toString() ?? "",
-      );
+      const params = new URLSearchParams(searchParams?.toString() ?? "");
 
       params.set("docId", String(target.documentId));
 
