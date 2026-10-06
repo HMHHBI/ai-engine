@@ -25,7 +25,7 @@ export function PdfPage({
         renderTextLayer
         onRenderSuccess={onRenderSuccess}
         onRenderError={onRenderError}
-        onLoadSuccess={onLoadSuccess}
+        onLoadSuccess={onLoadSuccess as React.ComponentProps<typeof Page>["onLoadSuccess"]}
       />
     </div>
   );

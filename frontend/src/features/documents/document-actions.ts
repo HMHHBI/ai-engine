@@ -1,11 +1,17 @@
 import { documentApi } from "@/lib/api/documents";
-import { chatApi } from "@/lib/api/chat";
 import { useDocumentStore } from "./document-store";
-import type { Document, DocumentMetadataUpdate, PdfUploadResponse } from "@/types/api";
+import type {
+  Document,
+  DocumentMetadataUpdate,
+  PdfUploadResponse,
+} from "@/types/api";
 import { chatRequestController } from "@/features/chat/stream/chat-request-controller";
 
-export async function loadDocuments(chatId: number): Promise<Document[]> {
+export async function loadDocuments(
+  chatId: number,
+): Promise<Document[]> {
   const store = useDocumentStore.getState();
+
   store.setLoading(chatId, true);
   store.setError(chatId, null);
 
@@ -14,7 +20,11 @@ export async function loadDocuments(chatId: number): Promise<Document[]> {
     store.setDocuments(chatId, docs);
     return docs;
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Failed to load documents";
+    const message =
+      err instanceof Error
+        ? err.message
+        : "Failed to load documents";
+
     store.setError(chatId, message);
     throw err;
   } finally {
@@ -22,7 +32,9 @@ export async function loadDocuments(chatId: number): Promise<Document[]> {
   }
 }
 
-export async function loadDocument(documentId: number): Promise<Document> {
+export async function loadDocument(
+  documentId: number,
+): Promise<Document> {
   const doc = await documentApi.get(documentId);
   useDocumentStore.getState().addDocument(doc);
   return doc;
@@ -30,29 +42,79 @@ export async function loadDocument(documentId: number): Promise<Document> {
 
 export async function updateDocument(
   documentId: number,
-  payload: DocumentMetadataUpdate
+  payload: DocumentMetadataUpdate,
 ): Promise<Document> {
   const store = useDocumentStore.getState();
+
   store.setDocumentMutating(documentId, true);
 
   try {
-    const updated = await documentApi.update(documentId, payload);
+    const updated = await documentApi.update(
+      documentId,
+      payload,
+    );
+
     store.updateDocumentInStore(updated);
+
     return updated;
   } finally {
-    store.setDocumentMutating(documentId, false);
+    useDocumentStore
+      .getState()
+      .setDocumentMutating(documentId, false);
   }
 }
 
-export async function deleteDocument(chatId: number, documentId: number): Promise<void> {
+export async function deleteDocument(
+  chatId: number,
+  documentId: number,
+): Promise<void> {
   const store = useDocumentStore.getState();
+
   store.setDocumentMutating(documentId, true);
 
   try {
     await documentApi.delete(documentId);
-    store.removeDocumentFromStore(chatId, documentId);
+
+    store.removeDocumentFromStore(
+      chatId,
+      documentId,
+    );
   } finally {
-    store.setDocumentMutating(documentId, false);
+    useDocumentStore
+      .getState()
+      .setDocumentMutating(documentId, false);
+  }
+}
+
+export async function retryDocument(
+  chatId: number,
+  documentId: number,
+): Promise<Document> {
+  const store = useDocumentStore.getState();
+
+  store.setDocumentMutating(documentId, true);
+  store.setError(chatId, null);
+
+  try {
+    const response = await documentApi.retry(
+      documentId,
+    );
+
+    store.updateDocumentInStore(response);
+
+    return response;
+  } catch (err: unknown) {
+    const message =
+      err instanceof Error
+        ? err.message
+        : "Document retry failed.";
+
+    store.setError(chatId, message);
+    throw err;
+  } finally {
+    useDocumentStore
+      .getState()
+      .setDocumentMutating(documentId, false);
   }
 }
 
@@ -74,10 +136,9 @@ export function selectDocument(
     return true;
   }
 
-  const document =
-    (store.documentsByChat[chatId] ?? []).find(
-      (item) => item.id === documentId,
-    );
+  const document = (
+    store.documentsByChat[chatId] ?? []
+  ).find((item) => item.id === documentId);
 
   if (!document || document.status !== "ready") {
     return false;
@@ -90,14 +151,21 @@ export function selectDocument(
   }
 
   chatRequestController.invalidate();
-  store.setSelectedDocument(chatId, documentId);
+  store.setSelectedDocument(
+    chatId,
+    documentId,
+  );
 
   return true;
 }
 
-export function clearDocumentSelection(chatId: number): void {
+export function clearDocumentSelection(
+  chatId: number,
+): void {
   const store = useDocumentStore.getState();
-  const currentSelected = store.selectedDocumentIdByChat[chatId] ?? null;
+
+  const currentSelected =
+    store.selectedDocumentIdByChat[chatId] ?? null;
 
   if (currentSelected !== null) {
     chatRequestController.invalidate();
@@ -106,113 +174,209 @@ export function clearDocumentSelection(chatId: number): void {
   store.clearSelectedDocument(chatId);
 }
 
-// ==========================================
-// F3-B.3: Validation, Upload & Lifecycle
-// ==========================================
+export const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 
-export const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MiB
-
-export function validatePdfFile(file: File): { valid: boolean; error?: string } {
+export function validatePdfFile(
+  file: File,
+): { valid: boolean; error?: string } {
   if (!file || !file.name) {
-    return { valid: false, error: "No file selected." };
+    return {
+      valid: false,
+      error: "No file selected.",
+    };
   }
+
   if (!file.name.toLowerCase().endsWith(".pdf")) {
-    return { valid: false, error: "Only PDF files are supported." };
+    return {
+      valid: false,
+      error: "Only PDF files are supported.",
+    };
   }
-  if (file.type && file.type !== "application/pdf") {
-    return { valid: false, error: "Invalid file MIME type. Only PDF is accepted." };
+
+  if (
+    file.type &&
+    file.type !== "application/pdf"
+  ) {
+    return {
+      valid: false,
+      error:
+        "Invalid file MIME type. Only PDF is accepted.",
+    };
   }
+
   if (file.size <= 0) {
-    return { valid: false, error: "File is empty." };
+    return {
+      valid: false,
+      error: "File is empty.",
+    };
   }
+
   if (file.size > MAX_FILE_SIZE_BYTES) {
-    return { valid: false, error: "File size exceeds the 10 MiB limit." };
+    return {
+      valid: false,
+      error:
+        "File size exceeds the 10 MiB limit.",
+    };
   }
+
   return { valid: true };
 }
 
-const POLLING_DELAYS_MS = [1000, 2000, 3000, 5000];
+const POLLING_DELAYS_MS = [
+  1000,
+  2000,
+  3000,
+  5000,
+];
+
 const MAX_POLL_DURATION_MS = 60000;
 
 export async function pollDocumentUntilResolved(
   chatId: number,
-  targetDocumentId?: number
+  targetDocumentId?: number,
 ): Promise<void> {
   const startTime = Date.now();
   let stepIndex = 0;
 
   return new Promise<void>((resolve) => {
     async function check() {
-      if (Date.now() - startTime >= MAX_POLL_DURATION_MS) {
+      if (
+        Date.now() - startTime >=
+        MAX_POLL_DURATION_MS
+      ) {
         resolve();
         return;
       }
 
       try {
-        const docs = await documentApi.listForChat(chatId);
-        useDocumentStore.getState().setDocuments(chatId, docs);
+        const docs =
+          await documentApi.listForChat(chatId);
+
+        useDocumentStore
+          .getState()
+          .setDocuments(chatId, docs);
 
         const target = targetDocumentId
-          ? docs.find((d) => d.id === targetDocumentId)
-          : docs.find((d) => d.status === "processing");
+          ? docs.find(
+              (document) =>
+                document.id ===
+                targetDocumentId,
+            )
+          : docs.find(
+              (document) =>
+                document.status !== "ready" &&
+                document.status !== "failed",
+            );
 
-        if (!target || target.status === "ready" || target.status === "failed") {
+        if (
+          !target ||
+          target.status === "ready" ||
+          target.status === "failed"
+        ) {
           resolve();
           return;
         }
       } catch {
-        // Polling gracefully ignores intermediate network blips
       }
 
-      const delay = POLLING_DELAYS_MS[Math.min(stepIndex, POLLING_DELAYS_MS.length - 1)];
-      stepIndex++;
+      const delay =
+        POLLING_DELAYS_MS[
+          Math.min(
+            stepIndex,
+            POLLING_DELAYS_MS.length - 1,
+          )
+        ];
+
+      stepIndex += 1;
       setTimeout(check, delay);
     }
 
-    setTimeout(check, POLLING_DELAYS_MS[0]);
+    setTimeout(
+      check,
+      POLLING_DELAYS_MS[0],
+    );
   });
 }
 
 export async function uploadDocument(
   chatId: number,
-  file: File
+  file: File,
 ): Promise<PdfUploadResponse> {
-  const validation = validatePdfFile(file);
+  const validation =
+    validatePdfFile(file);
+
   if (!validation.valid) {
-    throw new Error(validation.error || "Invalid PDF file.");
+    throw new Error(
+      validation.error ??
+        "Invalid PDF file.",
+    );
   }
 
-  const store = useDocumentStore.getState();
+  const store =
+    useDocumentStore.getState();
+
   if (store.uploadingByChat[chatId]) {
-    throw new Error("An upload is already in progress for this chat.");
+    throw new Error(
+      "An upload is already in progress for this chat.",
+    );
   }
 
-  store.setUploading(chatId, true);
+  store.setUploading(
+    chatId,
+    true,
+  );
   store.setError(chatId, null);
 
   try {
-    const rawRes = await chatApi.uploadPdf(chatId, file);
-    const response = rawRes as unknown as PdfUploadResponse;
+    const response =
+      await documentApi.upload(
+        chatId,
+        file,
+      );
 
-    // Refresh authoritative documents list
-    const updatedDocs = await documentApi.listForChat(chatId);
-    store.setDocuments(chatId, updatedDocs);
+    store.addDocument(response);
 
-    // If backend returns status as processing, initiate bounded polling
-    const targetDoc = response.document?.id
-      ? updatedDocs.find((d) => d.id === response.document?.id)
-      : updatedDocs.find((d) => d.status === "processing");
-
-    if (targetDoc && targetDoc.status === "processing") {
-      pollDocumentUntilResolved(chatId, targetDoc.id).catch(() => {});
+    if (
+      response.status !== "ready" &&
+      response.status !== "failed"
+    ) {
+      void pollDocumentUntilResolved(
+        chatId,
+        response.id,
+      );
     }
 
-    return response;
+    return {
+      status: response.status,
+      filename: response.filename,
+      chunks_total: 0,
+      chunks_indexed: 0,
+      chunks_failed:
+        response.status === "failed"
+          ? 1
+          : 0,
+      embedding_provider: "",
+      message:
+        response.error_message ??
+        "Document uploaded.",
+      document: response,
+    };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Document upload failed.";
-    store.setError(chatId, message);
+    const message =
+      err instanceof Error
+        ? err.message
+        : "Document upload failed.";
+
+    store.setError(
+      chatId,
+      message,
+    );
+
     throw err;
   } finally {
-    store.setUploading(chatId, false);
+    store.setUploading(
+      chatId,
+      false,
+    );
   }
 }

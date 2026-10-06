@@ -69,7 +69,7 @@ def test_storage_failure_before_db_creation(client, db_session):
     mock_storage = MagicMock()
     mock_storage.save.side_effect = IOError("Disk write failed")
 
-    with patch("app.api.chat.get_storage_backend", return_value=mock_storage), patch(
+    with patch("app.api.documents.get_storage_backend", return_value=mock_storage), patch(
         "app.services.embedding_service.EmbeddingService.generate_embedding",
         new_callable=AsyncMock,
         return_value=[0.1] * 768,
@@ -103,7 +103,7 @@ def test_db_creation_failure_cleans_up_storage(client, db_session):
 
     mock_storage = MagicMock()
 
-    with patch("app.api.chat.get_storage_backend", return_value=mock_storage), patch(
+    with patch("app.api.documents.get_storage_backend", return_value=mock_storage), patch(
         "app.repositories.document_repo.DocumentRepository.create", return_value=None
     ), patch(
         "app.services.embedding_service.EmbeddingService.generate_embedding",
@@ -136,7 +136,7 @@ def test_vector_indexing_failure_cleans_storage_and_marks_failed(client, db_sess
 
     mock_storage = MagicMock()
 
-    with patch("app.api.chat.get_storage_backend", return_value=mock_storage), patch(
+    with patch("app.api.documents.get_storage_backend", return_value=mock_storage), patch(
         "app.repositories.vector_repo.VectorRepository.replace_document_chunks",
         side_effect=Exception("DB dead"),
     ), patch(
@@ -156,7 +156,8 @@ def test_vector_indexing_failure_cleans_storage_and_marks_failed(client, db_sess
             headers=auth_headers(user),
         )
         assert response.status_code == 500
-        assert mock_storage.delete.called
+        # Phase 3: storage retained for zero-reupload retry
+        assert not mock_storage.delete.called
 
     docs = DocumentRepository.list_for_chat(chat_id=chat.id, user_id=user.id)
     assert len(docs) == 1
@@ -309,7 +310,7 @@ def test_upload_response_does_not_expose_storage_key(client, db_session):
     mock_storage = MagicMock()
     mock_storage.save.return_value = "raw_pdfs/sec/secret.pdf"
 
-    with patch("app.api.chat.get_storage_backend", return_value=mock_storage), patch(
+    with patch("app.api.documents.get_storage_backend", return_value=mock_storage), patch(
         "app.services.embedding_service.EmbeddingService.generate_embedding",
         new_callable=AsyncMock,
         return_value=[0.1] * 768,
@@ -327,8 +328,7 @@ def test_upload_response_does_not_expose_storage_key(client, db_session):
         )
         assert response.status_code == 200
         payload = response.json()
-        assert "document" in payload
-        assert "storage_key" not in payload["document"]
+        assert "storage_key" not in payload
         assert "storage_key" not in payload
 
 def test_r2_storage_get_stream_translates_nosuchkey_to_filenotfound():

@@ -8,6 +8,8 @@ interface DocumentListProps {
   onSelectDocument?: (document: Document) => void;
   onEditDocument?: (document: Document) => void;
   onDeleteDocument?: (document: Document) => void;
+  onRetryDocument?: (document: Document) => void;
+  retryingDocumentId?: number | null;
 }
 
 export function DocumentList({
@@ -16,17 +18,28 @@ export function DocumentList({
   onSelectDocument,
   onEditDocument,
   onDeleteDocument,
+  onRetryDocument,
+  retryingDocumentId,
 }: DocumentListProps) {
   return (
-    <div className="space-y-2" data-testid="document-list">
+    <div
+      className="space-y-2"
+      data-testid="document-list"
+    >
       {documents.map((doc) => (
         <DocumentListItem
           key={doc.id}
           document={doc}
-          isSelected={selectedDocumentId === doc.id}
+          isSelected={
+            selectedDocumentId === doc.id
+          }
           onSelect={onSelectDocument}
           onEdit={onEditDocument}
           onDelete={onDeleteDocument}
+          onRetry={onRetryDocument}
+          retryDisabled={
+            retryingDocumentId === doc.id
+          }
         />
       ))}
     </div>

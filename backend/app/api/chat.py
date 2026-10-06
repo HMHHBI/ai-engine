@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from app.storage import get_storage_backend, build_document_key
+from app.utils.pdf_extractor import extract_text_from_pdf, PDFExtractionError
+from app.services.document_ingestion_service import DocumentIngestionService
+
 import asyncio
 import io
 import json
@@ -35,7 +39,6 @@ from app.schemas.chat_schema import (
     ChatPersonaUpdate,
 )
 from app.services.chat_service import ChatApplicationService
-from app.services.document_ingestion_service import DocumentIngestionService
 from app.services.embedding_service import EmbeddingService
 from app.services.reranker_service import (
     RerankCandidate,
@@ -51,15 +54,6 @@ from app.services.providers.factory import (
     LLMProviderFactory,
     MODEL_REGISTRY,
 )
-from app.storage import build_document_key, get_storage_backend
-from app.utils.file_validation import (
-    read_upload_with_limit,
-    sanitize_filename,
-    validate_content_type,
-    validate_extension,
-    validate_pdf_signature,
-)
-from app.utils.pdf_extractor import PDFExtractionError, PDFPage, extract_text_from_pdf
 
 logger = logging.getLogger(__name__)
 
@@ -1345,261 +1339,13 @@ async def upload_pdf(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
 ):
-    document = None
-    storage_key = None
-    try:
-        chat = await asyncio.to_thread(
-            ChatRepository.get_by_id,
-            chat_id=chat_id,
-            user_id=current_user.id,
-        )
+    from app.api.documents import upload_document
 
-        if not chat:
-            raise HTTPException(
-                status_code=404,
-                detail="Chat session missing or unauthorized.",
-            )
-
-        safe_filename = sanitize_filename(file.filename)
-        extension = validate_extension(safe_filename)
-        validate_content_type(extension, file.content_type)
-
-        content = await read_upload_with_limit(file)
-
-        if extension == ".pdf":
-            validate_pdf_signature(content)
-
-            try:
-                pages = await run_in_threadpool(
-                    extract_text_from_pdf,
-                    content,
-                )
-            except PDFExtractionError:
-                logger.warning(
-                    "PDF rejected during extraction chat_id=%s user_id=%s",
-                    chat_id,
-                    current_user.id,
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="The uploaded document could not be processed.",
-                )
-        else:
-            try:
-                text = content.decode("utf-8")
-            except UnicodeDecodeError as exc:
-                raise HTTPException(
-                    status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-                    detail="Text file must be valid UTF-8.",
-                ) from exc
-
-            if not text.strip():
-                raise HTTPException(
-                    status_code=400,
-                    detail="File is empty or contains no readable text.",
-                )
-
-            pages = [PDFPage(page_number=1, text=text)]
-
-        chunks = await run_in_threadpool(
-            EmbeddingService.chunk_text,
-            pages,
-            500,
-            50,
-        )
-
-        if not chunks:
-            raise HTTPException(
-                status_code=400,
-                detail="No usable document chunks were produced.",
-            )
-
-        if len(chunks) > settings.MAX_DOCUMENT_CHUNKS:
-            raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail="Document produces too many chunks for processing.",
-            )
-
-        if len(chunks) > settings.MAX_CHUNK_EMBEDDINGS:
-            raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail="Document exceeds the maximum embedding workload.",
-            )
-
-        embedding_provider = _parse_embedding_provider(
-            chat.embedding_provider or settings.DEFAULT_EMBEDDING_PROVIDER.value
-        )
-
-        semaphore = DocumentIngestionService.get_embedding_semaphore()
-
-        async def generate_chunk_embedding(chunk):
-            async with semaphore:
-                return await EmbeddingService.generate_embedding(
-                    chunk.text,
-                    model_provider=embedding_provider.value,
-                )
-
-        vectors = await asyncio.gather(
-            *[generate_chunk_embedding(chunk) for chunk in chunks]
-        )
-
-        chunks_with_embeddings = [
-            (chunk, vector)
-            for chunk, vector in zip(chunks, vectors)
-            if vector is not None
-        ]
-
-        failed_embeddings = len(chunks) - len(chunks_with_embeddings)
-
-        if failed_embeddings > 0 or len(chunks_with_embeddings) != len(chunks):
-            logger.error(
-                "Document ingestion aborted: %s/%s chunk embeddings failed. "
-                "Preserving previous chat state. chat_id=%s user_id=%s",
-                failed_embeddings,
-                len(chunks),
-                chat_id,
-                current_user.id,
-            )
-
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="Document embedding failed. Existing document was not changed.",
-            )
-
-        # 1. Physical Storage Save before DB entity creation
-        storage = get_storage_backend()
-        storage_key = build_document_key(user_id=current_user.id)
-
-        try:
-            content_stream = io.BytesIO(content)
-            await asyncio.to_thread(
-                storage.save,
-                storage_key,
-                content_stream,
-                content_type=file.content_type or "application/pdf",
-            )
-        except Exception:
-            logger.exception(
-                "Document storage failed before database creation. user_id=%s",
-                current_user.id,
-            )
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Document storage failed.",
-            )
-
-        # 2. Persist Document entity
-        document = await asyncio.to_thread(
-            DocumentRepository.create,
-            user_id=current_user.id,
-            chat_id=chat.id,
-            filename=safe_filename,
-            mime_type=file.content_type or "application/pdf",
-            file_size=len(content),
-            page_count=len(pages),
-            storage_url=None,
-            storage_key=storage_key,
-        )
-
-        if not document:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Chat session missing or unauthorized.",
-            )
-
-        db_objs = await asyncio.to_thread(
-            VectorRepository.replace_document_chunks,
-            user_id=current_user.id,
-            document_id=document.id,
-            chunks_with_embeddings=chunks_with_embeddings,
-            pdf_context=f"Indexed File: {safe_filename}",
-        )
-
-        await asyncio.to_thread(
-            DocumentRepository.update_status,
-            document_id=document.id,
-            user_id=current_user.id,
-            status="ready",
-        )
-
-        return {
-            "status": "success",
-            "filename": safe_filename,
-            "pdf_context": f"Indexed File: {safe_filename}",
-            "chunks_total": len(chunks),
-            "chunks_indexed": len(db_objs),
-            "chunks_failed": 0,
-            "embedding_provider": embedding_provider.value,
-            "message": (
-                f"Indexed {len(chunks_with_embeddings)} "
-                f"of {len(chunks)} chunks into pgvector."
-            ),
-            "document": {
-                "id": document.id,
-                "chat_id": document.chat_id,
-                "filename": document.filename,
-                "mime_type": document.mime_type,
-                "file_size": document.file_size,
-                "page_count": document.page_count,
-                "status": "ready",
-            },
-        }
-
-    except HTTPException:
-        if document:
-            await asyncio.to_thread(
-                DocumentRepository.mark_failed_and_cleanup,
-                document_id=document.id,
-                user_id=current_user.id,
-                error_message="Document ingestion failed.",
-            )
-        if storage_key:
-            try:
-                storage = get_storage_backend()
-                await asyncio.to_thread(storage.delete, storage_key)
-            except Exception:
-                pass
-        raise
-
-    except asyncio.CancelledError:
-        if storage_key:
-            try:
-                storage = get_storage_backend()
-                await asyncio.to_thread(storage.delete, storage_key)
-            except Exception:
-                pass
-        raise
-
-    except Exception:
-        logger.exception(
-            "Unexpected error in upload_pdf chat_id=%s user_id=%s",
-            chat_id,
-            current_user.id,
-        )
-        if document:
-            await asyncio.to_thread(
-                DocumentRepository.mark_failed_and_cleanup,
-                document_id=document.id,
-                user_id=current_user.id,
-                error_message="Server error during document ingestion.",
-            )
-        if storage_key:
-            try:
-                storage = get_storage_backend()
-                await asyncio.to_thread(storage.delete, storage_key)
-            except Exception:
-                pass
-
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Server error during document ingestion.",
-        )
-
-
-# ============================================================
-# 10. Cleanup Chat Messages
-# ============================================================
-
+    return await upload_document(
+        chat_id=chat_id,
+        file=file,
+        current_user=current_user,
+    )
 
 @router.delete("/{chat_id}/cleanup/{after_index}")
 @limiter.limit("10/minute")

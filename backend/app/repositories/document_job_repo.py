@@ -262,3 +262,18 @@ class DocumentJobRepository:
         self.db.commit()
         self.db.refresh(job)
         return job
+
+    def get_latest_for_document(
+        self,
+        document_id: int,
+        user_id: int,
+    ) -> Optional[DocumentJob]:
+        return (
+            self.db.query(DocumentJob)
+            .filter(
+                DocumentJob.document_id == document_id,
+                DocumentJob.user_id == user_id,
+            )
+            .order_by(DocumentJob.id.desc())
+            .first()
+        )
