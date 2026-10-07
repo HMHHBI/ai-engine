@@ -32,21 +32,27 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/user", tags=["user"])
 
 
-@router.get("/me")
-@limiter.limit("30/minute")
-def get_my_profile(request: Request, current_user: User = Depends(get_current_user)):
+@router.get("/me", response_model=UserProfileOut)
+def get_my_profile(
+    current_user: User = Depends(get_current_user),
+):
+    profile_img = current_user.profile_image or "/default-avatar.png"
     return {
         "id": current_user.id,
+        "name": current_user.name,
         "full_name": current_user.name,
         "email": current_user.email,
-        "profile_image": current_user.profile_image or "/default-avatar.png",
+        "picture": current_user.profile_image,
+        "profile_image": profile_img,
+        "is_active": current_user.is_active,
+        "created_at": current_user.created_at,
+        "image_limit": current_user.image_limit,
         "plan": current_user.plan.value if current_user.plan else "FREE",
         "limits": {
             "image": current_user.image_limit,
             "search": current_user.search_limit,
         },
     }
-
 
 @router.get("/usage", response_model=UserUsageOut)
 @limiter.limit("30/minute")

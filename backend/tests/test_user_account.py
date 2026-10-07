@@ -36,11 +36,18 @@ def test_user_me_returns_account_reality(client, db_session):
     assert response.status_code == 200
     data = response.json()
     assert data["id"] == user.id
+    # Additive Phase 5 fields
     assert data["full_name"] == user.name
     assert data["email"] == user.email
     assert data["plan"] == "STANDARD"
     assert data["limits"]["image"] == 7
     assert data["limits"]["search"] == 19
+    # Legacy backward-compatibility fields
+    assert data["name"] == user.name
+    assert data["image_limit"] == 7
+    assert data["is_active"] is True
+    assert "picture" in data
+    assert "created_at" in data
 
 
 def test_user_usage_returns_remaining_quotas(client, db_session):
