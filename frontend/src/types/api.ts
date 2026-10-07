@@ -52,6 +52,31 @@ export interface User {
   picture: string | null;
   is_active: boolean;
   created_at: string;
+
+  full_name?: string;
+  profile_image?: string | null;
+  plan?: UserPlan;
+  limits?: UserLimits;
+}
+
+export type UserPlan =
+  | "FREE"
+  | "STANDARD"
+  | "PRO";
+
+export interface UserLimits {
+  image: number;
+  search: number;
+}
+
+export interface UsageMetric {
+  remaining: number;
+}
+
+export interface UserUsage {
+  plan: UserPlan;
+  image: UsageMetric;
+  search: UsageMetric;
 }
 
 export interface ChatSession {

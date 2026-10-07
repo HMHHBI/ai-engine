@@ -19,6 +19,7 @@ from app.core.rate_limiter import limiter
 from app.db.models import User
 from app.db.session import get_db
 from app.repositories.user_repo import UserRepository
+from app.schemas.user_schema import UserProfileOut, UserUsageOut
 from app.utils.file_validation import (
     read_upload_with_limit,
     validate_image_bytes,
@@ -31,18 +32,43 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/user", tags=["user"])
 
 
-@router.get("/me")
+@router.get("/me", response_model=UserProfileOut)
 @limiter.limit("30/minute")
-def get_my_profile(request: Request, current_user: User = Depends(get_current_user)):
+def get_my_profile(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    profile_img = current_user.profile_image or "/default-avatar.png"
     return {
         "id": current_user.id,
+        "name": current_user.name,
         "full_name": current_user.name,
         "email": current_user.email,
-        "profile_image": current_user.profile_image or "/default-avatar.png",
+        "picture": current_user.profile_image,
+        "profile_image": profile_img,
+        "is_active": current_user.is_active,
+        "created_at": current_user.created_at,
+        "image_limit": current_user.image_limit,
         "plan": current_user.plan.value if current_user.plan else "FREE",
         "limits": {
             "image": current_user.image_limit,
             "search": current_user.search_limit,
+        },
+    }
+
+@router.get("/usage", response_model=UserUsageOut)
+@limiter.limit("30/minute")
+def get_my_usage(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    return {
+        "plan": current_user.plan.value if current_user.plan else "FREE",
+        "image": {
+            "remaining": max(current_user.image_limit, 0),
+        },
+        "search": {
+            "remaining": max(current_user.search_limit, 0),
         },
     }
 

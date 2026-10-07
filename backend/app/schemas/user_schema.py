@@ -1,3 +1,4 @@
+from datetime import datetime
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 from app.db.models import UserPlan
@@ -20,6 +21,31 @@ class UserOut(UserBase):
     
     class Config:
         from_attributes = True
+
+
+class UserProfileOut(BaseModel):
+    id: int
+    name: Optional[str] = None
+    full_name: str
+    email: EmailStr
+    picture: Optional[str] = None
+    profile_image: str
+    is_active: bool = True
+    created_at: Optional[datetime] = None
+    plan: UserPlan
+    image_limit: int
+    limits: dict[str, int]
+
+    class Config:
+        from_attributes = True
+
+class UsageMetricOut(BaseModel):
+    remaining: int
+
+class UserUsageOut(BaseModel):
+    plan: UserPlan
+    image: UsageMetricOut
+    search: UsageMetricOut
 
 # Login ke liye
 class UserLogin(BaseModel):
