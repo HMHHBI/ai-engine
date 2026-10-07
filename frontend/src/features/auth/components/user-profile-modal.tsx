@@ -26,18 +26,16 @@ export function UserProfileModal({
   const setUser = useAuthStore((state) => state.setUser);
 
   const [name, setName] = useState(() => user?.full_name || user?.name || "");
-  const [prevUser, setPrevUser] = useState(user);
   const [usage, setUsage] = useState<UserUsage | null>(null);
   const [loadingUsage, setLoadingUsage] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loadingProfile, setLoadingProfile] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Sync draft state with user prop changes
-  if (user !== prevUser) {
-    setPrevUser(user);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setName(user?.full_name || user?.name || "");
-  }
+  }, [user]);
 
   useEffect(() => {
     if (!open) {
@@ -134,7 +132,7 @@ export function UserProfileModal({
   const userPlan = user.plan || "FREE";
 
   return (
-    <div className="fixed inset-0 z-[60]">
+    <div className="fixed inset-0 z-60">
       <button
         type="button"
         aria-label="Close account"
