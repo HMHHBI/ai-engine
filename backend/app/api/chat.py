@@ -557,18 +557,18 @@ def get_chat_details(
     current_user: User = Depends(get_current_user),
 ):
     try:
-        chat = ChatRepository.get_by_id(
+        details = ChatRepository.get_session_metadata(
             chat_id=chat_id,
             user_id=current_user.id,
         )
 
-        if not chat:
+        if details is None:
             raise HTTPException(
                 status_code=404,
                 detail="Chat not found.",
             )
 
-        return chat
+        return details
     except HTTPException:
         raise
     except Exception:
@@ -712,10 +712,8 @@ async def _execute_ai_stream(
     embedding_provider = _parse_embedding_provider(raw_embedding_provider)
 
     new_title = None
-    if chat.title == "New Chat":
-        new_title = (
-            clean_prompt[:25] + "..." if len(clean_prompt) > 25 else clean_prompt
-        )
+    if ChatRepository._is_generic_title(chat.title):
+        new_title = clean_prompt
 
     try:
         prepared_message = await ChatApplicationService.prepare_chat_turn(
@@ -950,7 +948,6 @@ async def _execute_ai_stream(
                 status_code=400,
                 detail=str(exc),
             ) from exc
-
 
         logger.info(
             "ai_stream_started",

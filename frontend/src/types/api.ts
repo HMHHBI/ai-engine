@@ -63,6 +63,10 @@ export interface ChatSession {
   has_pdf?: boolean;
   persona?: ChatPersona;
   custom_instructions?: string | null;
+  attached_documents_count: number;
+  primary_document_title: string | null;
+  message_count: number;
+  last_active_at: string | null;
 }
 
 export interface ChatMessage {
@@ -85,11 +89,15 @@ export interface ChatDetailsResponse {
   embedding_provider: string | null;
   persona: ChatPersona;
   custom_instructions: string | null;
+  created_at: string;
+  updated_at: string;
+  attached_documents_count: number;
+  primary_document_title: string | null;
+  message_count: number;
+  last_active_at: string | null;
   messages?: ChatMessage[];
   has_pdf?: boolean;
   pdf_filename?: string | null;
-  created_at?: string;
-  updated_at?: string;
 }
 
 export interface ChatPersonaUpdate {

@@ -1,3 +1,13 @@
+
+vi.mock("@/lib/api/documents", () => ({
+  documentApi: {
+    listForChat: vi.fn().mockResolvedValue([]),
+    get: vi.fn(),
+    upload: vi.fn(),
+    delete: vi.fn(),
+  },
+}));
+
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -15,6 +25,7 @@ vi.mock("@/lib/api/chat", () => ({
   chatApi: {
     uploadPdf: vi.fn(),
     get: vi.fn(),
+    getDetails: vi.fn().mockResolvedValue(null),
     getAll: vi.fn(),
     create: vi.fn(),
     delete: vi.fn(),
@@ -75,8 +86,14 @@ function makeSession(
     created_at: timestamp,
     updated_at: timestamp,
     has_pdf: false,
+    persona: "default",
+    custom_instructions: null,
+    attached_documents_count: 0,
+    primary_document_title: null,
+    message_count: 0,
+    last_active_at: null,
     ...overrides,
-  };
+  } as unknown as ChatSession;
 }
 
 function seedChat(

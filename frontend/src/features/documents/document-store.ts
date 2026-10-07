@@ -12,8 +12,12 @@ export interface DocumentState {
 
   errorByChat: Record<number, string | null>;
 
-  // Actions
   setDocuments: (chatId: number, documents: Document[]) => void;
+  hydrateChatDocuments: (
+    chatId: number,
+    documents: Document[],
+    preferredDocumentId?: number | null,
+  ) => void;
   addDocument: (document: Document) => void;
   updateDocumentInStore: (document: Document) => void;
   removeDocumentFromStore: (chatId: number, documentId: number) => void;
@@ -68,10 +72,39 @@ export const useDocumentStore = create<DocumentState>((set) => ({
       };
     }),
 
+  hydrateChatDocuments: (
+    chatId,
+    documents,
+    preferredDocumentId = null,
+  ) =>
+    set((state) => {
+      const preferredDocument =
+        preferredDocumentId !== null
+          ? documents.find(
+              (document) =>
+                document.id === preferredDocumentId &&
+                document.chat_id === chatId &&
+                document.status === "ready",
+            )
+          : undefined;
+
+      return {
+        documentsByChat: {
+          ...state.documentsByChat,
+          [chatId]: documents,
+        },
+        selectedDocumentIdByChat: {
+          ...state.selectedDocumentIdByChat,
+          [chatId]: preferredDocument?.id ?? null,
+        },
+      };
+    }),
+
   addDocument: (document) =>
     set((state) => {
       const existing = state.documentsByChat[document.chat_id] ?? [];
       const filtered = existing.filter((d) => d.id !== document.id);
+
       return {
         documentsByChat: {
           ...state.documentsByChat,
@@ -80,57 +113,84 @@ export const useDocumentStore = create<DocumentState>((set) => ({
       };
     }),
 
-    updateDocumentInStore: (document) =>
-      set((state) => {
-        const existing =
-          state.documentsByChat[document.chat_id] ?? [];
-  
-        const currentSelected =
-          state.selectedDocumentIdByChat[document.chat_id] ?? null;
-  
-        const nextSelectedDocumentId =
-          currentSelected === document.id &&
-          document.status !== "ready"
-            ? null
-            : currentSelected;
-  
-        return {
-          documentsByChat: {
-            ...state.documentsByChat,
-            [document.chat_id]: existing.map((item) =>
-              item.id === document.id ? document : item,
-            ),
-          },
-          selectedDocumentIdByChat: {
-            ...state.selectedDocumentIdByChat,
-            [document.chat_id]: nextSelectedDocumentId,
-          },
-        };
-      }),
+  updateDocumentInStore: (document) =>
+    set((state) => {
+      const existing =
+        state.documentsByChat[document.chat_id] ?? [];
+
+      const currentSelected =
+        state.selectedDocumentIdByChat[document.chat_id] ?? null;
+
+      const nextSelectedDocumentId =
+        currentSelected === document.id &&
+        document.status !== "ready"
+          ? null
+          : currentSelected;
+
+      return {
+        documentsByChat: {
+          ...state.documentsByChat,
+          [document.chat_id]: existing.map((item) =>
+            item.id === document.id ? document : item,
+          ),
+        },
+        selectedDocumentIdByChat: {
+          ...state.selectedDocumentIdByChat,
+          [document.chat_id]: nextSelectedDocumentId,
+        },
+      };
+    }),
 
   removeDocumentFromStore: (chatId, documentId) =>
     set((state) => {
       const existing = state.documentsByChat[chatId] ?? [];
-      const currentSelected = state.selectedDocumentIdByChat[chatId];
+      const currentSelected =
+        state.selectedDocumentIdByChat[chatId] ?? null;
+
       return {
         documentsByChat: {
           ...state.documentsByChat,
-          [chatId]: existing.filter((d) => d.id !== documentId),
+          [chatId]: existing.filter(
+            (document) => document.id !== documentId,
+          ),
         },
         selectedDocumentIdByChat: {
           ...state.selectedDocumentIdByChat,
-          [chatId]: currentSelected === documentId ? null : currentSelected,
+          [chatId]:
+            currentSelected === documentId
+              ? null
+              : currentSelected,
         },
       };
     }),
 
   setSelectedDocument: (chatId, documentId) =>
-    set((state) => ({
-      selectedDocumentIdByChat: {
-        ...state.selectedDocumentIdByChat,
-        [chatId]: documentId,
-      },
-    })),
+    set((state) => {
+      if (documentId === null) {
+        return {
+          selectedDocumentIdByChat: {
+            ...state.selectedDocumentIdByChat,
+            [chatId]: null,
+          },
+        };
+      }
+
+      const document =
+        state.documentsByChat[chatId]?.find(
+          (item) => item.id === documentId,
+        );
+
+      if (!document || document.status !== "ready") {
+        return state;
+      }
+
+      return {
+        selectedDocumentIdByChat: {
+          ...state.selectedDocumentIdByChat,
+          [chatId]: documentId,
+        },
+      };
+    }),
 
   clearSelectedDocument: (chatId) =>
     set((state) => ({
@@ -181,6 +241,7 @@ export async function updateDocumentMetadata(
   payload: DocumentMetadataUpdate,
 ): Promise<Document> {
   const store = useDocumentStore.getState();
+
   store.setDocumentMutating(documentId, true);
 
   try {
@@ -197,8 +258,16 @@ export const updateDocument = (
   payload: DocumentMetadataUpdate,
 ): Promise<Document> => {
   const store = useDocumentStore.getState();
+
   const chatId = Object.keys(store.documentsByChat).find((cId) =>
-    store.documentsByChat[Number(cId)]?.some((d) => d.id === documentId),
+    store.documentsByChat[Number(cId)]?.some(
+      (document) => document.id === documentId,
+    ),
   );
-  return updateDocumentMetadata(chatId ? Number(chatId) : 0, documentId, payload);
+
+  return updateDocumentMetadata(
+    chatId ? Number(chatId) : 0,
+    documentId,
+    payload,
+  );
 };

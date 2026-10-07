@@ -4,12 +4,11 @@ import json
 import re
 from typing import Any, Optional, TypedDict
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 
 from app.core.config import settings
-from app.db.models import AILog, Chat, Message
+from app.db.models import AILog, Chat, Document, Message
 from app.db.session import session_scope
-
 
 SOURCE_SNIPPET_MAX_CHARS = 800
 
@@ -39,7 +38,6 @@ def normalize_source_snippet(value: Any) -> str | None:
 
 
 def _normalize_sources(raw_sources: Any) -> Optional[list[dict[str, Any]]]:
-    """Validate and normalize source citation metadata before persistence."""
     if not raw_sources:
         return None
 
@@ -70,9 +68,7 @@ def _normalize_sources(raw_sources: Any) -> Optional[list[dict[str, Any]]]:
                 else None
             )
             distance = (
-                float(item["distance"])
-                if item.get("distance") is not None
-                else 0.0
+                float(item["distance"]) if item.get("distance") is not None else 0.0
             )
 
             normalized.append(
@@ -92,17 +88,6 @@ def _normalize_sources(raw_sources: Any) -> Optional[list[dict[str, Any]]]:
 
 
 class ChatRepository:
-    """
-    Database repository for chats and messages.
-
-    Repository methods own their database sessions. This prevents
-    request-scoped SQLAlchemy sessions from being passed into async
-    threadpool execution.
-
-    External side effects such as Cloudinary uploads are intentionally
-    handled by the application/service layer.
-    """
-
     @staticmethod
     def get_by_id(
         chat_id: int,
@@ -117,15 +102,288 @@ class ChatRepository:
             ).scalar_one_or_none()
 
     @staticmethod
+    def _session_query(
+        user_id: int,
+        chat_id: int | None = None,
+    ):
+        document_count = (
+            select(func.count(Document.id))
+            .where(
+                Document.chat_id == Chat.id,
+                Document.user_id == user_id,
+            )
+            .correlate(Chat)
+            .scalar_subquery()
+        )
+
+        primary_document_title = (
+            select(Document.filename)
+            .where(
+                Document.chat_id == Chat.id,
+                Document.user_id == user_id,
+                Document.status == "ready",
+            )
+            .order_by(
+                Document.updated_at.desc(),
+                Document.id.desc(),
+            )
+            .limit(1)
+            .correlate(Chat)
+            .scalar_subquery()
+        )
+
+        earliest_document_created_at = (
+            select(func.min(Document.created_at))
+            .where(
+                Document.chat_id == Chat.id,
+                Document.user_id == user_id,
+            )
+            .correlate(Chat)
+            .scalar_subquery()
+        )
+
+        latest_document_updated_at = (
+            select(func.max(Document.updated_at))
+            .where(
+                Document.chat_id == Chat.id,
+                Document.user_id == user_id,
+            )
+            .correlate(Chat)
+            .scalar_subquery()
+        )
+
+        message_count = (
+            select(func.count(Message.id))
+            .where(
+                Message.chat_id == Chat.id,
+            )
+            .correlate(Chat)
+            .scalar_subquery()
+        )
+
+        earliest_message_created_at = (
+            select(func.min(Message.created_at))
+            .where(
+                Message.chat_id == Chat.id,
+            )
+            .correlate(Chat)
+            .scalar_subquery()
+        )
+
+        latest_message_created_at = (
+            select(func.max(Message.created_at))
+            .where(
+                Message.chat_id == Chat.id,
+            )
+            .correlate(Chat)
+            .scalar_subquery()
+        )
+
+        query = select(
+            Chat,
+            document_count.label("attached_documents_count"),
+            primary_document_title.label("primary_document_title"),
+            message_count.label("message_count"),
+            earliest_message_created_at.label("earliest_message_created_at"),
+            latest_message_created_at.label("latest_message_created_at"),
+            earliest_document_created_at.label("earliest_document_created_at"),
+            latest_document_updated_at.label("latest_document_updated_at"),
+        ).where(
+            Chat.user_id == user_id,
+        )
+
+        if chat_id is not None:
+            query = query.where(Chat.id == chat_id)
+
+        return query
+
+    @staticmethod
+    def _session_metadata_from_row(
+        row: Any,
+    ) -> dict[str, Any]:
+        chat = row[0]
+
+        earliest_candidates = [
+            ts for ts in (
+                row.earliest_message_created_at,
+                row.earliest_document_created_at,
+            ) if ts is not None
+        ]
+        latest_candidates = [
+            ts for ts in (
+                row.latest_message_created_at,
+                row.latest_document_updated_at,
+            ) if ts is not None
+        ]
+
+        derived_created_at = min(earliest_candidates) if earliest_candidates else None
+        derived_updated_at = max(latest_candidates) if latest_candidates else derived_created_at
+
+        return {
+            "id": chat.id,
+            "user_id": chat.user_id,
+            "title": chat.title,
+            "created_at": derived_created_at,
+            "updated_at": derived_updated_at,
+            "pdf_context": chat.pdf_context,
+            "ai_provider": chat.ai_provider,
+            "ai_model": chat.ai_model,
+            "embedding_provider": chat.embedding_provider,
+            "persona": chat.persona,
+            "custom_instructions": chat.custom_instructions,
+            "attached_documents_count": int(row.attached_documents_count or 0),
+            "primary_document_title": row.primary_document_title,
+            "message_count": int(row.message_count or 0),
+            "last_active_at": max(latest_candidates) if latest_candidates else None,
+        }
+
+    @staticmethod
     def get_all_by_user(
         user_id: int,
-    ) -> list[Chat]:
+    ) -> list[dict[str, Any]]:
+        if user_id <= 0:
+            raise ValueError("user_id must be a positive integer.")
+
         with session_scope() as db:
-            return list(
-                db.execute(
-                    select(Chat).where(Chat.user_id == user_id).order_by(Chat.id.desc())
-                ).scalars()
+            rows = db.execute(
+                ChatRepository._session_query(user_id).order_by(Chat.id.desc())
+            ).all()
+
+            sessions = [ChatRepository._session_metadata_from_row(row) for row in rows]
+
+            sessions.sort(
+                key=lambda session: (
+                    session["last_active_at"] is not None,
+                    session["last_active_at"],
+                    session["id"],
+                ),
+                reverse=True,
             )
+
+            return sessions
+
+    @staticmethod
+    def get_session_metadata(
+        chat_id: int,
+        user_id: int,
+    ) -> Optional[dict[str, Any]]:
+        if chat_id <= 0 or user_id <= 0:
+            raise ValueError("chat_id and user_id must be positive integers.")
+
+        with session_scope() as db:
+            row = db.execute(
+                ChatRepository._session_query(
+                    user_id=user_id,
+                    chat_id=chat_id,
+                )
+            ).first()
+
+            if row is None:
+                return None
+
+            return ChatRepository._session_metadata_from_row(row)
+
+    @staticmethod
+    def _is_generic_title(title: Any) -> bool:
+        if not isinstance(title, str):
+            return False
+        normalized = (title or "").strip().lower()
+
+        if not normalized:
+            return True
+
+        if normalized in {
+            "new chat",
+            "new research",
+            "untitled chat",
+            "untitled research",
+        }:
+            return True
+
+        return bool(
+            re.fullmatch(
+                r"chat\s*#\s*\d+",
+                normalized,
+            )
+        )
+
+    @staticmethod
+    def _clean_document_filename(
+        filename: str,
+    ) -> str:
+        cleaned = re.sub(
+            r"\.[^.]+$",
+            "",
+            filename.strip(),
+        )
+        cleaned = re.sub(
+            r"[_-]+",
+            " ",
+            cleaned,
+        )
+        cleaned = re.sub(
+            r"\s+",
+            " ",
+            cleaned,
+        ).strip()
+
+        if not cleaned:
+            return ""
+
+        return cleaned[:1].upper() + cleaned[1:]
+
+    @staticmethod
+    def _clean_research_title(
+        value: str,
+    ) -> str:
+        cleaned = re.sub(
+            r"\s+",
+            " ",
+            value.strip(),
+        )
+        cleaned = re.sub(
+            r"^[\s\-:]+|[\s\-:?!]+$",
+            "",
+            cleaned,
+        )
+
+        if not cleaned:
+            return ""
+
+        if len(cleaned) > 80:
+            cleaned = f"{cleaned[:77].rstrip()}..."
+
+        return cleaned[:1].upper() + cleaned[1:]
+
+    @staticmethod
+    def infer_and_set_title_from_document(
+        chat_id: int,
+        user_id: int,
+        filename: str,
+    ) -> Optional[str]:
+        with session_scope() as db:
+            chat = db.execute(
+                select(Chat)
+                .where(
+                    Chat.id == chat_id,
+                    Chat.user_id == user_id,
+                )
+                .with_for_update()
+            ).scalar_one_or_none()
+
+            if chat is None:
+                return None
+
+            if not ChatRepository._is_generic_title(chat.title):
+                return chat.title
+
+            title = ChatRepository._clean_document_filename(filename)
+
+            if title:
+                chat.title = title
+                db.flush()
+
+            return chat.title
 
     @staticmethod
     def create_chat(
@@ -194,9 +452,6 @@ class ChatRepository:
         persona: Optional[str] = None,
         custom_instructions: Optional[str] = None,
     ) -> Optional[Chat]:
-        """
-        Update chat persona and/or custom instructions with chat ownership verification.
-        """
         with session_scope() as db:
             chat = db.execute(
                 select(Chat).where(
@@ -249,9 +504,6 @@ class ChatRepository:
         new_title: Optional[str] = None,
         image_urls: Optional[list[str] | str] = None,
     ) -> Optional[Message]:
-        """
-        Atomically prepare a new chat turn.
-        """
         normalized_content = content.strip()
 
         if not normalized_content:
@@ -304,8 +556,39 @@ class ChatRepository:
             if chat is None:
                 return None
 
-            if title is not None and chat.title == "New Chat":
-                chat.title = title
+            if ChatRepository._is_generic_title(chat.title):
+                document_filename = db.execute(
+                    select(Document.filename)
+                    .where(
+                        Document.chat_id == chat.id,
+                        Document.user_id == user_id,
+                    )
+                    .order_by(
+                        Document.updated_at.desc(),
+                        Document.id.desc(),
+                    )
+                    .limit(1)
+                ).scalar_one_or_none()
+
+                document_title = (
+                    ChatRepository._clean_document_filename(document_filename)
+                    if document_filename
+                    else ""
+                )
+
+                explicit_title = (
+                    ChatRepository._clean_research_title(title) if title else ""
+                )
+
+                if document_title:
+                    chat.title = document_title
+                elif explicit_title:
+                    chat.title = explicit_title
+                else:
+                    chat.title = (
+                        ChatRepository._clean_research_title(normalized_content)
+                        or "New Research"
+                    )
 
             new_message = Message(
                 chat_id=chat.id,
@@ -328,10 +611,6 @@ class ChatRepository:
         image_data_list: Optional[list[str] | str] = None,
         sources: Optional[list[dict]] = None,
     ) -> Optional[Message]:
-        """
-        Insert a message only when the authenticated user owns the chat.
-        Optionally persists structured RAG source citations (JSONB).
-        """
         normalized_role = role.strip().lower()
 
         if normalized_role not in {
@@ -353,9 +632,7 @@ class ChatRepository:
                 try:
                     images = json.loads(image_data_list)
                 except json.JSONDecodeError as exc:
-                    raise ValueError(
-                        "image_data_list contains invalid JSON."
-                    ) from exc
+                    raise ValueError("image_data_list contains invalid JSON.") from exc
             else:
                 images = image_data_list
 
@@ -446,9 +723,6 @@ class ChatRepository:
         user_id: int,
         limit: int = 10,
     ) -> list[Message]:
-        """
-        Retrieve message history only for a chat owned by user_id.
-        """
         if limit <= 0:
             raise ValueError("limit must be greater than zero.")
 
@@ -482,9 +756,6 @@ class ChatRepository:
         user_id: int,
         after_index: int,
     ) -> bool:
-        """
-        Delete messages from a given zero-based message index onward.
-        """
         if after_index < 0:
             raise ValueError("after_index cannot be negative.")
 

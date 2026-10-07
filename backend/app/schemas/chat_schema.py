@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -129,9 +130,16 @@ class ChatOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    user_id: int
     title: str
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
     persona: str = "default"
     custom_instructions: Optional[str] = None
+    attached_documents_count: int = 0
+    primary_document_title: Optional[str] = None
+    message_count: int = 0
+    last_active_at: Optional[datetime] = None
 
 
 class ChatDetailsOut(BaseModel):
@@ -145,3 +153,9 @@ class ChatDetailsOut(BaseModel):
     embedding_provider: Optional[str] = None
     persona: str = "default"
     custom_instructions: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    attached_documents_count: int = 0
+    primary_document_title: Optional[str] = None
+    message_count: int = 0
+    last_active_at: Optional[datetime] = None

@@ -235,6 +235,7 @@ class Chat(Base):
     )
 
 
+
 class Document(Base):
     __tablename__ = "documents"
 

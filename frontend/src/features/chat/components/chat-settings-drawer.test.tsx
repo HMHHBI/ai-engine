@@ -33,6 +33,10 @@ describe("ChatSettingsDrawer", () => {
       updated_at: "2024-01-01T00:00:00Z",
       messages: [],
       has_pdf: false,
+      attached_documents_count: 0,
+      primary_document_title: null,
+      message_count: 0,
+      last_active_at: null,
     });
 
     render(<ChatSettingsDrawer chatId={42} open={true} onClose={vi.fn()} />);
@@ -62,6 +66,10 @@ describe("ChatSettingsDrawer", () => {
       updated_at: "2024-01-01T00:00:00Z",
       messages: [],
       has_pdf: false,
+      attached_documents_count: 0,
+      primary_document_title: null,
+      message_count: 0,
+      last_active_at: null,
     });
 
     const updateSpy = vi

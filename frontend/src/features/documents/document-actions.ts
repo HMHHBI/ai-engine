@@ -1,3 +1,4 @@
+import { useChatSessionStore } from "@/features/chat/store/chat-session-store";
 import { documentApi } from "@/lib/api/documents";
 import { useDocumentStore } from "./document-store";
 import type {
@@ -335,6 +336,35 @@ export async function uploadDocument(
       );
 
     store.addDocument(response);
+
+    const sessionStore = useChatSessionStore.getState();
+    const existingSession = sessionStore.sessions.find(
+      (session) => session.id === chatId,
+    );
+
+    if (existingSession) {
+      const nextDocuments =
+        useDocumentStore.getState().documentsByChat[chatId] ?? [];
+
+      const cleanTitle = response.filename
+        .replace(/\.[^.]+$/, "")
+        .replace(/[_-]+/g, " ")
+        .trim();
+
+      sessionStore.updateSession(chatId, {
+        title:
+          existingSession.title === "New Chat"
+            ? cleanTitle
+            : existingSession.title,
+        attached_documents_count: nextDocuments.length,
+        primary_document_title:
+          nextDocuments.length === 1
+            ? response.filename
+            : existingSession.primary_document_title,
+        last_active_at: response.updated_at,
+        updated_at: response.updated_at,
+      });
+    }
 
     if (
       response.status !== "ready" &&
