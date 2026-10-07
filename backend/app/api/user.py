@@ -33,7 +33,9 @@ router = APIRouter(prefix="/user", tags=["user"])
 
 
 @router.get("/me", response_model=UserProfileOut)
+@limiter.limit("30/minute")
 def get_my_profile(
+    request: Request,
     current_user: User = Depends(get_current_user),
 ):
     profile_img = current_user.profile_image or "/default-avatar.png"
