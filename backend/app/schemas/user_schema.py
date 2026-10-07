@@ -24,11 +24,18 @@ class UserOut(UserBase):
 
 class UserProfileOut(BaseModel):
     id: int
-    full_name: str
+    name: str = ""
+    full_name: str = ""
     email: EmailStr
-    profile_image: str
+    profile_image: str = "/default-avatar.png"
     plan: UserPlan
-    limits: dict[str, int]
+    image_limit: int = 0
+    limits: dict[str, int] = {}
+
+    class Config:
+        from_attributes = True
+    class Config:
+        from_attributes = True
 
 class UsageMetricOut(BaseModel):
     remaining: int

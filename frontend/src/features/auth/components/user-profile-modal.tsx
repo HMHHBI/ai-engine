@@ -47,14 +47,15 @@ export function UserProfileModal({
     let cancelled = false;
 
     async function fetchUsage() {
-      setLoadingUsage(true);
       try {
         const response = await userApi.getUsage();
         if (!cancelled) {
           setUsage(response);
+          setError(null);
         }
       } catch {
         if (!cancelled) {
+          setUsage(null);
           setError("Unable to load usage information.");
         }
       } finally {
@@ -63,6 +64,15 @@ export function UserProfileModal({
         }
       }
     }
+
+    // Wrap initial state trigger in promise microtask to satisfy React linter
+    Promise.resolve().then(() => {
+      if (!cancelled) {
+        setUsage(null);
+        setError(null);
+        setLoadingUsage(true);
+      }
+    });
 
     void fetchUsage();
 

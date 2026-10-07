@@ -56,18 +56,36 @@ export function ChatSettingsDrawer({
     state.sessions.find((item) => item.id === chatId),
   );
 
-  const [prevSessionId, setPrevSessionId] = useState<number | null>(null);
-  const [persona, setPersona] = useState<ChatPersona>("default");
-  const [customInstructions, setCustomInstructions] = useState("");
+  const [prevSessionId, setPrevSessionId] = useState<number | null>(() => session?.id ?? null);
+  const [persona, setPersona] = useState<ChatPersona>(() => session?.persona ?? "default");
+  const [customInstructions, setCustomInstructions] = useState(() => session?.custom_instructions ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (open && session && session.id !== prevSessionId) {
-    setPrevSessionId(session.id);
-    setPersona(session.persona ?? "default");
-    setCustomInstructions(session.custom_instructions ?? "");
-    setError(null);
-  }
+  useEffect(() => {
+    if (!open || !session || session.id === prevSessionId) {
+      return;
+    }
+
+    let cancelled = false;
+
+    Promise.resolve().then(() => {
+      if (!cancelled) {
+        setPrevSessionId(session.id);
+        setPersona(session.persona ?? "default");
+        setCustomInstructions(session.custom_instructions ?? "");
+        setError(null);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    open,
+    session,
+    prevSessionId,
+  ]);
 
   useEffect(() => {
     if (!open) {

@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/user", tags=["user"])
 
 
-@router.get("/me", response_model=UserProfileOut)
+@router.get("/me")
 @limiter.limit("30/minute")
 def get_my_profile(request: Request, current_user: User = Depends(get_current_user)):
     return {
