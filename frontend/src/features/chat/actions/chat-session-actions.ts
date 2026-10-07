@@ -337,24 +337,14 @@ class ChatSessionActions {
       );
 
     try {
-      const detailsPromise =
-        typeof chatApi.getDetails === "function"
-          ? Promise.resolve().then(() => chatApi.getDetails(chatId)).catch(() => null)
-          : Promise.resolve(null);
-
-      const docsPromise =
-        typeof documentApi?.listForChat === "function"
-          ? Promise.resolve().then(() => documentApi.listForChat(chatId)).catch(() => [])
-          : Promise.resolve([]);
-
       const [
         sessionDetails,
         rawMessages,
         documents,
       ] = await Promise.all([
-        detailsPromise,
+        chatApi.getDetails(chatId),
         chatApi.get(chatId),
-        docsPromise,
+        documentApi.listForChat(chatId),
       ]);
 
       if (

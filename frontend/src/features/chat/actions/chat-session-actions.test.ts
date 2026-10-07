@@ -1200,4 +1200,64 @@ describe("chatSessionActions", () => {
     expect(useDocumentStore.getState().selectedDocumentIdByChat[chatId]).toBe(880);
   });
 
+
+  it("rejects and commits no partial state when getDetails fails", async () => {
+    const chatId = 901;
+    useChatStore.getState().setActiveChat(null);
+
+    vi.mocked(chatApi.getDetails).mockRejectedValueOnce(
+      new Error("Failed to fetch session details"),
+    );
+    vi.mocked(chatApi.get).mockResolvedValueOnce([
+      { id: 10, chat_id: chatId, role: "user", content: "hello" },
+    ]);
+    vi.mocked(documentApi.listForChat).mockResolvedValueOnce([]);
+
+    await expect(chatSessionActions.hydrateSession(chatId)).rejects.toThrow(
+      "Failed to fetch session details",
+    );
+
+    expect(useChatStore.getState().activeChatId).toBeNull();
+    expect(useChatStore.getState().messagesByChat[chatId]).toBeUndefined();
+    expect(useDocumentStore.getState().documentsByChat[chatId]).toBeUndefined();
+    expect(useChatStore.getState().loadingChatIds[chatId]).toBeUndefined();
+  });
+
+  it("rejects and commits no partial state when listForChat fails", async () => {
+    const chatId = 902;
+    useChatStore.getState().setActiveChat(null);
+
+    vi.mocked(chatApi.getDetails).mockResolvedValueOnce({
+      id: chatId,
+      title: "Test Chat",
+      pdf_context: null,
+      ai_provider: "ollama",
+      ai_model: "llama3.2",
+      embedding_provider: "local",
+      persona: "default",
+      custom_instructions: null,
+      attached_documents_count: 0,
+      primary_document_title: null,
+      message_count: 1,
+      last_active_at: null,
+      created_at: "2026-10-01T00:00:00Z",
+      updated_at: "2026-10-06T00:00:00Z",
+    });
+    vi.mocked(chatApi.get).mockResolvedValueOnce([
+      { id: 10, chat_id: chatId, role: "user", content: "hello" },
+    ]);
+    vi.mocked(documentApi.listForChat).mockRejectedValueOnce(
+      new Error("Failed to fetch documents"),
+    );
+
+    await expect(chatSessionActions.hydrateSession(chatId)).rejects.toThrow(
+      "Failed to fetch documents",
+    );
+
+    expect(useChatStore.getState().activeChatId).toBeNull();
+    expect(useChatStore.getState().messagesByChat[chatId]).toBeUndefined();
+    expect(useDocumentStore.getState().documentsByChat[chatId]).toBeUndefined();
+    expect(useChatStore.getState().loadingChatIds[chatId]).toBeUndefined();
+  });
+
 });
