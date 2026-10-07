@@ -234,22 +234,6 @@ class Chat(Base):
         ),
     )
 
-    @property
-    def created_at(self):
-        return getattr(self, "_created_at", None) or datetime.now(timezone.utc)
-
-    @created_at.setter
-    def created_at(self, value):
-        self._created_at = value
-
-    @property
-    def updated_at(self):
-        return getattr(self, "_updated_at", None) or datetime.now(timezone.utc)
-
-    @updated_at.setter
-    def updated_at(self, value):
-        self._updated_at = value
-
 
 
 class Document(Base):

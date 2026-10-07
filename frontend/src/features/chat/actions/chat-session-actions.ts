@@ -1,4 +1,5 @@
 import { chatApi } from "@/lib/api/chat";
+import { documentApi } from "@/lib/api/documents";
 import { chatRequestController } from "@/features/chat/stream/chat-request-controller";
 import { useChatStore } from "@/features/chat/store/chat-store";
 import { useChatSessionStore } from "@/features/chat/store/chat-session-store";
@@ -336,67 +337,64 @@ class ChatSessionActions {
       );
 
     try {
-      // Initiate auxiliary promises immediately
-      const detailsPromise = (async () => {
-        if (typeof chatApi.getDetails === "function") {
-          try {
-            return await chatApi.getDetails(chatId);
-          } catch {
-            return null;
-          }
-        }
-        return null;
-      })();
+      const detailsPromise =
+        typeof chatApi.getDetails === "function"
+          ? Promise.resolve().then(() => chatApi.getDetails(chatId)).catch(() => null)
+          : Promise.resolve(null);
 
-      const docsPromise = (async () => {
-        try {
-          const { documentApi } = await import("@/lib/api/documents");
-          if (typeof documentApi.listForChat === "function") {
-            return (await documentApi.listForChat(chatId)) ?? [];
-          }
-        } catch {
-          return [];
-        }
-        return [];
-      })();
+      const docsPromise =
+        typeof documentApi?.listForChat === "function"
+          ? Promise.resolve().then(() => documentApi.listForChat(chatId)).catch(() => [])
+          : Promise.resolve([]);
 
-      // Fast-timeout helper: If supplementary endpoints are unmocked in legacy tests, don't stall the main message load!
-      const fastTimeout = <T>(promise: Promise<T>, fallback: T): Promise<T> =>
-        Promise.race([
-          promise,
-          new Promise<T>((resolve) => setTimeout(() => resolve(fallback), 50)),
-        ]);
-
-      // Await primary messages along with timeout-bounded auxiliary calls
-      const [rawMessages, sessionDetails, documents] = await Promise.all([
+      const [
+        sessionDetails,
+        rawMessages,
+        documents,
+      ] = await Promise.all([
+        detailsPromise,
         chatApi.get(chatId),
-        fastTimeout(detailsPromise, null),
-        fastTimeout(docsPromise, []),
+        docsPromise,
       ]);
 
-      if (generation !== this.hydrationGeneration) {
+      if (
+        generation !== this.hydrationGeneration
+      ) {
         return false;
       }
 
-      const normalizedMessages = normalizeMessages(rawMessages);
+      const normalizedMessages =
+        normalizeMessages(rawMessages);
+
+      const primaryDocumentId =
+        getLatestReadyDocumentId(documents);
 
       if (sessionDetails) {
-        useChatSessionStore.getState().updateSession(chatId, {
-          id: sessionDetails.id,
-          title: sessionDetails.title,
-          persona: sessionDetails.persona,
-          custom_instructions: sessionDetails.custom_instructions,
-          attached_documents_count: sessionDetails.attached_documents_count,
-          primary_document_title: sessionDetails.primary_document_title,
-          message_count: sessionDetails.message_count,
-          last_active_at: sessionDetails.last_active_at,
-          created_at: sessionDetails.created_at,
-          updated_at: sessionDetails.updated_at,
-        });
+        useChatSessionStore
+          .getState()
+          .updateSession(
+            chatId,
+            {
+              id: sessionDetails.id,
+              title: sessionDetails.title,
+              persona: sessionDetails.persona,
+              custom_instructions:
+                sessionDetails.custom_instructions,
+              attached_documents_count:
+                sessionDetails.attached_documents_count,
+              primary_document_title:
+                sessionDetails.primary_document_title,
+              message_count:
+                sessionDetails.message_count,
+              last_active_at:
+                sessionDetails.last_active_at,
+              created_at:
+                sessionDetails.created_at,
+              updated_at:
+                sessionDetails.updated_at,
+            },
+          );
       }
-
-      const docsList = Array.isArray(documents) ? documents : [];
-      const primaryDocumentId = getLatestReadyDocumentId(docsList);
 
       useChatStore
         .getState()
@@ -407,7 +405,11 @@ class ChatSessionActions {
 
       useDocumentStore
         .getState()
-        .hydrateChatDocuments(chatId, docsList, primaryDocumentId);
+        .hydrateChatDocuments(
+          chatId,
+          documents,
+          primaryDocumentId,
+        );
 
       useChatStore
         .getState()
@@ -415,7 +417,10 @@ class ChatSessionActions {
 
       return true;
     } finally {
-      if (generation === this.hydrationGeneration) {
+      if (
+        generation ===
+        this.hydrationGeneration
+      ) {
         useChatStore
           .getState()
           .setChatLoading(
@@ -437,20 +442,17 @@ class ChatSessionActions {
   }
 
   clearActiveChat(): void {
-    const activeChatId =
-      useChatStore.getState().activeChatId;
+    const store = useChatStore.getState();
+    const activeChatId = store.activeChatId;
 
     chatRequestController.invalidate();
     this.invalidateHydration();
 
-    if (activeChatId !== null) {
-      useChatStore
-        .getState()
-        .setChatLoading(
-          activeChatId,
-          false,
-        );
+    Object.keys(store.loadingChatIds).forEach((id) => {
+      store.setChatLoading(Number(id), false);
+    });
 
+    if (activeChatId !== null) {
       useDocumentStore
         .getState()
         .clearSelectedDocument(
@@ -461,12 +463,6 @@ class ChatSessionActions {
     useChatStore
       .getState()
       .setActiveChat(null);
-
-    // If clearing active chat, clear any residual loading markers from the store
-    const currentLoading = useChatStore.getState().loadingChatIds;
-    if (Object.keys(currentLoading).length > 0) {
-      useChatStore.setState({ loadingChatIds: {} });
-    }
   }
 }
 

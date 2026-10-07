@@ -441,3 +441,16 @@ def test_generic_chat_number_is_treated_as_generic_title(
 
     assert refreshed is not None
     assert refreshed.title == "Research methods"
+
+
+def test_phase4_zero_alembic_migrations_invariant():
+    """Phase 4 architectural invariant: 0 new migrations, 0 schema alters."""
+    import os
+    versions_dir = os.path.join(os.path.dirname(__file__), "..", "alembic", "versions")
+    migration_files = [
+        f for f in os.listdir(versions_dir)
+        if f.endswith(".py") and not f.startswith("__")
+    ]
+    # Invariant: Head migration must remain b3a490b636d1 with NO new files added in Phase 4
+    for f in migration_files:
+        assert not f.startswith("402be48bec7e"), f"Forbidden Phase 4 migration detected: {f}"

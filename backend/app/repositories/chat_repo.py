@@ -132,6 +132,16 @@ class ChatRepository:
             .scalar_subquery()
         )
 
+        earliest_document_created_at = (
+            select(func.min(Document.created_at))
+            .where(
+                Document.chat_id == Chat.id,
+                Document.user_id == user_id,
+            )
+            .correlate(Chat)
+            .scalar_subquery()
+        )
+
         latest_document_updated_at = (
             select(func.max(Document.updated_at))
             .where(
@@ -144,6 +154,15 @@ class ChatRepository:
 
         message_count = (
             select(func.count(Message.id))
+            .where(
+                Message.chat_id == Chat.id,
+            )
+            .correlate(Chat)
+            .scalar_subquery()
+        )
+
+        earliest_message_created_at = (
+            select(func.min(Message.created_at))
             .where(
                 Message.chat_id == Chat.id,
             )
@@ -165,7 +184,9 @@ class ChatRepository:
             document_count.label("attached_documents_count"),
             primary_document_title.label("primary_document_title"),
             message_count.label("message_count"),
+            earliest_message_created_at.label("earliest_message_created_at"),
             latest_message_created_at.label("latest_message_created_at"),
+            earliest_document_created_at.label("earliest_document_created_at"),
             latest_document_updated_at.label("latest_document_updated_at"),
         ).where(
             Chat.user_id == user_id,
@@ -182,21 +203,28 @@ class ChatRepository:
     ) -> dict[str, Any]:
         chat = row[0]
 
-        timestamps = [
-            timestamp
-            for timestamp in (
+        earliest_candidates = [
+            ts for ts in (
+                row.earliest_message_created_at,
+                row.earliest_document_created_at,
+            ) if ts is not None
+        ]
+        latest_candidates = [
+            ts for ts in (
                 row.latest_message_created_at,
                 row.latest_document_updated_at,
-            )
-            if timestamp is not None
+            ) if ts is not None
         ]
+
+        derived_created_at = min(earliest_candidates) if earliest_candidates else None
+        derived_updated_at = max(latest_candidates) if latest_candidates else derived_created_at
 
         return {
             "id": chat.id,
             "user_id": chat.user_id,
             "title": chat.title,
-            "created_at": getattr(chat, "created_at", None) or datetime.now(timezone.utc),
-            "updated_at": getattr(chat, "updated_at", None) or datetime.now(timezone.utc),
+            "created_at": derived_created_at,
+            "updated_at": derived_updated_at,
             "pdf_context": chat.pdf_context,
             "ai_provider": chat.ai_provider,
             "ai_model": chat.ai_model,
@@ -206,7 +234,7 @@ class ChatRepository:
             "attached_documents_count": int(row.attached_documents_count or 0),
             "primary_document_title": row.primary_document_title,
             "message_count": int(row.message_count or 0),
-            "last_active_at": max(timestamps) if timestamps else None,
+            "last_active_at": max(latest_candidates) if latest_candidates else None,
         }
 
     @staticmethod

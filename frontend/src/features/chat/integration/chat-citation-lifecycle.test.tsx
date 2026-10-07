@@ -1,3 +1,13 @@
+
+vi.mock("@/lib/api/documents", () => ({
+  documentApi: {
+    listForChat: vi.fn().mockResolvedValue([]),
+    get: vi.fn(),
+    upload: vi.fn(),
+    delete: vi.fn(),
+  },
+}));
+
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -15,6 +25,7 @@ vi.mock("@/lib/api/chat", () => ({
   chatApi: {
     uploadPdf: vi.fn(),
     get: vi.fn(),
+    getDetails: vi.fn().mockResolvedValue(null),
     getAll: vi.fn(),
     create: vi.fn(),
     delete: vi.fn(),

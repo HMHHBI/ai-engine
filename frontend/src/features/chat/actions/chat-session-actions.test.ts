@@ -1,3 +1,4 @@
+import { documentApi } from "@/lib/api/documents";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { chatSessionActions } from "./chat-session-actions";
@@ -7,6 +8,16 @@ import { useChatStore } from "@/features/chat/store/chat-store";
 import { useChatSessionStore } from "@/features/chat/store/chat-session-store";
 import { useDocumentStore } from "@/features/documents/document-store";
 import type { ChatMessage, ChatSession } from "@/types/api";
+
+
+vi.mock("@/lib/api/documents", () => ({
+  documentApi: {
+    listForChat: vi.fn().mockResolvedValue([]),
+    get: vi.fn(),
+    upload: vi.fn(),
+    delete: vi.fn(),
+  },
+}));
 
 vi.mock("@/lib/api/chat", () => ({
   chatApi: {
@@ -31,6 +42,23 @@ describe("chatSessionActions", () => {
     chatSessionActions.invalidateHydration?.();
 
     vi.clearAllMocks();
+    vi.mocked(chatApi.getDetails).mockResolvedValue({
+      id: 1,
+      title: "Test Chat",
+      pdf_context: null,
+      ai_provider: "ollama",
+      ai_model: "llama3.2",
+      embedding_provider: "local",
+      persona: "default",
+      custom_instructions: null,
+      attached_documents_count: 0,
+      primary_document_title: null,
+      message_count: 0,
+      last_active_at: null,
+      created_at: "2026-10-01T00:00:00Z",
+      updated_at: "2026-10-06T00:00:00Z",
+    });
+    vi.mocked(documentApi.listForChat).mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -1100,4 +1128,76 @@ describe("chatSessionActions", () => {
         .selectedDocumentIdByChat[42],
     ).toBeUndefined();
   });
+
+  it("does not discard slow metadata or documents with artificial timeouts", async () => {
+    const chatId = 88;
+    const session: ChatSession = {
+      id: chatId,
+      user_id: 1,
+      title: "Slow Hydration Session",
+      created_at: "2026-10-01T00:00:00Z",
+      updated_at: "2026-10-06T00:00:00Z",
+      attached_documents_count: 1,
+      primary_document_title: "delayed.pdf",
+      message_count: 1,
+      last_active_at: "2026-10-06T00:00:00Z",
+      persona: "academic",
+      custom_instructions: null,
+    };
+
+    useChatSessionStore.getState().setSessions([session]);
+
+    vi.mocked(chatApi.getDetails).mockImplementation(
+      () => new Promise((resolve) => setTimeout(() => resolve({
+        id: session.id,
+        title: session.title,
+        created_at: session.created_at,
+        updated_at: session.updated_at,
+        attached_documents_count: session.attached_documents_count,
+        primary_document_title: session.primary_document_title,
+        message_count: session.message_count,
+        last_active_at: session.last_active_at,
+        persona: "academic",
+        custom_instructions: session.custom_instructions ?? null,
+        pdf_context: null,
+        ai_provider: "ollama",
+        ai_model: "llama3.2",
+        embedding_provider: "local",
+      }), 80)),
+    );
+
+    vi.mocked(chatApi.get).mockImplementation(
+      () => new Promise((resolve) => setTimeout(() => resolve([
+        { id: 1, chat_id: chatId, role: "user", content: "hello after delay" },
+      ]), 30)),
+    );
+
+    vi.spyOn(documentApi, "listForChat").mockImplementation(
+      () => new Promise((resolve) => setTimeout(() => resolve([
+        {
+          id: 880,
+          user_id: 1,
+          chat_id: chatId,
+          filename: "delayed.pdf",
+          mime_type: "application/pdf",
+          file_size: 500,
+          page_count: 2,
+          storage_url: null,
+          status: "ready" as const,
+          error_message: null,
+          created_at: "2026-10-01T00:00:00Z",
+          updated_at: "2026-10-06T00:00:00Z",
+        },
+      ]), 60)),
+    );
+
+    const loaded = await chatSessionActions.hydrateSession(chatId);
+
+    expect(loaded).toBe(true);
+    expect(useChatStore.getState().activeChatId).toBe(chatId);
+    expect(useChatStore.getState().messagesByChat[chatId]).toHaveLength(1);
+    expect(useDocumentStore.getState().documentsByChat[chatId]).toHaveLength(1);
+    expect(useDocumentStore.getState().selectedDocumentIdByChat[chatId]).toBe(880);
+  });
+
 });

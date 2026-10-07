@@ -132,8 +132,8 @@ class ChatOut(BaseModel):
     id: int
     user_id: int
     title: str
-    created_at: datetime
-    updated_at: datetime
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
     persona: str = "default"
     custom_instructions: Optional[str] = None
     attached_documents_count: int = 0
@@ -153,8 +153,8 @@ class ChatDetailsOut(BaseModel):
     embedding_provider: Optional[str] = None
     persona: str = "default"
     custom_instructions: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
     attached_documents_count: int = 0
     primary_document_title: Optional[str] = None
     message_count: int = 0
