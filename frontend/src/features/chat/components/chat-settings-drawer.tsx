@@ -67,20 +67,11 @@ export function ChatSettingsDrawer({
       return;
     }
 
-    let cancelled = false;
-
-    Promise.resolve().then(() => {
-      if (!cancelled) {
-        setPrevSessionId(session.id);
-        setPersona(session.persona ?? "default");
-        setCustomInstructions(session.custom_instructions ?? "");
-        setError(null);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPrevSessionId(session.id);
+    setPersona(session.persona ?? "default");
+    setCustomInstructions(session.custom_instructions ?? "");
+    setError(null);
   }, [
     open,
     session,

@@ -46,6 +46,11 @@ export function UserProfileModal({
 
     let cancelled = false;
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setUsage(null);
+    setError(null);
+    setLoadingUsage(true);
+
     async function fetchUsage() {
       try {
         const response = await userApi.getUsage();
@@ -64,15 +69,6 @@ export function UserProfileModal({
         }
       }
     }
-
-    // Wrap initial state trigger in promise microtask to satisfy React linter
-    Promise.resolve().then(() => {
-      if (!cancelled) {
-        setUsage(null);
-        setError(null);
-        setLoadingUsage(true);
-      }
-    });
 
     void fetchUsage();
 
