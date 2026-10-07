@@ -36,6 +36,7 @@ const PERSONAS: ChatPersona[] = [
 export const AppHeader = forwardRef<HTMLButtonElement, AppHeaderProps>(
   function AppHeader({ onOpenMobileSidebar, onToggleSidebar }, ref) {
     const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsTriggerRef = useRef<HTMLButtonElement>(null);
     const [documentsOpen, setDocumentsOpen] = useState(false);
     const [personaOpen, setPersonaOpen] = useState(false);
     const [personaSaving, setPersonaSaving] = useState(false);
@@ -180,7 +181,8 @@ export const AppHeader = forwardRef<HTMLButtonElement, AppHeaderProps>(
 
                 <IconButton
                   label="Chat settings"
-                  onClick={() => setSettingsOpen(true)}
+                  ref={settingsTriggerRef}
+            onClick={() => setSettingsOpen(true)}
                   className="size-9"
                 >
                   <Settings className="size-4" />

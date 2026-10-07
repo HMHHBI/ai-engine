@@ -92,4 +92,11 @@ describe("UserProfileModal", () => {
       expect(onClose).toHaveBeenCalled();
     });
   });
+  it("calls onClose when Escape key is pressed", () => {
+    const onClose = vi.fn();
+    render(<UserProfileModal open={true} onClose={onClose} />);
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });

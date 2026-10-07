@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useRef, useState } from "react";
+import { Suspense, useRef, useState, useEffect } from "react";
 
 import { AppHeader } from "@/components/layout/app-header";
 import { AppSidebar } from "@/components/layout/app-sidebar";
@@ -9,6 +9,34 @@ import { WorkspaceController } from "@/features/workspace/components/workspace-c
 
 export function AppShell() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  useEffect(() => {
+    function handleGlobalKeyDown(event: KeyboardEvent) {
+      const modifier = event.metaKey || event.ctrlKey;
+      if (!modifier || event.altKey) {
+        return;
+      }
+
+      if (event.key.toLowerCase() === "b") {
+        event.preventDefault();
+        setSidebarCollapsed((current) => !current);
+        return;
+      }
+
+      if (event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        const composer = document.querySelector<HTMLTextAreaElement>(
+          '[data-chat-composer="true"]',
+        );
+        composer?.focus();
+      }
+    }
+
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleGlobalKeyDown);
+    };
+  }, []);
+
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
 

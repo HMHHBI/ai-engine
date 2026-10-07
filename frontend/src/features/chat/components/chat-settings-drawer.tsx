@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { X } from "lucide-react";
 
 import { chatSessionActions } from "@/features/chat/actions/chat-session-actions";
@@ -56,27 +56,59 @@ export function ChatSettingsDrawer({
     state.sessions.find((item) => item.id === chatId),
   );
 
-  const [prevSessionId, setPrevSessionId] = useState<number | null>(() => session?.id ?? null);
   const [persona, setPersona] = useState<ChatPersona>(() => session?.persona ?? "default");
   const [customInstructions, setCustomInstructions] = useState(() => session?.custom_instructions ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const drawerRef = useRef<HTMLDivElement>(null);
 
+  // Focus management: initial focus and focus trap
   useEffect(() => {
-    if (!open || !session || session.id === prevSessionId) {
-      return;
+    if (!open) return;
+
+    const drawer = drawerRef.current;
+    if (!drawer) return;
+
+    const focusable = drawer.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    if (focusable.length > 0) {
+      focusable[0].focus();
     }
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setPrevSessionId(session.id);
-    setPersona(session.persona ?? "default");
-    setCustomInstructions(session.custom_instructions ?? "");
-    setError(null);
-  }, [
-    open,
-    session,
-    prevSessionId,
-  ]);
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        if (!saving) {
+          onClose();
+        }
+        return;
+      }
+
+      if (event.key === "Tab") {
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    }
+
+    document.addEventListener("keydown", handleGlobalKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleGlobalKeyDown);
+    };
+
+    function handleGlobalKeyDown(event: KeyboardEvent) {
+      handleKeyDown(event);
+    }
+  }, [open, onClose, saving]);
 
   useEffect(() => {
     if (!open) {
