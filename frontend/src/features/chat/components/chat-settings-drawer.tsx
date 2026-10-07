@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 
 import { chatSessionActions } from "@/features/chat/actions/chat-session-actions";
@@ -13,39 +13,37 @@ interface ChatSettingsDrawerProps {
   onClose: () => void;
 }
 
-const PERSONAS: Array<{
+const PERSONA_OPTIONS: Array<{
   value: ChatPersona;
   label: string;
   description: string;
 }> = [
   {
     value: "default",
-    label: "Default",
-    description: "Balanced and professional responses.",
+    label: "Default Assistant",
+    description: "Balanced, general-purpose analysis across evidence.",
   },
   {
     value: "academic",
-    label: "Academic",
-    description: "Rigorous, analytical, scholarly responses.",
-  },
-  {
-    value: "developer",
-    label: "Developer",
-    description: "Concise engineering-focused responses.",
+    label: "Academic Researcher",
+    description: "Formal scholarly prose with disciplined citations.",
   },
   {
     value: "legal",
-    label: "Legal",
-    description: "Precise wording, conditions, and exceptions.",
+    label: "Legal Analyst",
+    description: "Rigorous statutory precision and risk-aware breakdown.",
   },
   {
     value: "simple",
-    label: "Simple",
-    description: "Plain-language explanations.",
+    label: "Simple Explainer",
+    description: "Clear, concise breakdowns in plain English.",
+  },
+  {
+    value: "developer",
+    label: "Systems Architect",
+    description: "Deep technical breakdowns, contracts, and architecture.",
   },
 ];
-
-const MAX_INSTRUCTIONS = 2000;
 
 export function ChatSettingsDrawer({
   chatId,
@@ -56,24 +54,28 @@ export function ChatSettingsDrawer({
     state.sessions.find((item) => item.id === chatId),
   );
 
-  const [persona, setPersona] = useState<ChatPersona>(() => session?.persona ?? "default");
-  const [customInstructions, setCustomInstructions] = useState(() => session?.custom_instructions ?? "");
+  const [persona, setPersona] = useState<ChatPersona>(
+    () => session?.persona ?? "default",
+  );
+  const [customInstructions, setCustomInstructions] = useState(
+    () => session?.custom_instructions ?? "",
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const drawerRef = useRef<HTMLDivElement>(null);
 
-  // Focus management: initial focus and focus trap
+  // Single unified keyboard listener & focus trapping
   useEffect(() => {
     if (!open) return;
 
     const drawer = drawerRef.current;
-    if (!drawer) return;
-
-    const focusable = drawer.querySelectorAll<HTMLElement>(
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-    );
-    if (focusable.length > 0) {
-      focusable[0].focus();
+    if (drawer) {
+      const focusable = drawer.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      );
+      if (focusable.length > 0) {
+        focusable[0].focus();
+      }
     }
 
     function handleKeyDown(event: KeyboardEvent) {
@@ -85,7 +87,10 @@ export function ChatSettingsDrawer({
         return;
       }
 
-      if (event.key === "Tab") {
+      if (event.key === "Tab" && drawer) {
+        const focusable = drawer.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        );
         if (focusable.length === 0) return;
         const first = focusable[0];
         const last = focusable[focusable.length - 1];
@@ -100,27 +105,6 @@ export function ChatSettingsDrawer({
       }
     }
 
-    document.addEventListener("keydown", handleGlobalKeyDown);
-    return () => {
-      document.removeEventListener("keydown", handleGlobalKeyDown);
-    };
-
-    function handleGlobalKeyDown(event: KeyboardEvent) {
-      handleKeyDown(event);
-    }
-  }, [open, onClose, saving]);
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape" && !saving) {
-        onClose();
-      }
-    }
-
     document.addEventListener("keydown", handleKeyDown);
 
     return () => {
@@ -128,11 +112,11 @@ export function ChatSettingsDrawer({
     };
   }, [open, onClose, saving]);
 
-  async function handleSave() {
-    if (!session) {
-      return;
-    }
+  if (!open) {
+    return null;
+  }
 
+  async function handleSave() {
     setSaving(true);
     setError(null);
 
@@ -140,9 +124,8 @@ export function ChatSettingsDrawer({
       await chatSessionActions.updatePersona(
         chatId,
         persona,
-        customInstructions,
+        customInstructions.trim(),
       );
-
       onClose();
     } catch {
       setError("Unable to save chat settings.");
@@ -151,15 +134,11 @@ export function ChatSettingsDrawer({
     }
   }
 
-  if (!open) {
-    return null;
-  }
-
   return (
-    <div className="fixed inset-0 z-50" role="presentation">
+    <div className="fixed inset-0 z-[60]">
       <button
         type="button"
-        aria-label="Close chat settings"
+        aria-label="Close settings"
         className="absolute inset-0 bg-black/40 backdrop-blur-xs"
         onClick={() => {
           if (!saving) {
@@ -168,29 +147,29 @@ export function ChatSettingsDrawer({
         }}
       />
 
-      <aside
+      <div
+        ref={drawerRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="chat-settings-title"
-        className="absolute right-0 top-0 flex h-full w-full max-w-md flex-col border-l border-border bg-background shadow-xl"
+        className="absolute bottom-0 right-0 top-0 flex w-full max-w-md flex-col border-l border-border bg-background shadow-2xl"
       >
-        <div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <div>
             <h2
               id="chat-settings-title"
-              className="text-sm font-semibold"
+              className="text-base font-semibold"
             >
-              Research settings
+              Research mode & persona
             </h2>
-
             <p className="text-xs text-muted-foreground">
-              Customize how this research session responds.
+              Customize reasoning tone and instructions for this session.
             </p>
           </div>
 
           <button
             type="button"
-            aria-label="Close chat settings"
+            aria-label="Close settings"
             disabled={saving}
             onClick={onClose}
             className="rounded-md p-2 hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
@@ -199,88 +178,72 @@ export function ChatSettingsDrawer({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4">
-          {!session ? (
-            <p className="text-sm text-muted-foreground">
-              Research session is still loading.
-            </p>
-          ) : (
-            <div className="space-y-6">
-              <fieldset>
-                <legend className="text-sm font-medium">
-                  Research mode
-                </legend>
+        <div className="flex-1 space-y-6 overflow-y-auto p-5">
+          <section className="space-y-3">
+            <label className="text-sm font-medium">
+              Research persona
+            </label>
 
-                <div className="mt-3 space-y-2">
-                  {PERSONAS.map((item) => (
-                    <label
-                      key={item.value}
-                      className="flex cursor-pointer gap-3 rounded-lg border border-border p-3 hover:bg-secondary/50"
-                    >
-                      <input
-                        type="radio"
-                        name={`chat-persona-${chatId}`}
-                        value={item.value}
-                        checked={persona === item.value}
-                        onChange={() => setPersona(item.value)}
-                        disabled={saving}
-                        className="mt-0.5"
-                      />
-
-                      <span className="min-w-0">
-                        <span className="block text-sm font-medium">
-                          {item.label}
-                        </span>
-
-                        <span className="mt-0.5 block text-xs text-muted-foreground">
-                          {item.description}
-                        </span>
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
-
-              <div>
-                <div className="flex items-center justify-between">
-                  <label
-                    htmlFor={`chat-custom-instructions-${chatId}`}
-                    className="text-sm font-medium"
-                  >
-                    Custom instructions
-                  </label>
-
-                  <span className="text-xs text-muted-foreground">
-                    {customInstructions.length}/{MAX_INSTRUCTIONS}
-                  </span>
-                </div>
-
-                <textarea
-                  id={`chat-custom-instructions-${chatId}`}
-                  value={customInstructions}
-                  maxLength={MAX_INSTRUCTIONS}
-                  disabled={saving}
-                  onChange={(event) =>
-                    setCustomInstructions(event.target.value)
-                  }
-                  placeholder="Tell the assistant how you want this research session to behave..."
-                  className="mt-2 min-h-32 w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-                />
-              </div>
-
-              {error && (
-                <p
-                  role="alert"
-                  className="text-sm text-destructive"
+            <div className="space-y-2">
+              {PERSONA_OPTIONS.map((option) => (
+                <label
+                  key={option.value}
+                  className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors ${
+                    persona === option.value
+                      ? "border-primary bg-primary/5"
+                      : "border-border hover:bg-secondary/50"
+                  }`}
                 >
-                  {error}
-                </p>
-              )}
+                  <input
+                    type="radio"
+                    name="persona"
+                    value={option.value}
+                    checked={persona === option.value}
+                    onChange={() => setPersona(option.value)}
+                    className="mt-1"
+                  />
+
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">
+                      {option.label}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {option.description}
+                    </p>
+                  </div>
+                </label>
+              ))}
             </div>
+          </section>
+
+          <section className="space-y-2">
+            <label
+              htmlFor="custom-instructions"
+              className="text-sm font-medium"
+            >
+              Custom instructions
+            </label>
+
+            <textarea
+              id="custom-instructions"
+              value={customInstructions}
+              onChange={(event) =>
+                setCustomInstructions(event.target.value)
+              }
+              placeholder="Tell the assistant how to behave or format responses..."
+              rows={4}
+              className="w-full rounded-lg border border-border bg-background p-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            />
+          </section>
+
+          {error && (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
           )}
         </div>
 
-        <div className="flex shrink-0 justify-end gap-2 border-t border-border p-4">
+        <div className="flex justify-end gap-2 border-t border-border p-4">
           <button
             type="button"
             disabled={saving}
@@ -292,14 +255,14 @@ export function ChatSettingsDrawer({
 
           <button
             type="button"
-            disabled={!session || saving}
+            disabled={saving}
             onClick={() => void handleSave()}
             className="rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
           >
             {saving ? "Saving..." : "Save changes"}
           </button>
         </div>
-      </aside>
+      </div>
     </div>
   );
 }

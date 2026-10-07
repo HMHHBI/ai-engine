@@ -64,8 +64,10 @@ describe("AppShell Global Keyboard Shortcuts", () => {
 
     fireEvent.keyDown(window, { key: "k", metaKey: true });
     expect(focusSpy).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(composer);
 
     fireEvent.keyDown(window, { key: "k", ctrlKey: true });
     expect(focusSpy).toHaveBeenCalledTimes(2);
+    expect(document.activeElement).toBe(composer);
   });
 });

@@ -194,11 +194,16 @@ export const AppHeader = forwardRef<HTMLButtonElement, AppHeaderProps>(
 
         {activeChatId !== null && (
           <>
+            {settingsOpen && (
             <ChatSettingsDrawer
               chatId={activeChatId}
-              open={settingsOpen}
-              onClose={() => setSettingsOpen(false)}
+              open
+              onClose={() => {
+                setSettingsOpen(false);
+                settingsTriggerRef.current?.focus();
+              }}
             />
+          )}
 
             <DocumentWorkspace
               chatId={activeChatId}
