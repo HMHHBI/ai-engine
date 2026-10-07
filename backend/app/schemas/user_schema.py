@@ -21,6 +21,23 @@ class UserOut(UserBase):
     class Config:
         from_attributes = True
 
+
+class UserProfileOut(BaseModel):
+    id: int
+    full_name: str
+    email: EmailStr
+    profile_image: str
+    plan: UserPlan
+    limits: dict[str, int]
+
+class UsageMetricOut(BaseModel):
+    remaining: int
+
+class UserUsageOut(BaseModel):
+    plan: UserPlan
+    image: UsageMetricOut
+    search: UsageMetricOut
+
 # Login ke liye
 class UserLogin(BaseModel):
     email: EmailStr

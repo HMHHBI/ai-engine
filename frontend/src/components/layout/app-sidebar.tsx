@@ -21,6 +21,7 @@ import { ChatHistoryList } from "@/features/chat/components/chat-history-list";
 import { chatSessionActions } from "@/features/chat/actions/chat-session-actions";
 import { authActions } from "@/features/auth/actions/auth-actions";
 import { useAuthStore } from "@/features/auth";
+import { UserProfileModal } from "@/features/auth/components/user-profile-modal";
 import { cn } from "@/lib/utils";
 
 interface AppSidebarProps {
@@ -40,6 +41,7 @@ export function AppSidebar({
   const { resolvedTheme, setTheme } = useTheme();
   const user = useAuthStore((state) => state.user);
   const [isCreatingChat, setIsCreatingChat] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
 
   const sidebarRef = useRef<HTMLElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -240,6 +242,8 @@ export function AppSidebar({
 
           <button
             type="button"
+            onClick={() => setProfileOpen(true)}
+            aria-label="Open account"
             className={cn(
               "flex h-10 w-full items-center rounded-lg",
               "text-sm text-muted-foreground",
@@ -312,6 +316,10 @@ export function AppSidebar({
           </div>
         </div>
       </aside>
+      <UserProfileModal
+        open={profileOpen}
+        onClose={() => setProfileOpen(false)}
+      />
     </>
   );
 }

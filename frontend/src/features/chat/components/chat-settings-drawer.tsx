@@ -3,9 +3,9 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 
-import { chatApi } from "@/lib/api/chat";
 import { chatSessionActions } from "@/features/chat/actions/chat-session-actions";
-import type { ChatPersona, ChatDetailsResponse } from "@/types/api";
+import { useChatSessionStore } from "@/features/chat/store/chat-session-store";
+import type { ChatPersona } from "@/types/api";
 
 interface ChatSettingsDrawerProps {
   chatId: number;
@@ -52,49 +52,22 @@ export function ChatSettingsDrawer({
   open,
   onClose,
 }: ChatSettingsDrawerProps) {
-  const [details, setDetails] = useState<ChatDetailsResponse | null>(null);
+  const session = useChatSessionStore((state) =>
+    state.sessions.find((item) => item.id === chatId),
+  );
+
+  const [prevSessionId, setPrevSessionId] = useState<number | null>(null);
   const [persona, setPersona] = useState<ChatPersona>("default");
   const [customInstructions, setCustomInstructions] = useState("");
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    let cancelled = false;
-
-    void chatApi
-      .getDetails(chatId)
-      .then((response) => {
-        if (cancelled) {
-          return;
-        }
-
-        const normalizedPersona =
-          (response.persona?.toLowerCase() as ChatPersona) ?? "default";
-
-        setDetails(response);
-        setPersona(normalizedPersona);
-        setCustomInstructions(response.custom_instructions ?? "");
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setError("Unable to load chat settings.");
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [chatId, open]);
+  if (open && session && session.id !== prevSessionId) {
+    setPrevSessionId(session.id);
+    setPersona(session.persona ?? "default");
+    setCustomInstructions(session.custom_instructions ?? "");
+    setError(null);
+  }
 
   useEffect(() => {
     if (!open) {
@@ -115,6 +88,10 @@ export function ChatSettingsDrawer({
   }, [open, onClose, saving]);
 
   async function handleSave() {
+    if (!session) {
+      return;
+    }
+
     setSaving(true);
     setError(null);
 
@@ -158,11 +135,15 @@ export function ChatSettingsDrawer({
       >
         <div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
           <div>
-            <h2 id="chat-settings-title" className="text-sm font-semibold">
-              Chat settings
+            <h2
+              id="chat-settings-title"
+              className="text-sm font-semibold"
+            >
+              Research settings
             </h2>
+
             <p className="text-xs text-muted-foreground">
-              Customize how this chat responds.
+              Customize how this research session responds.
             </p>
           </div>
 
@@ -178,14 +159,16 @@ export function ChatSettingsDrawer({
         </div>
 
         <div className="flex-1 overflow-y-auto p-4">
-          {loading ? (
-            <div className="text-sm text-muted-foreground">
-              Loading settings...
-            </div>
+          {!session ? (
+            <p className="text-sm text-muted-foreground">
+              Research session is still loading.
+            </p>
           ) : (
             <div className="space-y-6">
               <fieldset>
-                <legend className="text-sm font-medium">Persona</legend>
+                <legend className="text-sm font-medium">
+                  Research mode
+                </legend>
 
                 <div className="mt-3 space-y-2">
                   {PERSONAS.map((item) => (
@@ -195,7 +178,7 @@ export function ChatSettingsDrawer({
                     >
                       <input
                         type="radio"
-                        name="chat-persona"
+                        name={`chat-persona-${chatId}`}
                         value={item.value}
                         checked={persona === item.value}
                         onChange={() => setPersona(item.value)}
@@ -207,6 +190,7 @@ export function ChatSettingsDrawer({
                         <span className="block text-sm font-medium">
                           {item.label}
                         </span>
+
                         <span className="mt-0.5 block text-xs text-muted-foreground">
                           {item.description}
                         </span>
@@ -219,7 +203,7 @@ export function ChatSettingsDrawer({
               <div>
                 <div className="flex items-center justify-between">
                   <label
-                    htmlFor="chat-custom-instructions"
+                    htmlFor={`chat-custom-instructions-${chatId}`}
                     className="text-sm font-medium"
                   >
                     Custom instructions
@@ -231,20 +215,23 @@ export function ChatSettingsDrawer({
                 </div>
 
                 <textarea
-                  id="chat-custom-instructions"
+                  id={`chat-custom-instructions-${chatId}`}
                   value={customInstructions}
                   maxLength={MAX_INSTRUCTIONS}
                   disabled={saving}
                   onChange={(event) =>
                     setCustomInstructions(event.target.value)
                   }
-                  placeholder="Tell the assistant how you want this chat to behave..."
+                  placeholder="Tell the assistant how you want this research session to behave..."
                   className="mt-2 min-h-32 w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
                 />
               </div>
 
               {error && (
-                <p role="alert" className="text-sm text-destructive">
+                <p
+                  role="alert"
+                  className="text-sm text-destructive"
+                >
                   {error}
                 </p>
               )}
@@ -264,7 +251,7 @@ export function ChatSettingsDrawer({
 
           <button
             type="button"
-            disabled={loading || saving || !details}
+            disabled={!session || saving}
             onClick={() => void handleSave()}
             className="rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
           >
