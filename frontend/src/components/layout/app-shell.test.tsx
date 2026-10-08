@@ -1,3 +1,4 @@
+import "@testing-library/jest-dom";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { AppShell } from "./app-shell";
@@ -69,5 +70,10 @@ describe("AppShell Global Keyboard Shortcuts", () => {
     fireEvent.keyDown(window, { key: "k", ctrlKey: true });
     expect(focusSpy).toHaveBeenCalledTimes(2);
     expect(document.activeElement).toBe(composer);
+  });
+  it("renders the workspace controller inside the application shell", () => {
+    render(<AppShell />);
+
+    expect(screen.getByTestId("composer")).toBeInTheDocument();
   });
 });

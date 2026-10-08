@@ -87,12 +87,21 @@ export function ChatHistoryList({ onSelectChat }: ChatHistoryListProps) {
   if (isLoading) {
     return (
       <div className="space-y-2 py-1">
-        {Array.from({ length: 5 }).map((_, index) => (
-          <Skeleton
-            key={`skeleton-${index}`}
-            className="h-19.5 w-full rounded-xl"
-          />
-        ))}
+              {Array.from({ length: 5 }).map((_, index) => (
+        <div
+          key={`skeleton-${index}`}
+          className="rounded-xl px-3 py-2.5"
+        >
+          <div className="space-y-2">
+            <Skeleton
+              className={`h-3 rounded ${index % 2 === 0 ? "w-3/4" : "w-2/3"}`}
+            />
+            <Skeleton
+              className={`h-2.5 rounded ${index % 3 === 0 ? "w-1/2" : "w-2/5"}`}
+            />
+          </div>
+        </div>
+      ))}
       </div>
     );
   }

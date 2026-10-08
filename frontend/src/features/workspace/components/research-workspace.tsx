@@ -212,7 +212,7 @@ export function ResearchWorkspace({
     >
       <div
         data-testid="workspace-chat-pane"
-        className="flex h-full min-w-0 flex-1 flex-col overflow-hidden"
+        className="flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-background"
         style={{
           minWidth: !isNarrow
             ? `${WORKSPACE_CHAT_MIN_WIDTH}px`
@@ -221,15 +221,15 @@ export function ResearchWorkspace({
       >
         <div
           data-testid="research-workspace-context"
-          className="shrink-0 border-b border-border bg-background px-4 py-2.5 sm:px-5"
+          className="shrink-0 border-b border-border/80 bg-background/95 px-4 py-3 backdrop-blur-sm sm:px-5"
         >
           <div className="mx-auto flex w-full max-w-3xl items-center gap-3">
-            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-primary/10 bg-primary/10 text-primary">
               <FileText className="size-4" aria-hidden="true" />
             </div>
 
             <div className="min-w-0 flex-1">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-primary/70">
                 Researching
               </p>
 

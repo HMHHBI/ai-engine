@@ -102,4 +102,21 @@ describe("DocumentWorkspace", () => {
     fireEvent.keyDown(window, { key: "Escape" });
     expect(onClose).toHaveBeenCalled();
   });
+  it("renders shared skeleton primitives while documents are loading", () => {
+    vi.mocked(documentApi.listForChat).mockReturnValueOnce(
+      new Promise(() => {}),
+    );
+
+    render(
+      <DocumentWorkspace
+        chatId={10}
+        isOpen={true}
+        onClose={vi.fn()}
+      />,
+    );
+
+    const loading = screen.getByTestId("document-loading-skeleton");
+    expect(loading).toBeInTheDocument();
+    expect(loading.querySelectorAll('[class*="animate-pulse"]')).toHaveLength(3);
+  });
 });
