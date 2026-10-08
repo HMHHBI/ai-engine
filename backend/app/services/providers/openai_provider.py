@@ -82,6 +82,31 @@ class OpenAIProvider(BaseLLMProvider):
         }
 
     @staticmethod
+    def _normalize_history(
+        history: Optional[List[Dict[str, str]]],
+    ) -> List[Dict[str, str]]:
+        normalized: List[Dict[str, str]] = []
+
+        for message in history or []:
+            role = str(message.get("role", "")).strip().lower()
+            content = str(message.get("content", "")).strip()
+
+            if not content:
+                continue
+
+            if role not in {"user", "assistant", "system"}:
+                continue
+
+            normalized.append(
+                {
+                    "role": role,
+                    "content": content,
+                }
+            )
+
+        return normalized
+
+    @staticmethod
     def _build_messages(
         prompt: str,
         system_prompt: Optional[str],
@@ -98,7 +123,7 @@ class OpenAIProvider(BaseLLMProvider):
             )
 
         if history:
-            messages.extend(history)
+            messages.extend(OpenAIProvider._normalize_history(history))
 
         messages.append(
             {

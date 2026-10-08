@@ -103,6 +103,126 @@ PERSONA_PROMPTS: dict[str, str] = {
 RERANK_INITIAL_K = 20
 RERANK_FINAL_K = 6
 
+MAX_HISTORY_TURNS = 8
+MAX_HISTORY_MESSAGES = 16
+MAX_HISTORY_CHARS = 12_000
+MAX_HISTORY_MESSAGE_CHARS = 4_000
+MAX_RETRIEVAL_HISTORY_CHARS = 6_000
+
+
+def _normalize_history_role(role: str) -> str | None:
+    normalized = role.strip().lower()
+
+    if normalized == "user":
+        return "user"
+
+    if normalized in {"ai", "assistant"}:
+        return "assistant"
+
+    if normalized == "system":
+        return "system"
+
+    return None
+
+
+def _build_provider_history(
+    messages: list[Any],
+    current_message_id: int,
+) -> list[dict[str, str]]:
+    candidates: list[dict[str, str]] = []
+
+    for message in messages:
+        if message.id == current_message_id:
+            continue
+
+        role = _normalize_history_role(str(message.role))
+        if role is None:
+            continue
+
+        content = str(message.content or "").strip()
+        if not content:
+            continue
+
+        content = content[:MAX_HISTORY_MESSAGE_CHARS]
+
+        candidates.append(
+            {
+                "role": role,
+                "content": content,
+            }
+        )
+
+    selected: list[dict[str, str]] = []
+    total_chars = 0
+
+    for message in reversed(candidates):
+        message_chars = len(message["content"])
+
+        if selected and total_chars + message_chars > MAX_HISTORY_CHARS:
+            break
+
+        if not selected and message_chars > MAX_HISTORY_CHARS:
+            message = {
+                "role": message["role"],
+                "content": message["content"][:MAX_HISTORY_CHARS],
+            }
+            message_chars = len(message["content"])
+
+        selected.append(message)
+        total_chars += message_chars
+
+        if len(selected) >= MAX_HISTORY_MESSAGES:
+            break
+
+    selected.reverse()
+
+    return selected
+
+
+def _build_retrieval_query(
+    current_prompt: str,
+    history: list[dict[str, str]],
+) -> str:
+    recent_history = history[-4:]
+
+    selected: list[dict[str, str]] = []
+    total_chars = 0
+
+    for message in reversed(recent_history):
+        content = message["content"]
+        remaining = MAX_RETRIEVAL_HISTORY_CHARS - total_chars
+
+        if remaining <= 0:
+            break
+
+        if len(content) > remaining:
+            content = content[-remaining:]
+
+        selected.append(
+            {
+                "role": message["role"],
+                "content": content,
+            }
+        )
+        total_chars += len(content)
+
+    selected.reverse()
+
+    if not selected:
+        return current_prompt
+
+    history_context = "\n".join(
+        f"{message['role'].upper()}: {message['content']}"
+        for message in selected
+    )
+
+    return (
+        "Previous conversation context:\n"
+        f"{history_context}\n\n"
+        "Current user question:\n"
+        f"{current_prompt}"
+    )
+
 
 def _build_rerank_candidates(
     chunks: list[dict[str, Any]],
@@ -751,6 +871,18 @@ async def _execute_ai_stream(
             detail="Chat not found.",
         )
 
+    history_messages = await asyncio.to_thread(
+        ChatRepository.get_history,
+        chat_id=req.chat_id,
+        user_id=current_user.id,
+        limit=MAX_HISTORY_MESSAGES + 1,
+    )
+
+    conversation_history = _build_provider_history(
+        history_messages,
+        current_message_id=prepared_message.id,
+    )
+
     active_document = None
     if chat.pdf_context:
         if req.document_id is not None:
@@ -814,8 +946,13 @@ async def _execute_ai_stream(
                     else req.chat_id
                 )
 
-                query_vector = await EmbeddingService.generate_embedding(
+                retrieval_query = _build_retrieval_query(
                     clean_prompt,
+                    conversation_history,
+                )
+
+                query_vector = await EmbeddingService.generate_embedding(
+                    retrieval_query,
                     model_provider=embedding_provider.value,
                 )
 
@@ -830,7 +967,7 @@ async def _execute_ai_stream(
                         VectorRepository.search_hybrid_chunks,
                         user_id=current_user.id,
                         document_id=doc_id,
-                        query_text=req.prompt,
+                        query_text=retrieval_query,
                         query_vector=query_vector,
                         top_k=retrieval_top_k,
                         max_distance=0.70,
@@ -1005,6 +1142,7 @@ async def _execute_ai_stream(
             async for token in provider.generate_stream(
                 prompt=clean_prompt,
                 system_prompt=system_prompt,
+                history=conversation_history,
             ):
                 elapsed_stream_s = time.monotonic() - stream_started_at
                 if elapsed_stream_s > settings.AI_STREAM_MAX_DURATION_SECONDS:
