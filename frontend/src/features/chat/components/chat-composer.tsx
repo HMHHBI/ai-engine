@@ -297,7 +297,7 @@ export function ChatComposer({ chatId, model, provider, documentId }: ChatCompos
           className={cn(
             "relative overflow-hidden rounded-2xl border border-border bg-card",
             "shadow-sm transition-colors",
-            "focus-within:border-ring",
+            "focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/40",
           )}
         >
           <ImageAttachmentList
@@ -447,7 +447,7 @@ export function ChatComposer({ chatId, model, provider, documentId }: ChatCompos
         </div>
 
         <p className="mt-2 text-center text-xs text-muted-foreground">
-          Enter to send · Shift + Enter for a new line
+          Enter to send · Shift + Enter for a new line · ⌘K / Ctrl+K to focus
         </p>
       </div>
     </div>

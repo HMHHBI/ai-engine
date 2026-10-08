@@ -42,6 +42,7 @@ export function AppSidebar({
   const user = useAuthStore((state) => state.user);
   const [isCreatingChat, setIsCreatingChat] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const settingsButtonRef = useRef<HTMLButtonElement>(null);
 
   const sidebarRef = useRef<HTMLElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -316,10 +317,15 @@ export function AppSidebar({
           </div>
         </div>
       </aside>
-      <UserProfileModal
-        open={profileOpen}
-        onClose={() => setProfileOpen(false)}
-      />
+      {profileOpen && (
+        <UserProfileModal
+          open={true}
+          onClose={() => {
+            setProfileOpen(false);
+            settingsButtonRef.current?.focus();
+          }}
+        />
+      )}
     </>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { X } from "lucide-react";
 
 import { useAuthStore } from "@/features/auth";
@@ -27,27 +27,13 @@ export function UserProfileModal({
 
   const [name, setName] = useState(() => user?.full_name || user?.name || "");
   const [usage, setUsage] = useState<UserUsage | null>(null);
-  const [loadingUsage, setLoadingUsage] = useState(false);
+  const [loadingUsage, setLoadingUsage] = useState(true);
   const [saving, setSaving] = useState(false);
   const [loadingProfile, setLoadingProfile] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setName(user?.full_name || user?.name || "");
-  }, [user]);
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
+    useEffect(() => {
     let cancelled = false;
-
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setUsage(null);
-    setError(null);
-    setLoadingUsage(true);
 
     async function fetchUsage() {
       try {
@@ -73,25 +59,50 @@ export function UserProfileModal({
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, []);
+
+  const modalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!open) {
-      return;
+    const modal = modalRef.current;
+    if (!modal) return;
+
+    const focusable = modal.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    if (focusable.length > 0) {
+      focusable[0].focus();
     }
 
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape" && !saving) {
-        onClose();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        if (!saving) {
+          onClose();
+        }
+        return;
+      }
+
+      if (event.key === "Tab") {
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
       }
     }
 
     document.addEventListener("keydown", handleKeyDown);
-
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [open, onClose, saving]);
+  }, [onClose, saving]);
 
   async function handleSave() {
     const normalizedName = name.trim();
@@ -148,6 +159,7 @@ export function UserProfileModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="account-title"
+        ref={modalRef}
         className="absolute left-1/2 top-1/2 w-[min(92vw,32rem)] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-xl border border-border bg-background shadow-2xl"
       >
         <div className="flex items-center justify-between border-b border-border px-5 py-4">

@@ -109,4 +109,11 @@ describe("ChatSettingsDrawer", () => {
       expect(screen.getByText("Unable to save chat settings.")).toBeDefined();
     });
   });
+  it("calls onClose when Escape key is pressed", () => {
+    const onClose = vi.fn();
+    render(<ChatSettingsDrawer chatId={chatId} open={true} onClose={onClose} />);
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });
