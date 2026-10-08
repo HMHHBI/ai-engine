@@ -4,6 +4,7 @@ import { Bot, User } from "lucide-react";
 
 import { CitationSources } from "@/features/chat/components/citation-sources";
 import { CopyButton } from "@/features/chat/components/copy-button";
+import { MarkdownMessage } from "@/features/chat/components/markdown-message";
 import type { ChatMessage, RetrievedSource } from "@/types/api";
 import { cn } from "@/lib/utils";
 
@@ -74,15 +75,23 @@ export function MessageBubble({
               : "border border-zinc-800 bg-zinc-900 text-zinc-100",
           )}
         >
-          <div className="min-w-0 break-word whitespace-pre-wrap">
-            {content}
-            {!isUser && isStreaming && (
-              <span
-                className="ml-1 inline-block h-3.5 w-1 animate-pulse rounded-sm bg-current align-[-2px] sm:h-4"
-                aria-hidden="true"
-              />
-            )}
-          </div>
+          {isUser ? (
+            <div className="min-w-0 break-word whitespace-pre-wrap">
+              {content}
+            </div>
+          ) : (
+            <MarkdownMessage
+              content={content}
+              isStreaming={isStreaming}
+            />
+          )}
+
+          {!isUser && isStreaming && (
+            <span
+              className="ml-1 inline-block h-3.5 w-1 animate-pulse rounded-sm bg-current align-[-2px] sm:h-4"
+              aria-hidden="true"
+            />
+          )}
         </div>
 
         {!isUser && !isStreaming && message.sources?.length ? (

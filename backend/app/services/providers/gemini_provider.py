@@ -67,33 +67,48 @@ class GeminiProvider(BaseLLMProvider):
         )
 
     @staticmethod
-    def _format_contents(
+    def _build_contents(
         prompt: str,
-        system_prompt: Optional[str] = None,
         history: Optional[List[Dict[str, str]]] = None,
-    ) -> str:
-        full_text = ""
+    ) -> list[types.Content]:
+        contents: list[types.Content] = []
 
-        if system_prompt:
-            full_text += f"System Instruction:\n" f"{system_prompt}\n\n"
+        for message in history or []:
+            role = str(message.get("role", "")).strip().lower()
+            text = str(message.get("content", "")).strip()
 
-        if history:
-            for msg in history:
-                role = msg.get(
-                    "role",
-                    "user",
+            if not text:
+                continue
+
+            if role == "user":
+                contents.append(
+                    types.Content(
+                        role="user",
+                        parts=[
+                            types.Part(text=text),
+                        ],
+                    )
                 )
-                text = msg.get(
-                    "content",
-                    msg.get("text", ""),
+            elif role in {"assistant", "model"}:
+                contents.append(
+                    types.Content(
+                        role="model",
+                        parts=[
+                            types.Part(text=text),
+                        ],
+                    )
                 )
 
-                full_text += f"{role.capitalize()}: " f"{text}\n"
+        contents.append(
+            types.Content(
+                role="user",
+                parts=[
+                    types.Part(text=prompt),
+                ],
+            )
+        )
 
-        full_text += f"User: {prompt}"
-
-        return full_text
-
+        return contents
     def _require_client(self):
         if not self.client:
             raise AIProviderConfigurationError("Gemini provider is not configured.")
@@ -147,9 +162,8 @@ class GeminiProvider(BaseLLMProvider):
     ) -> str:
         client = self._require_client()
 
-        contents = self._format_contents(
+        contents = self._build_contents(
             prompt,
-            system_prompt,
             history,
         )
 
@@ -160,6 +174,7 @@ class GeminiProvider(BaseLLMProvider):
 
         config = types.GenerateContentConfig(
             temperature=temperature,
+            system_instruction=system_prompt or None,
         )
 
         try:
@@ -215,9 +230,8 @@ class GeminiProvider(BaseLLMProvider):
     ) -> AsyncGenerator[str, None]:
         client = self._require_client()
 
-        contents = self._format_contents(
+        contents = self._build_contents(
             prompt,
-            system_prompt,
             history,
         )
 
@@ -261,6 +275,7 @@ class GeminiProvider(BaseLLMProvider):
 
         config = types.GenerateContentConfig(
             temperature=temperature,
+            system_instruction=system_prompt or None,
         )
 
         worker_thread: threading.Thread | None = None

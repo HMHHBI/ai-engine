@@ -70,6 +70,31 @@ class OllamaProvider(BaseLLMProvider):
         )
 
     @staticmethod
+    def _normalize_history(
+        history: Optional[List[Dict[str, str]]],
+    ) -> list[dict[str, str]]:
+        normalized: list[dict[str, str]] = []
+
+        for message in history or []:
+            role = str(message.get("role", "")).strip().lower()
+            content = str(message.get("content", "")).strip()
+
+            if role not in {"user", "assistant", "system"}:
+                continue
+
+            if not content:
+                continue
+
+            normalized.append(
+                {
+                    "role": role,
+                    "content": content,
+                }
+            )
+
+        return normalized
+
+    @staticmethod
     def _build_messages(
         prompt: str,
         system_prompt: Optional[str],
@@ -86,7 +111,7 @@ class OllamaProvider(BaseLLMProvider):
             )
 
         if history:
-            messages.extend(history)
+            messages.extend(OllamaProvider._normalize_history(history))
 
         messages.append(
             {
