@@ -1,5 +1,7 @@
 "use client";
 
+import { Skeleton } from "@/components/feedback/skeleton";
+
 import React, {
   useEffect,
   useMemo,
@@ -350,15 +352,15 @@ export function DocumentWorkspace({
           )}
 
           {isLoading ? (
-            <div
-              className="space-y-3"
-              data-testid="document-loading-skeleton"
-            >
-              <div className="h-16 animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-900" />
-              <div className="h-16 animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-900" />
-              <div className="h-16 animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-900" />
-            </div>
-          ) : documents.length === 0 ? (
+          <div
+            className="space-y-3"
+            data-testid="document-loading-skeleton"
+          >
+            <Skeleton className="h-16 w-full rounded-xl" />
+            <Skeleton className="h-16 w-full rounded-xl" />
+            <Skeleton className="h-16 w-full rounded-xl" />
+          </div>
+        ) : documents.length === 0 ? (
             <DocumentEmptyState />
           ) : (
             <DocumentList

@@ -1,6 +1,9 @@
+import "@testing-library/jest-dom";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { AppShell } from "./app-shell";
+
+let shouldSuspendWorkspace = false;
 
 // Mock child components to keep the unit test lightweight and isolated
 vi.mock("@/components/layout/app-sidebar", () => ({
@@ -16,11 +19,16 @@ vi.mock("@/components/layout/app-header", () => ({
 }));
 
 vi.mock("@/features/workspace/components/workspace-controller", () => ({
-  WorkspaceController: () => (
-    <div>
-      <textarea data-chat-composer="true" data-testid="composer" />
-    </div>
-  ),
+  WorkspaceController: () => {
+    if (shouldSuspendWorkspace) {
+      throw new Promise(() => {});
+    }
+    return (
+      <div data-testid="workspace-controller">
+        <textarea data-chat-composer="true" data-testid="composer" />
+      </div>
+    );
+  },
 }));
 
 vi.mock("next/navigation", () => ({
@@ -30,7 +38,7 @@ vi.mock("next/navigation", () => ({
   useParams: () => ({ chatId: "1" }),
 }));
 
-describe("AppShell Global Keyboard Shortcuts", () => {
+describe("AppShell Global Keyboard Shortcuts & Shell Integration", () => {
   it("toggles sidebar on Ctrl+B / Cmd+B", () => {
     render(<AppShell />);
 
@@ -69,5 +77,25 @@ describe("AppShell Global Keyboard Shortcuts", () => {
     fireEvent.keyDown(window, { key: "k", ctrlKey: true });
     expect(focusSpy).toHaveBeenCalledTimes(2);
     expect(document.activeElement).toBe(composer);
+  });
+
+  it("renders the workspace controller inside the application shell", () => {
+    render(<AppShell />);
+
+    expect(screen.getByTestId("workspace-controller")).toBeInTheDocument();
+    expect(screen.getByTestId("composer")).toBeInTheDocument();
+  });
+
+  it("renders WorkspaceSkeleton while the workspace controller is suspended", () => {
+    shouldSuspendWorkspace = true;
+
+    try {
+      render(<AppShell />);
+
+      expect(screen.getByTestId("workspace-skeleton")).toBeInTheDocument();
+      expect(screen.queryByTestId("workspace-controller")).not.toBeInTheDocument();
+    } finally {
+      shouldSuspendWorkspace = false;
+    }
   });
 });

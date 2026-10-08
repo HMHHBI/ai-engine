@@ -4,7 +4,7 @@ import { Suspense, useRef, useState, useEffect } from "react";
 
 import { AppHeader } from "@/components/layout/app-header";
 import { AppSidebar } from "@/components/layout/app-sidebar";
-import { ChatArea } from "@/features/chat/components/chat-area";
+import { WorkspaceSkeleton } from "@/features/workspace/components/workspace-skeleton";
 import { WorkspaceController } from "@/features/workspace/components/workspace-controller";
 
 export function AppShell() {
@@ -66,7 +66,7 @@ export function AppShell() {
           onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
         />
 
-        <Suspense fallback={<ChatArea />}>
+        <Suspense fallback={<WorkspaceSkeleton />}>
           <WorkspaceController />
         </Suspense>
       </main>
