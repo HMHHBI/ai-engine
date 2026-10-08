@@ -77,7 +77,7 @@ tqdm==4.67.3
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 uritemplate==4.2.0
-urllib3==2.7.0
+urllib3==2.8.0
 uvicorn==0.45.0
 websockets==16.0
 psutil==7.0.0
