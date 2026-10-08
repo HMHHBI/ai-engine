@@ -2,7 +2,11 @@ import { Skeleton } from "@/components/feedback/skeleton";
 
 export function MessageSkeleton() {
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 py-6 sm:px-6">
+    <div
+      data-testid="message-skeleton"
+      aria-hidden="true"
+      className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 py-6 sm:px-6"
+    >
       <div className="flex justify-end">
         <div className="flex max-w-[72%] flex-col items-end gap-2">
           <Skeleton className="h-4 w-32 rounded-full" />

@@ -352,15 +352,15 @@ export function DocumentWorkspace({
           )}
 
           {isLoading ? (
-            <div
-          className="space-y-3"
-          data-testid="document-loading-skeleton"
-        >
-          <Skeleton className="h-16 w-full rounded-xl" />
-          <Skeleton className="h-16 w-full rounded-xl" />
-          <Skeleton className="h-16 w-full rounded-xl" />
-        </div>
-          ) : documents.length === 0 ? (
+          <div
+            className="space-y-3"
+            data-testid="document-loading-skeleton"
+          >
+            <Skeleton className="h-16 w-full rounded-xl" />
+            <Skeleton className="h-16 w-full rounded-xl" />
+            <Skeleton className="h-16 w-full rounded-xl" />
+          </div>
+        ) : documents.length === 0 ? (
             <DocumentEmptyState />
           ) : (
             <DocumentList
