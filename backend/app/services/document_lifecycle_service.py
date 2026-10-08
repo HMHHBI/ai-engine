@@ -57,6 +57,16 @@ class DocumentLifecycleService:
             )
 
     @staticmethod
+    def is_cancel_requested(
+        *,
+        job_id: int,
+        worker_id: str,
+    ) -> bool:
+        with session_scope() as db:
+            repo = DocumentJobRepository(db)
+            return repo.is_cancel_requested(job_id=job_id, worker_id=worker_id)
+
+    @staticmethod
     def claim_job(
         *,
         job_id: int,

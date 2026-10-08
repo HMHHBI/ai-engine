@@ -76,6 +76,25 @@ class DocumentJobRepository:
             .first()
         )
 
+
+    def is_cancel_requested(
+        self,
+        job_id: int,
+        worker_id: str,
+    ) -> bool:
+        job = self.get_by_id(job_id)
+        if not job:
+            raise ValueError(f"Job {job_id} not found")
+        if job.status == DocumentJobStatus.CANCELLED.value:
+            return True
+        if job.status != DocumentJobStatus.PROCESSING.value:
+            return False
+        if job.worker_id != worker_id:
+            raise DocumentJobOwnershipError(
+                f"Worker {worker_id} does not own active lease on job {job_id} (owned by {job.worker_id})"
+            )
+        return job.cancel_requested_at is not None
+
     def get_by_idempotency_key(self, idempotency_key: str) -> Optional[DocumentJob]:
         return (
             self.db.query(DocumentJob)
