@@ -340,6 +340,53 @@ class DocumentJobRepository:
             attempt=attempt,
         )
 
+    def transition_to_cancelled(
+        self,
+        job_id: int,
+        worker_id: Optional[str] = None,
+        attempt: Optional[int] = None,
+        error_message: Optional[str] = None,
+    ) -> DocumentJob:
+        job = (
+            self.db.query(DocumentJob)
+            .filter(DocumentJob.id == job_id)
+            .with_for_update()
+            .first()
+        )
+        if not job:
+            raise ValueError(f"Job {job_id} not found")
+
+        if job.status == DocumentJobStatus.CANCELLED.value:
+            return job
+
+        if job.status not in (
+            DocumentJobStatus.QUEUED.value,
+            DocumentJobStatus.PROCESSING.value,
+        ):
+            raise DocumentJobTransitionError(
+                f"Cannot transition job {job_id} to CANCELLED from {job.status}"
+            )
+
+        if worker_id is not None and job.worker_id is not None and job.worker_id != worker_id:
+            raise DocumentJobOwnershipError(
+                f"Worker {worker_id} does not own active lease on job {job_id} (owned by {job.worker_id})"
+            )
+
+        if attempt is not None and job.attempt != attempt:
+            raise DocumentJobOwnershipError(
+                f"Attempt {attempt} does not match current attempt {job.attempt} on job {job_id}"
+            )
+
+        job.status = DocumentJobStatus.CANCELLED.value
+        job.worker_id = None
+        job.heartbeat_at = None
+        if error_message:
+            job.error_message = (error_message or "").strip()[:MAX_ERROR_MESSAGE_LENGTH]
+        job.finished_at = datetime.now(timezone.utc)
+        self.db.commit()
+        self.db.refresh(job)
+        return job
+
     def mark_cancelled(
         self,
         job_id: int,

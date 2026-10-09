@@ -200,6 +200,13 @@ class DocumentLifecycleService:
                     worker_id=worker_id,
                     attempt=attempt,
                 )
+            elif job_terminal_status == "cancelled":
+                job_repo.transition_to_cancelled(
+                    job_id=job_id,
+                    worker_id=worker_id,
+                    attempt=attempt,
+                    error_message=error_message or "Document processing was cancelled.",
+                )
 
     @classmethod
     async def process_job(
