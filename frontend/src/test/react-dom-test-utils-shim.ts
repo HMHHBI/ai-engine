@@ -1,2 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-require-imports */
 export { act } from "react";
-export default { act: (...args: any[]) => (require("react").act || ((cb: any) => cb()))(...args) };
+const shim = { act: (...args: any[]) => (require("react").act || ((cb: any) => cb()))(...args) };
+export default shim;
