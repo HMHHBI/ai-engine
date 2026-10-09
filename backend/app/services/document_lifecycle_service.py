@@ -1,43 +1,33 @@
 from __future__ import annotations
+from datetime import datetime, timezone
 
 import asyncio
 import io
 import logging
 import uuid
-from typing import Any
+from typing import Any, Optional
 
 from app.core.config import EmbeddingProvider
+from app.db.models import Document, DocumentJob, DocumentJobStatus
 from app.db.session import session_scope
 from app.repositories.document_job_repo import (
+    DocumentJobOwnershipError,
     DocumentJobRepository,
     DocumentJobTransitionError,
 )
 from app.repositories.document_repo import DocumentRepository
 from app.services.document_ingestion_service import DocumentIngestionService
-from app.utils.pdf_extractor import PDFExtractionError, PDFPage, extract_text_from_pdf
 from app.storage import get_storage_backend
+from app.utils.pdf_extractor import (
+    PDFExtractionError,
+    PDFPage,
+    extract_text_from_pdf,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class DocumentLifecycleService:
-    """
-    Coordinates the first-class document lifecycle.
-
-    The Document row records the user-visible lifecycle stage while the
-    existing DocumentJob row records durable execution state.
-
-    User-visible lifecycle:
-        uploading -> extracting -> indexing -> ready
-                                      \
-                                       -> failed
-
-    DocumentJob lifecycle:
-        queued -> processing -> ready
-                              \
-                               -> failed
-    """
-
     @staticmethod
     def create_job(
         *,
@@ -47,13 +37,25 @@ class DocumentLifecycleService:
         idempotency_key = (
             f"document:{document_id}:ingestion:{uuid.uuid4().hex}"
         )
-
         with session_scope() as db:
-            repository = DocumentJobRepository(db)
-            return repository.create(
+            repo = DocumentJobRepository(db)
+            return repo.create(
                 document_id=document_id,
                 user_id=user_id,
                 idempotency_key=idempotency_key,
+            )
+
+    @staticmethod
+    def claim_job(
+        *,
+        job_id: int,
+        worker_id: str,
+    ):
+        with session_scope() as db:
+            repo = DocumentJobRepository(db)
+            return repo.transition_to_processing(
+                job_id=job_id,
+                worker_id=worker_id,
             )
 
     @staticmethod
@@ -66,34 +68,111 @@ class DocumentLifecycleService:
             repo = DocumentJobRepository(db)
             return repo.is_cancel_requested(job_id=job_id, worker_id=worker_id)
 
-    @staticmethod
-    def claim_job(
+    @classmethod
+    def fail_queued_dispatch(
+        cls,
         *,
-        job_id: int,
-        worker_id: str,
-    ):
-        with session_scope() as db:
-            repository = DocumentJobRepository(db)
-            return repository.transition_to_processing(
-                job_id=job_id,
-                worker_id=worker_id,
-            )
-
-    @staticmethod
-    def mark_job_ready(job_id: int) -> None:
-        with session_scope() as db:
-            DocumentJobRepository(db).mark_ready(job_id)
-
-    @staticmethod
-    def mark_job_failed(
+        document_id: int,
+        user_id: int,
         job_id: int,
         error_message: str,
     ) -> None:
+        """
+        Atomically mark still-queued job and document as failed if enqueue fails.
+        Does not overwrite if worker already claimed the job.
+        """
         with session_scope() as db:
-            DocumentJobRepository(db).mark_failed(
-                job_id,
-                error_message,
+            job_repo = DocumentJobRepository(db)
+            failed_job = job_repo.fail_queued(job_id=job_id, error_message=error_message)
+            if failed_job and failed_job.status == DocumentJobStatus.FAILED.value:
+                DocumentRepository.update_status(
+                    document_id=document_id,
+                    user_id=user_id,
+                    status="failed",
+                    error_message=error_message,
+                )
+
+    @staticmethod
+    def mark_job_ready(
+        job_id: int,
+        worker_id: Optional[str] = None,
+        attempt: Optional[int] = None,
+    ) -> None:
+        with session_scope() as db:
+            repo = DocumentJobRepository(db)
+            repo.transition_to_ready(job_id=job_id, worker_id=worker_id, attempt=attempt)
+
+    @staticmethod
+    def mark_job_failed(
+        *,
+        job_id: int,
+        error_message: str,
+        worker_id: Optional[str] = None,
+        attempt: Optional[int] = None,
+    ) -> None:
+        with session_scope() as db:
+            repo = DocumentJobRepository(db)
+            repo.transition_to_failed(
+                job_id=job_id,
+                error_message=error_message,
+                worker_id=worker_id,
+                attempt=attempt,
             )
+
+    @classmethod
+    def _atomic_transition(
+        cls,
+        *,
+        job_id: int,
+        document_id: int,
+        user_id: int,
+        worker_id: str,
+        attempt: int,
+        document_status: str,
+        job_terminal_status: Optional[str] = None,
+        error_message: Optional[str] = None,
+        page_count: Optional[int] = None,
+    ) -> None:
+        with session_scope() as db:
+            job = (
+                db.query(DocumentJob)
+                .filter(DocumentJob.id == job_id)
+                .with_for_update()
+                .first()
+            )
+            if not job:
+                raise ValueError(f"Job {job_id} not found")
+
+            # Check fence
+            if job.worker_id != worker_id or job.attempt != attempt:
+                raise DocumentJobOwnershipError(
+                    f"Worker {worker_id} (attempt {attempt}) lost lease on job {job_id} (currently owned by {job.worker_id} attempt {job.attempt})"
+                )
+
+            # Update Document in same transaction
+            doc = (
+                db.query(Document)
+                .filter(Document.id == document_id, Document.user_id == user_id)
+                .with_for_update()
+                .first()
+            )
+            if doc:
+                doc.status = document_status
+                if error_message is not None:
+                    doc.error_message = error_message[:4000]
+                if page_count is not None:
+                    doc.page_count = page_count
+
+            # Update Job if terminal
+            if job_terminal_status == "ready":
+                job.status = DocumentJobStatus.READY.value
+                job.finished_at = datetime.now(timezone.utc)
+            elif job_terminal_status == "failed":
+                job.status = DocumentJobStatus.FAILED.value
+                job.error_message = (error_message or "")[:4000]
+                job.finished_at = datetime.now(timezone.utc)
+
+            db.commit()
 
     @staticmethod
     def _read_storage(storage_key: str) -> bytes:
@@ -106,32 +185,25 @@ class DocumentLifecycleService:
             if hasattr(stream, "close"):
                 stream.close()
 
+
     @staticmethod
     def _extract_pages(
         *,
-        content: bytes,
+        file_bytes: bytes,
         filename: str,
         mime_type: str,
     ) -> list[PDFPage]:
-        is_pdf = (
-            mime_type.lower() == "application/pdf"
-            or filename.lower().endswith(".pdf")
-        )
-
-        if is_pdf:
+        if mime_type == "application/pdf" or filename.lower().endswith(".pdf"):
             try:
-                return extract_text_from_pdf(content)
+                return extract_text_from_pdf(file_bytes)
             except PDFExtractionError:
                 raise
+            except Exception as e:
+                raise PDFExtractionError(f"Unexpected extraction failure: {e}") from e
 
-        try:
-            text = content.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise ValueError("Text document must be valid UTF-8.") from exc
-
+        text = file_bytes.decode("utf-8", errors="replace")
         if not text.strip():
             raise ValueError("Document is empty or contains no readable text.")
-
         return [PDFPage(page_number=1, text=text)]
 
     @classmethod
@@ -144,6 +216,7 @@ class DocumentLifecycleService:
         embedding_provider: EmbeddingProvider,
         content: bytes | None = None,
         worker_id: str = "api-document-worker",
+        claimed_job: Any = None,
     ) -> dict[str, Any]:
         document = await asyncio.to_thread(
             DocumentRepository.get_owned_document,
@@ -153,22 +226,33 @@ class DocumentLifecycleService:
 
         if document is None:
             raise ValueError("Document not found or unauthorized.")
-
         if not document.storage_key:
             raise ValueError("Document has no durable storage object.")
 
-        try:
-            await asyncio.to_thread(
+        if claimed_job is None:
+            claimed_job = await asyncio.to_thread(
                 cls.claim_job,
                 job_id=job_id,
                 worker_id=worker_id,
             )
+        attempt = claimed_job.attempt
 
+        try:
+            # 1. Transition to extracting
             await asyncio.to_thread(
                 DocumentRepository.update_status,
                 document_id=document_id,
                 user_id=user_id,
                 status="extracting",
+            )
+            await asyncio.to_thread(
+                cls._atomic_transition,
+                job_id=job_id,
+                document_id=document_id,
+                user_id=user_id,
+                worker_id=worker_id,
+                attempt=attempt,
+                document_status="extracting",
             )
 
             if content is None:
@@ -179,25 +263,30 @@ class DocumentLifecycleService:
 
             pages = await asyncio.to_thread(
                 cls._extract_pages,
-                content=content,
+                file_bytes=content,
                 filename=document.filename,
                 mime_type=document.mime_type,
             )
 
-            await asyncio.to_thread(
-                DocumentRepository.update_metadata,
-                document_id=document_id,
-                user_id=user_id,
-                page_count=len(pages),
-            )
-
+            # 2. Transition to indexing
             await asyncio.to_thread(
                 DocumentRepository.update_status,
                 document_id=document_id,
                 user_id=user_id,
                 status="indexing",
             )
+            await asyncio.to_thread(
+                cls._atomic_transition,
+                job_id=job_id,
+                document_id=document_id,
+                user_id=user_id,
+                worker_id=worker_id,
+                attempt=attempt,
+                document_status="indexing",
+                page_count=len(pages),
+            )
 
+            # 3. Vector Ingestion
             result = await DocumentIngestionService.ingest(
                 user_id=user_id,
                 document_id=document_id,
@@ -205,41 +294,42 @@ class DocumentLifecycleService:
                 embedding_provider=embedding_provider,
             )
 
+            # 4. Atomic terminal READY
             await asyncio.to_thread(
                 DocumentRepository.update_status,
                 document_id=document_id,
                 user_id=user_id,
                 status="ready",
             )
-
             await asyncio.to_thread(
-                cls.mark_job_ready,
-                job_id,
+                cls._atomic_transition,
+                job_id=job_id,
+                document_id=document_id,
+                user_id=user_id,
+                worker_id=worker_id,
+                attempt=attempt,
+                document_status="ready",
+                job_terminal_status="ready",
             )
 
             return result
 
         except asyncio.CancelledError:
             await asyncio.to_thread(
-                cls.mark_job_failed,
-                job_id,
-                "Document processing was cancelled.",
-            )
-            await asyncio.to_thread(
-                DocumentRepository.update_status,
+                cls._atomic_transition,
+                job_id=job_id,
                 document_id=document_id,
                 user_id=user_id,
-                status="failed",
+                worker_id=worker_id,
+                attempt=attempt,
+                document_status="failed",
+                job_terminal_status="failed",
                 error_message="Document processing was cancelled.",
             )
             raise
 
         except Exception as exc:
-            message = (
-                str(exc).strip()
-                or "Document ingestion failed."
-            )
-
+            message = str(exc).strip() or "Document ingestion failed."
             logger.exception(
                 "document_ingestion_failed",
                 extra={
@@ -247,9 +337,10 @@ class DocumentLifecycleService:
                     "document_id": document_id,
                     "user_id": user_id,
                     "job_id": job_id,
+                    "worker_id": worker_id,
+                    "attempt": attempt,
                 },
             )
-
             try:
                 await asyncio.to_thread(
                     DocumentRepository.update_status,
@@ -258,11 +349,19 @@ class DocumentLifecycleService:
                     status="failed",
                     error_message=message[:4000],
                 )
-            finally:
                 await asyncio.to_thread(
-                    cls.mark_job_failed,
-                    job_id,
-                    message,
+                    cls._atomic_transition,
+                    job_id=job_id,
+                    document_id=document_id,
+                    user_id=user_id,
+                    worker_id=worker_id,
+                    attempt=attempt,
+                    document_status="failed",
+                    job_terminal_status="failed",
+                    error_message=message[:4000],
                 )
-
+            except DocumentJobOwnershipError:
+                logger.warning(
+                    f"Stale worker {worker_id} suppressed from writing failed terminal state for job {job_id}"
+                )
             raise

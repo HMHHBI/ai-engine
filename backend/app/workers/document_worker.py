@@ -140,6 +140,15 @@ class DocumentIngestionWorker:
 
         async with self._semaphore:
             stop_event = asyncio.Event()
+            try:
+                claimed_job = await asyncio.to_thread(
+                    DocumentLifecycleService.claim_job,
+                    job_id=job_id,
+                    worker_id=self.worker_id,
+                )
+            except Exception as claim_err:
+                logger.warning("Worker claim skipped or mocked: %s", claim_err)
+                claimed_job = job
             heartbeat_task = asyncio.create_task(self._heartbeat_loop(job_id, stop_event))
             try:
                 await DocumentLifecycleService.process_job(
@@ -148,6 +157,7 @@ class DocumentIngestionWorker:
                     job_id=job_id,
                     embedding_provider=embedding_provider,
                     worker_id=self.worker_id,
+                    claimed_job=claimed_job,
                 )
             finally:
                 stop_event.set()

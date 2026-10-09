@@ -54,10 +54,18 @@ function normalizeLifecycleResponse(
 }
 
 export const documentApi = {
-  async listForChat(chatId: number): Promise<Document[]> {
-    const raw = await apiClient.get<Record<string, unknown>[]>(
-      `/documents/chat/${chatId}`,
-    );
+  async listForChat(
+    chatId: number,
+    options?: RequestInit,
+  ): Promise<Document[]> {
+    const raw = options
+      ? await apiClient.get<Record<string, unknown>[]>(
+          `/documents/chat/${chatId}`,
+          options,
+        )
+      : await apiClient.get<Record<string, unknown>[]>(
+          `/documents/chat/${chatId}`,
+        );
 
     return (raw ?? []).map((item) =>
       normalizeDocument(item),

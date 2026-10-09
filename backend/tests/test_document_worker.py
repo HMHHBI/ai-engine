@@ -22,7 +22,7 @@ async def test_worker_processes_job_and_acknowledges():
         heartbeat_interval=60.0,
     )
 
-    job = SimpleNamespace(id=42, document_id=100, user_id=7)
+    job = SimpleNamespace(id=42, document_id=100, user_id=7, attempt=1)
     doc = SimpleNamespace(id=100, user_id=7, chat_id=55)
 
     with patch.object(DocumentLifecycleService, "process_job", new_callable=AsyncMock) as mock_process:
@@ -37,12 +37,13 @@ async def test_worker_processes_job_and_acknowledges():
                 await worker.process_job_message("msg-101", payload)
 
                 mock_process.assert_awaited_once_with(
-                    document_id=100,
-                    user_id=7,
-                    job_id=42,
-                    embedding_provider=EmbeddingProvider.OLLAMA,
-                    worker_id="document-worker:test:1",
-                )
+                        document_id=100,
+                        user_id=7,
+                        job_id=42,
+                        embedding_provider=EmbeddingProvider.OLLAMA,
+                        worker_id="document-worker:test:1",
+                        claimed_job=job,
+                    )
                 redis.xack.assert_awaited_once_with(
                     DOCUMENT_JOB_QUEUE,
                     DOCUMENT_JOB_CONSUMER_GROUP,

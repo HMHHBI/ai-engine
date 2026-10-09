@@ -494,4 +494,29 @@ describe("document-actions", () => {
         .selectedDocumentIdByChat[5],
     ).toBeNull();
   });
+  it("passes abort signal to listForChat and aborts on stopDocumentPolling", async () => {
+    let capturedSignal: AbortSignal | undefined;
+    let finishRequest: (() => void) | undefined;
+
+    vi.mocked(documentApi.listForChat).mockImplementation(
+      (_chatId: number, options?: RequestInit) => {
+        capturedSignal = options?.signal as AbortSignal;
+        return new Promise((resolve) => {
+          finishRequest = () => resolve([sampleDoc]);
+        });
+      },
+    );
+
+    const polling = pollDocumentUntilResolved(5, 100);
+
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(capturedSignal).toBeDefined();
+    expect(capturedSignal?.aborted).toBe(false);
+
+    stopDocumentPolling(100);
+    expect(capturedSignal?.aborted).toBe(true);
+
+    finishRequest?.();
+    await polling;
+  });
 });

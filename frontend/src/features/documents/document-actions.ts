@@ -463,6 +463,7 @@ export async function pollDocumentUntilResolved(
         const docs =
           await documentApi.listForChat(
             chatId,
+            { signal },
           );
 
         if (signal.aborted) {
