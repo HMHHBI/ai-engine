@@ -367,7 +367,7 @@ class DocumentJobRepository:
                 f"Cannot transition job {job_id} to CANCELLED from {job.status}"
             )
 
-        if worker_id is not None and job.worker_id is not None and job.worker_id != worker_id:
+        if worker_id is not None and job.worker_id != worker_id:
             raise DocumentJobOwnershipError(
                 f"Worker {worker_id} does not own active lease on job {job_id} (owned by {job.worker_id})"
             )

@@ -185,3 +185,110 @@ def test_fail_queued_dispatch_leaves_claimed_job_untouched(db_session):
     refreshed_job = repo.get_by_id(job.id)
     assert refreshed_job.status == DocumentJobStatus.PROCESSING.value
     assert refreshed_job.worker_id == "worker-active"
+
+
+def test_transition_to_cancelled_clears_lease_and_updates_document(db_session):
+    user = UserRepository.create(db_session, "Fence Cancel User 1", "fence_cancel1@example.com", "Password!123")
+    chat = ChatRepository.create_chat(user.id, "Fence Cancel Chat 1")
+    doc = DocumentRepository.create(
+        user_id=user.id,
+        chat_id=chat.id,
+        filename="test_cancel.pdf",
+        mime_type="application/pdf",
+        file_size=120,
+        page_count=1,
+        storage_key="storage_cancel",
+    )
+    job_repo = DocumentJobRepository(db_session)
+    job = job_repo.create(doc.id, user.id, "idemp_fence_cancel_1")
+    job = job_repo.transition_to_processing(job.id, "worker-cancel-1")
+    initial_attempt = job.attempt
+
+    DocumentLifecycleService._atomic_transition(
+        job_id=job.id,
+        document_id=doc.id,
+        user_id=user.id,
+        worker_id="worker-cancel-1",
+        attempt=initial_attempt,
+        document_status="cancelled",
+        job_terminal_status="cancelled",
+        error_message="Document processing was cancelled.",
+    )
+
+    db_session.expire_all()
+    refreshed_job = job_repo.get_by_id(job.id)
+    refreshed_doc = DocumentRepository.get_owned_document(doc.id, user.id)
+
+    assert refreshed_job.status == DocumentJobStatus.CANCELLED.value
+    assert refreshed_job.worker_id is None
+    assert refreshed_job.heartbeat_at is None
+    assert refreshed_job.finished_at is not None
+    assert refreshed_doc.status == "cancelled"
+
+
+def test_transition_to_cancelled_rejects_wrong_worker_and_stale_attempt(db_session):
+    user = UserRepository.create(db_session, "Fence Cancel User 2", "fence_cancel2@example.com", "Password!123")
+    chat = ChatRepository.create_chat(user.id, "Fence Cancel Chat 2")
+    doc = DocumentRepository.create(
+        user_id=user.id,
+        chat_id=chat.id,
+        filename="test_cancel_fencing.pdf",
+        mime_type="application/pdf",
+        file_size=120,
+        page_count=1,
+        storage_key="storage_cancel_fencing",
+    )
+    job_repo = DocumentJobRepository(db_session)
+    job = job_repo.create(doc.id, user.id, "idemp_fence_cancel_2")
+    job = job_repo.transition_to_processing(job.id, "worker-owner")
+
+    # Stale / wrong worker rejection
+    with pytest.raises(DocumentJobOwnershipError):
+        job_repo.transition_to_cancelled(
+            job_id=job.id,
+            worker_id="worker-imposter",
+            attempt=job.attempt,
+        )
+
+    # Stale attempt rejection
+    with pytest.raises(DocumentJobOwnershipError):
+        job_repo.transition_to_cancelled(
+            job_id=job.id,
+            worker_id="worker-owner",
+            attempt=job.attempt + 1,
+        )
+
+    # State untouched
+    refreshed = job_repo.get_by_id(job.id)
+    assert refreshed.status == DocumentJobStatus.PROCESSING.value
+    assert refreshed.worker_id == "worker-owner"
+
+
+def test_transition_to_cancelled_cannot_overwrite_ready_job(db_session):
+    from app.repositories.document_job_repo import DocumentJobTransitionError
+
+    user = UserRepository.create(db_session, "Fence Cancel User 3", "fence_cancel3@example.com", "Password!123")
+    chat = ChatRepository.create_chat(user.id, "Fence Cancel Chat 3")
+    doc = DocumentRepository.create(
+        user_id=user.id,
+        chat_id=chat.id,
+        filename="test_cancel_ready.pdf",
+        mime_type="application/pdf",
+        file_size=120,
+        page_count=1,
+        storage_key="storage_cancel_ready",
+    )
+    job_repo = DocumentJobRepository(db_session)
+    job = job_repo.create(doc.id, user.id, "idemp_fence_cancel_3")
+    job = job_repo.transition_to_processing(job.id, "worker-ready")
+    job_repo.transition_to_ready(job.id, worker_id="worker-ready", attempt=job.attempt)
+
+    with pytest.raises(DocumentJobTransitionError):
+        job_repo.transition_to_cancelled(
+            job_id=job.id,
+            worker_id="worker-ready",
+            attempt=job.attempt,
+        )
+
+    refreshed = job_repo.get_by_id(job.id)
+    assert refreshed.status == DocumentJobStatus.READY.value
