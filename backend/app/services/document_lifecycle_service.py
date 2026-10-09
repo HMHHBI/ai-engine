@@ -299,8 +299,8 @@ class DocumentLifecycleService:
                 user_id=user_id,
                 worker_id=worker_id,
                 attempt=attempt,
-                document_status="failed",
-                job_terminal_status="failed",
+                document_status="cancelled",
+                job_terminal_status="cancelled",
                 error_message="Document processing was cancelled.",
             )
             raise

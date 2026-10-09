@@ -75,7 +75,12 @@ class DocumentIngestionWorker:
 
         await asyncio.to_thread(_sync_update)
 
-    async def _heartbeat_loop(self, job_id: int, stop_event: asyncio.Event) -> None:
+    async def _heartbeat_loop(
+        self,
+        job_id: int,
+        stop_event: asyncio.Event,
+        process_task: Optional[asyncio.Task] = None,
+    ) -> None:
         while not stop_event.is_set():
             try:
                 await asyncio.wait_for(stop_event.wait(), timeout=self.heartbeat_interval)
@@ -90,7 +95,9 @@ class DocumentIngestionWorker:
                     worker_id=self.worker_id,
                 )
                 if is_cancelled:
-                    logger.info(f"Cancellation observed by heartbeat for job {job_id}")
+                    logger.info(f"Cancellation observed by heartbeat for job {job_id}; cancelling processing task")
+                    if process_task and not process_task.done():
+                        process_task.cancel()
                     break
 
                 await self._update_heartbeat(job_id)
@@ -160,9 +167,8 @@ class DocumentIngestionWorker:
                     job_id,
                 )
                 raise
-            heartbeat_task = asyncio.create_task(self._heartbeat_loop(job_id, stop_event))
-            try:
-                await DocumentLifecycleService.process_job(
+            proc_task = asyncio.create_task(
+                DocumentLifecycleService.process_job(
                     document_id=doc.id,
                     user_id=doc.user_id,
                     job_id=job_id,
@@ -170,9 +176,18 @@ class DocumentIngestionWorker:
                     worker_id=self.worker_id,
                     claimed_job=claimed_job,
                 )
+            )
+            heartbeat_task = asyncio.create_task(
+                self._heartbeat_loop(job_id, stop_event, process_task=proc_task)
+            )
+            try:
+                await proc_task
+            except asyncio.CancelledError:
+                logger.info(f"Processing task cancelled for job {job_id}")
             finally:
                 stop_event.set()
-                await heartbeat_task
+                if not heartbeat_task.done():
+                    await heartbeat_task
                 await self.redis.xack(DOCUMENT_JOB_QUEUE, DOCUMENT_JOB_CONSUMER_GROUP, message_id)
 
     async def _recovery_daemon_loop(self) -> None:

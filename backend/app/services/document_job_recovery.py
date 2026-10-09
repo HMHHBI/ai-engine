@@ -153,9 +153,9 @@ class DocumentJobRecoveryService:
         )
 
         if result == "requeued":
-            # ACK stale PEL message and dispatch fresh one
-            await redis.xack(DOCUMENT_JOB_QUEUE, DOCUMENT_JOB_CONSUMER_GROUP, message_id)
+            # Dispatch fresh message FIRST to ensure no message loss, then ACK stale PEL message
             await DocumentJobDispatcher.enqueue(job_id=job_id, redis=redis)
+            await redis.xack(DOCUMENT_JOB_QUEUE, DOCUMENT_JOB_CONSUMER_GROUP, message_id)
         elif result == "failed":
             await redis.xack(DOCUMENT_JOB_QUEUE, DOCUMENT_JOB_CONSUMER_GROUP, message_id)
 
