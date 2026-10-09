@@ -146,9 +146,20 @@ class DocumentIngestionWorker:
                     job_id=job_id,
                     worker_id=self.worker_id,
                 )
-            except Exception as claim_err:
-                logger.warning("Worker claim skipped or mocked: %s", claim_err)
-                claimed_job = job
+            except (DocumentJobTransitionError, DocumentJobOwnershipError) as expected_err:
+                logger.warning(
+                    "Job %s claim rejected (%s); acknowledging duplicate or stale message",
+                    job_id,
+                    expected_err,
+                )
+                await self.redis.xack(DOCUMENT_JOB_QUEUE, DOCUMENT_JOB_CONSUMER_GROUP, message_id)
+                return
+            except Exception as transient_err:
+                logger.exception(
+                    "Transient database failure claiming job %s; leaving in PEL for recovery",
+                    job_id,
+                )
+                raise
             heartbeat_task = asyncio.create_task(self._heartbeat_loop(job_id, stop_event))
             try:
                 await DocumentLifecycleService.process_job(

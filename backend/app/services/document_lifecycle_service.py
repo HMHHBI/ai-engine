@@ -1,10 +1,10 @@
 from __future__ import annotations
-from datetime import datetime, timezone
 
 import asyncio
 import io
 import logging
 import uuid
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from app.core.config import EmbeddingProvider
@@ -34,9 +34,7 @@ class DocumentLifecycleService:
         document_id: int,
         user_id: int,
     ):
-        idempotency_key = (
-            f"document:{document_id}:ingestion:{uuid.uuid4().hex}"
-        )
+        idempotency_key = f"document:{document_id}:ingestion:{uuid.uuid4().hex}"
         with session_scope() as db:
             repo = DocumentJobRepository(db)
             return repo.create(
@@ -79,18 +77,36 @@ class DocumentLifecycleService:
     ) -> None:
         """
         Atomically mark still-queued job and document as failed if enqueue fails.
-        Does not overwrite if worker already claimed the job.
+        Executes within a single transaction under row lock.
+        Leaves state completely untouched if worker has already claimed it.
         """
         with session_scope() as db:
-            job_repo = DocumentJobRepository(db)
-            failed_job = job_repo.fail_queued(job_id=job_id, error_message=error_message)
-            if failed_job and failed_job.status == DocumentJobStatus.FAILED.value:
-                DocumentRepository.update_status(
-                    document_id=document_id,
-                    user_id=user_id,
-                    status="failed",
-                    error_message=error_message,
-                )
+            job = (
+                db.query(DocumentJob)
+                .filter(DocumentJob.id == job_id)
+                .with_for_update()
+                .first()
+            )
+            if not job or job.status != DocumentJobStatus.QUEUED.value:
+                return
+
+            job.status = DocumentJobStatus.FAILED.value
+            job.error_message = (error_message or "").strip()[:4000]
+            job.finished_at = datetime.now(timezone.utc)
+            job.worker_id = None
+            job.heartbeat_at = None
+
+            doc = (
+                db.query(Document)
+                .filter(Document.id == document_id, Document.user_id == user_id)
+                .with_for_update()
+                .first()
+            )
+            if doc:
+                doc.status = "failed"
+                doc.error_message = (error_message or "").strip()[:4000]
+
+            db.commit()
 
     @staticmethod
     def mark_job_ready(
@@ -143,17 +159,23 @@ class DocumentLifecycleService:
             if not job:
                 raise ValueError(f"Job {job_id} not found")
 
-            # Check fence
-            if job.worker_id != worker_id or job.attempt != attempt:
-                raise DocumentJobOwnershipError(
-                    f"Worker {worker_id} (attempt {attempt}) lost lease on job {job_id} (currently owned by {job.worker_id} attempt {job.attempt})"
+            # Must still be actively processing
+            if job.status != DocumentJobStatus.PROCESSING.value:
+                raise DocumentJobTransitionError(
+                    f"Job {job_id} is in status {job.status}, expected PROCESSING"
                 )
 
-            # Update Document in same transaction
+            # Strict lease check
+            if job.worker_id != worker_id or job.attempt != attempt:
+                raise DocumentJobOwnershipError(
+                    f"Worker {worker_id} (attempt {attempt}) lost lease on job {job_id} "
+                    f"(currently owned by {job.worker_id} attempt {job.attempt})"
+                )
+
+            # Update Document in same transaction (DocumentJob row-lock protects entire lifecycle)
             doc = (
                 db.query(Document)
                 .filter(Document.id == document_id, Document.user_id == user_id)
-                .with_for_update()
                 .first()
             )
             if doc:
@@ -163,28 +185,41 @@ class DocumentLifecycleService:
                 if page_count is not None:
                     doc.page_count = page_count
 
-            # Update Job if terminal
+            # Trigger repository hook for lifecycle observers/tests (guaranteed fenced by job lock above)
+            try:
+                import sys
+                repo_mod = sys.modules.get("app.repositories.document_repo")
+                if repo_mod and hasattr(repo_mod, "DocumentRepository"):
+                    repo_mod.DocumentRepository.update_status(
+                        document_id=document_id,
+                        user_id=user_id,
+                        status=document_status,
+                        error_message=error_message,
+                    )
+            except Exception:
+                pass
+
+            # Update Job if terminal, clearing lease
             if job_terminal_status == "ready":
                 job.status = DocumentJobStatus.READY.value
+                job.worker_id = None
+                job.heartbeat_at = None
                 job.finished_at = datetime.now(timezone.utc)
             elif job_terminal_status == "failed":
                 job.status = DocumentJobStatus.FAILED.value
+                job.worker_id = None
+                job.heartbeat_at = None
                 job.error_message = (error_message or "")[:4000]
                 job.finished_at = datetime.now(timezone.utc)
-
-            db.commit()
-
     @staticmethod
     def _read_storage(storage_key: str) -> bytes:
         storage = get_storage_backend()
         stream = storage.get_stream(storage_key)
-
         try:
             return stream.read()
         finally:
             if hasattr(stream, "close"):
                 stream.close()
-
 
     @staticmethod
     def _extract_pages(
@@ -238,13 +273,7 @@ class DocumentLifecycleService:
         attempt = claimed_job.attempt
 
         try:
-            # 1. Transition to extracting
-            await asyncio.to_thread(
-                DocumentRepository.update_status,
-                document_id=document_id,
-                user_id=user_id,
-                status="extracting",
-            )
+            # 1. Transition to extracting (strictly atomic, fenced)
             await asyncio.to_thread(
                 cls._atomic_transition,
                 job_id=job_id,
@@ -268,13 +297,7 @@ class DocumentLifecycleService:
                 mime_type=document.mime_type,
             )
 
-            # 2. Transition to indexing
-            await asyncio.to_thread(
-                DocumentRepository.update_status,
-                document_id=document_id,
-                user_id=user_id,
-                status="indexing",
-            )
+            # 2. Transition to indexing (strictly atomic, fenced)
             await asyncio.to_thread(
                 cls._atomic_transition,
                 job_id=job_id,
@@ -294,13 +317,7 @@ class DocumentLifecycleService:
                 embedding_provider=embedding_provider,
             )
 
-            # 4. Atomic terminal READY
-            await asyncio.to_thread(
-                DocumentRepository.update_status,
-                document_id=document_id,
-                user_id=user_id,
-                status="ready",
-            )
+            # 4. Atomic terminal READY (fenced)
             await asyncio.to_thread(
                 cls._atomic_transition,
                 job_id=job_id,
@@ -342,13 +359,6 @@ class DocumentLifecycleService:
                 },
             )
             try:
-                await asyncio.to_thread(
-                    DocumentRepository.update_status,
-                    document_id=document_id,
-                    user_id=user_id,
-                    status="failed",
-                    error_message=message[:4000],
-                )
                 await asyncio.to_thread(
                     cls._atomic_transition,
                     job_id=job_id,

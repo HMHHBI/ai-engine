@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+from app.db.models import Document, DocumentJob, DocumentJobStatus
 import json
 import logging
 from datetime import datetime, timedelta, timezone
@@ -183,3 +183,89 @@ class DocumentJobRecoveryService:
             logger.warning(f"Error during XAUTOCLAIM cycle: {e}")
 
         return recovered_count
+    def recover_stale_job(
+        self,
+        *,
+        job_id: int,
+        worker_id: str,
+        attempt: int,
+        stale_threshold_seconds: float,
+    ) -> Optional[DocumentJob]:
+        """
+        Atomically recovers a stale job under row lock.
+        Verifies that worker_id and attempt still match, and that heartbeat_at is still stale.
+        Transitions job + document in one atomic transaction.
+        """
+        with session_scope() as db:
+            job = (
+                db.query(DocumentJob)
+                .filter(DocumentJob.id == job_id)
+                .with_for_update()
+                .first()
+            )
+            if not job:
+                return None
+
+            if (
+                job.status != DocumentJobStatus.PROCESSING.value
+                or job.worker_id != worker_id
+                or job.attempt != attempt
+            ):
+                logger.info(
+                    "Job %s was modified by another worker/recovery; skipping",
+                    job_id,
+                )
+                return None
+
+            now = datetime.now(timezone.utc)
+            # Re-verify stale heartbeat under the lock
+            last_activity = job.heartbeat_at or job.started_at
+            if last_activity:
+                # Ensure timezone aware
+                if last_activity.tzinfo is None:
+                    last_activity = last_activity.replace(tzinfo=timezone.utc)
+                age = (now - last_activity).total_seconds()
+                if age < stale_threshold_seconds:
+                    logger.info(
+                        "Job %s heartbeat was refreshed (age=%.1fs < %.1fs); skipping recovery",
+                        job_id,
+                        age,
+                        stale_threshold_seconds,
+                    )
+                    return None
+
+            doc = (
+                db.query(Document)
+                .filter(Document.id == job.document_id, Document.user_id == job.user_id)
+                .with_for_update()
+                .first()
+            )
+
+            # If attempts exhausted, fail both job and document
+            if job.attempt >= job.max_attempts:
+                error_msg = f"Job exceeded max_attempts ({job.max_attempts}) due to worker crash or timeout"
+                job.status = DocumentJobStatus.FAILED.value
+                job.error_message = error_msg
+                job.worker_id = None
+                job.heartbeat_at = None
+                job.finished_at = now
+                if doc:
+                    doc.status = "failed"
+                    doc.error_message = error_msg
+                db.commit()
+                db.refresh(job)
+                logger.warning("Job %s marked terminal FAILED after exceeding max attempts", job_id)
+                return job
+
+            # Requeue for retry
+            job.status = DocumentJobStatus.QUEUED.value
+            job.worker_id = None
+            job.started_at = None
+            job.heartbeat_at = None
+            job.queued_at = now
+            if doc:
+                doc.status = "queued"
+            db.commit()
+            db.refresh(job)
+            logger.info("Job %s atomically requeued for next attempt", job_id)
+            return job
