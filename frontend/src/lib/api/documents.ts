@@ -10,7 +10,6 @@ function normalizeLifecycleResponse(
   raw: Record<string, unknown>,
 ): DocumentLifecycleResponse {
   const document = normalizeDocument(raw);
-
   const rawJob = raw.job;
 
   if (!rawJob || typeof rawJob !== "object") {
@@ -39,7 +38,9 @@ function normalizeLifecycleResponse(
         typeof job.error_message === "string"
           ? job.error_message
           : null,
-      queued_at: String(job.queued_at ?? document.created_at),
+      queued_at: String(
+        job.queued_at ?? document.created_at,
+      ),
       started_at:
         typeof job.started_at === "string"
           ? job.started_at
@@ -58,13 +59,23 @@ export const documentApi = {
       `/documents/chat/${chatId}`,
     );
 
-    return (raw ?? []).map((item) => normalizeDocument(item));
+    return (raw ?? []).map((item) =>
+      normalizeDocument(item),
+    );
   },
 
-  async get(documentId: number): Promise<Document> {
-    const raw = await apiClient.get<Record<string, unknown>>(
-      `/documents/${documentId}`,
-    );
+  async get(
+    documentId: number,
+    options?: RequestInit,
+  ): Promise<Document> {
+    const raw = options
+      ? await apiClient.get<Record<string, unknown>>(
+          `/documents/${documentId}`,
+          options,
+        )
+      : await apiClient.get<Record<string, unknown>>(
+          `/documents/${documentId}`,
+        );
 
     return normalizeDocument(raw);
   },
@@ -100,8 +111,13 @@ export const documentApi = {
     options?: RequestInit,
   ): Promise<Blob> {
     return options
-      ? apiClient.getBlob(`/documents/${documentId}/file`, options)
-      : apiClient.getBlob(`/documents/${documentId}/file`);
+      ? apiClient.getBlob(
+          `/documents/${documentId}/file`,
+          options,
+        )
+      : apiClient.getBlob(
+          `/documents/${documentId}/file`,
+        );
   },
 
   async update(
@@ -117,6 +133,8 @@ export const documentApi = {
   },
 
   async delete(documentId: number): Promise<void> {
-    await apiClient.delete<void>(`/documents/${documentId}`);
+    await apiClient.delete<void>(
+      `/documents/${documentId}`,
+    );
   },
 };

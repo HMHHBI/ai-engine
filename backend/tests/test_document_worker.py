@@ -37,9 +37,11 @@ async def test_worker_processes_job_and_acknowledges():
                 await worker.process_job_message("msg-101", payload)
 
                 mock_process.assert_awaited_once_with(
+                    document_id=100,
+                    user_id=7,
                     job_id=42,
-                    worker_id="document-worker:test:1",
                     embedding_provider=EmbeddingProvider.OLLAMA,
+                    worker_id="document-worker:test:1",
                 )
                 redis.xack.assert_awaited_once_with(
                     DOCUMENT_JOB_QUEUE,

@@ -296,3 +296,33 @@ class DocumentJobRepository:
             .order_by(DocumentJob.id.desc())
             .first()
         )
+
+
+    def requeue_stale(
+        self,
+        job_id: int,
+        worker_id: str,
+        attempt: int,
+    ) -> DocumentJob:
+        job = self.get_by_id(job_id)
+        if not job:
+            raise ValueError(f"Job {job_id} not found")
+
+        if job.status != DocumentJobStatus.PROCESSING.value:
+            raise DocumentJobTransitionError(
+                f"Cannot requeue job {job_id} from {job.status}; must be PROCESSING"
+            )
+
+        if job.worker_id != worker_id or job.attempt != attempt:
+            raise DocumentJobOwnershipError(
+                f"Cannot requeue job {job_id}: expected worker {worker_id} attempt {attempt}, got {job.worker_id} / {job.attempt}"
+            )
+
+        job.status = DocumentJobStatus.QUEUED.value
+        job.worker_id = None
+        job.started_at = None
+        job.heartbeat_at = None
+        job.queued_at = datetime.now(timezone.utc)
+        self.db.commit()
+        self.db.refresh(job)
+        return job

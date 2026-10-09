@@ -11,7 +11,11 @@ from typing import Any
 from app.core.config import EmbeddingProvider, settings
 from app.db.session import session_scope
 from app.repositories.chat_repo import ChatRepository
-from app.repositories.document_job_repo import DocumentJobRepository, DocumentJobTransitionError
+from app.repositories.document_job_repo import (
+    DocumentJobOwnershipError,
+    DocumentJobRepository,
+    DocumentJobTransitionError,
+)
 from app.repositories.document_repo import DocumentRepository
 from app.services.document_job_dispatcher import (
     DOCUMENT_JOB_CONSUMER_GROUP,
@@ -20,6 +24,7 @@ from app.services.document_job_dispatcher import (
     DocumentJobDispatcher,
     get_document_redis,
 )
+from app.services.document_job_recovery import DocumentJobRecoveryService
 from app.services.document_lifecycle_service import DocumentLifecycleService
 
 logger = logging.getLogger(__name__)
@@ -39,6 +44,7 @@ class DocumentIngestionWorker:
         worker_id: str | None = None,
         redis: Any | None = None,
         heartbeat_interval: float | None = None,
+        concurrency: int | None = None,
     ) -> None:
         self.worker_id = worker_id or build_worker_id()
         self._redis = redis
@@ -47,6 +53,12 @@ class DocumentIngestionWorker:
             if heartbeat_interval is not None
             else getattr(settings, "HEARTBEAT_INTERVAL_SECONDS", 15.0)
         )
+        self.concurrency = (
+            concurrency
+            if concurrency is not None
+            else getattr(settings, "DOCUMENT_WORKER_CONCURRENCY", 4)
+        )
+        self._semaphore = asyncio.Semaphore(self.concurrency)
         self._running = False
 
     @property
@@ -72,14 +84,13 @@ class DocumentIngestionWorker:
                 pass
 
             try:
-                # Check for cancellation during heartbeat
                 is_cancelled = await asyncio.to_thread(
                     DocumentLifecycleService.is_cancel_requested,
                     job_id=job_id,
                     worker_id=self.worker_id,
                 )
                 if is_cancelled:
-                    logger.info(f"Cancellation requested observed by heartbeat for job {job_id}")
+                    logger.info(f"Cancellation observed by heartbeat for job {job_id}")
                     break
 
                 await self._update_heartbeat(job_id)
@@ -109,7 +120,6 @@ class DocumentIngestionWorker:
             await self.redis.xack(DOCUMENT_JOB_QUEUE, DOCUMENT_JOB_CONSUMER_GROUP, message_id)
             return
 
-        # 1. Retrieve Job and Chat context
         def _get_job_context():
             with session_scope() as db:
                 job_repo = DocumentJobRepository(db)
@@ -122,63 +132,101 @@ class DocumentIngestionWorker:
 
         job, doc = await asyncio.to_thread(_get_job_context)
         if not job or not doc:
-            logger.error(f"Invalid job {job_id} or unowned document: acknowledging and discarding")
+            logger.error(f"Invalid job {job_id} or unowned doc: acknowledging and discarding")
             await self.redis.xack(DOCUMENT_JOB_QUEUE, DOCUMENT_JOB_CONSUMER_GROUP, message_id)
             return
 
         embedding_provider = await self._resolve_embedding_provider(doc.chat_id, doc.user_id)
 
-        # 2. Run ingestion lifecycle with concurrent heartbeat monitor
-        stop_event = asyncio.Event()
-        heartbeat_task = asyncio.create_task(self._heartbeat_loop(job_id, stop_event))
+        async with self._semaphore:
+            stop_event = asyncio.Event()
+            heartbeat_task = asyncio.create_task(self._heartbeat_loop(job_id, stop_event))
+            try:
+                await DocumentLifecycleService.process_job(
+                    document_id=doc.id,
+                    user_id=doc.user_id,
+                    job_id=job_id,
+                    embedding_provider=embedding_provider,
+                    worker_id=self.worker_id,
+                )
+            finally:
+                stop_event.set()
+                await heartbeat_task
+                await self.redis.xack(DOCUMENT_JOB_QUEUE, DOCUMENT_JOB_CONSUMER_GROUP, message_id)
 
-        try:
-            await DocumentLifecycleService.process_job(
-                job_id=job_id,
-                worker_id=self.worker_id,
-                embedding_provider=embedding_provider,
-            )
-        finally:
-            stop_event.set()
-            await heartbeat_task
-            # Always acknowledge message once terminal state is persisted
-            await self.redis.xack(DOCUMENT_JOB_QUEUE, DOCUMENT_JOB_CONSUMER_GROUP, message_id)
+    async def _recovery_daemon_loop(self) -> None:
+        recovery_interval = getattr(settings, "DOCUMENT_JOB_RECOVERY_INTERVAL_SECONDS", 15.0)
+        idle_time_ms = int(getattr(settings, "DOCUMENT_JOB_RECOVERY_IDLE_SECONDS", 60.0) * 1000)
+        batch_size = getattr(settings, "DOCUMENT_JOB_RECOVERY_BATCH_SIZE", 10)
+
+        while self._running:
+            try:
+                await asyncio.sleep(recovery_interval)
+                await DocumentJobRecoveryService.run_autoclaim_cycle(
+                    worker_id=self.worker_id,
+                    redis=self.redis,
+                    min_idle_time_ms=idle_time_ms,
+                    batch_size=batch_size,
+                )
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning(f"Background recovery daemon error: {e}")
 
     async def run(self, once: bool = False) -> None:
         self._running = True
         await DocumentJobDispatcher.ensure_consumer_group(redis=self.redis)
-        logger.info(f"Worker {self.worker_id} started listening on {DOCUMENT_JOB_QUEUE}")
+        logger.info(f"Worker {self.worker_id} started (concurrency={self.concurrency})")
 
-        while self._running:
-            try:
-                entries = await self.redis.xreadgroup(
-                    groupname=DOCUMENT_JOB_CONSUMER_GROUP,
-                    consumername=self.worker_id,
-                    streams={DOCUMENT_JOB_QUEUE: ">"},
-                    count=1,
-                    block=2000,
-                )
+        recovery_task = None
+        if not once:
+            recovery_task = asyncio.create_task(self._recovery_daemon_loop())
 
-                if not entries:
+        try:
+            while self._running:
+                try:
+                    entries = await self.redis.xreadgroup(
+                        groupname=DOCUMENT_JOB_CONSUMER_GROUP,
+                        consumername=self.worker_id,
+                        streams={DOCUMENT_JOB_QUEUE: ">"},
+                        count=getattr(settings, "DOCUMENT_JOB_READ_COUNT", 5),
+                        block=2000,
+                    )
+
+                    if not entries:
+                        if once:
+                            break
+                        continue
+
+                    tasks = []
+                    for stream_name, messages in entries:
+                        for message_id, fields in messages:
+                            raw_payload = fields.get(DOCUMENT_JOB_PAYLOAD_FIELD)
+                            if raw_payload:
+                                tasks.append(
+                                    asyncio.create_task(
+                                        self.process_job_message(message_id, raw_payload)
+                                    )
+                                )
+
+                    if tasks:
+                        await asyncio.gather(*tasks, return_exceptions=True)
+
                     if once:
                         break
-                    continue
 
-                for stream_name, messages in entries:
-                    for message_id, fields in messages:
-                        raw_payload = fields.get(DOCUMENT_JOB_PAYLOAD_FIELD)
-                        if raw_payload:
-                            await self.process_job_message(message_id, raw_payload)
-
-                if once:
+                except asyncio.CancelledError:
                     break
-
-            except asyncio.CancelledError:
-                logger.info(f"Worker {self.worker_id} shutting down...")
-                break
-            except Exception as e:
-                logger.exception(f"Error in worker stream read loop: {e}")
-                await asyncio.sleep(1.0)
+                except Exception as e:
+                    logger.exception(f"Worker read loop error: {e}")
+                    await asyncio.sleep(1.0)
+        finally:
+            if recovery_task:
+                recovery_task.cancel()
+                try:
+                    await recovery_task
+                except asyncio.CancelledError:
+                    pass
 
 
 async def main() -> None:
