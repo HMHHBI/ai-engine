@@ -7,8 +7,6 @@ from typing import Any
 
 from app.core.config import settings
 from app.db.session import session_scope
-from app.repositories.document_job_repo import DocumentJobRepository
-from app.repositories.document_repo import DocumentRepository
 from app.services.document_job_dispatcher import (
     DOCUMENT_JOB_CONSUMER_GROUP,
     DOCUMENT_JOB_PAYLOAD_FIELD,
@@ -45,66 +43,88 @@ class DocumentJobRecoveryService:
         stale_threshold_seconds: float,
     ) -> str:
         """
-        Reclaims or fails a job based on its heartbeat and attempts.
+        Atomically reclaims or fails a stale job.
         Returns: 'requeued' | 'failed' | 'ignored'
         """
         with session_scope() as db:
-            job_repo = DocumentJobRepository(db)
-            job = job_repo.get_by_id(job_id)
+            job = (
+                db.query(DocumentJob)
+                .filter(DocumentJob.id == job_id)
+                .with_for_update()
+                .first()
+            )
             if not job:
                 return "ignored"
 
-            # Terminal states are already settled
-            if job.status in ("ready", "failed", "cancelled"):
+            if job.status in (
+                DocumentJobStatus.READY.value,
+                DocumentJobStatus.FAILED.value,
+                DocumentJobStatus.CANCELLED.value,
+                DocumentJobStatus.QUEUED.value,
+            ):
                 return "ignored"
 
-            if job.status == "queued":
+            if job.status != DocumentJobStatus.PROCESSING.value:
                 return "ignored"
 
-            # Check heartbeat freshness
             now = datetime.now(timezone.utc)
             last_activity = job.heartbeat_at or job.started_at or job.queued_at
-            if last_activity and last_activity.tzinfo is None:
-                last_activity = last_activity.replace(tzinfo=timezone.utc)
+            if last_activity is not None:
+                if last_activity.tzinfo is None:
+                    last_activity = last_activity.replace(tzinfo=timezone.utc)
+                age_seconds = (now - last_activity).total_seconds()
+                if age_seconds < stale_threshold_seconds:
+                    return "ignored"
 
-            cutoff = now - timedelta(seconds=stale_threshold_seconds)
-            if last_activity and last_activity > cutoff:
-                # Still alive
-                return "ignored"
+            doc = (
+                db.query(Document)
+                .filter(
+                    Document.id == job.document_id,
+                    Document.user_id == job.user_id,
+                )
+                .with_for_update()
+                .first()
+            )
 
-            # Stale job handling
-            doc_repo = DocumentRepository(db)
-            if job.attempt < job.max_attempts:
-                logger.warning(
-                    f"Requeueing stale job {job_id} (attempt {job.attempt}/{job.max_attempts})"
+            if job.attempt >= job.max_attempts:
+                error_message = (
+                    f"Job lease expired after attempt {job.attempt} "
+                    "and reached max attempts."
                 )
-                job_repo.requeue_stale(
-                    job_id=job_id,
-                    worker_id=job.worker_id,
-                    attempt=job.attempt,
-                )
-                DocumentRepository.update_status(
-                    document_id=job.document_id,
-                    user_id=job.user_id,
-                    status="processing",
-                )
-                return "requeued"
-            else:
+                job.status = DocumentJobStatus.FAILED.value
+                job.error_message = error_message
+                job.worker_id = None
+                job.heartbeat_at = None
+                job.finished_at = now
+                if doc:
+                    doc.status = DocumentJobStatus.FAILED.value
+                    doc.error_message = (
+                        "Job exceeded maximum retries after worker crash."
+                    )
                 logger.error(
-                    f"Failing stale job {job_id}: exceeded max attempts ({job.attempt}/{job.max_attempts})"
-                )
-                job_repo.transition_to_failed(
-                    job_id=job_id,
-                    error_message=f"Job lease expired after attempt {job.attempt} and reached max attempts.",
-                )
-                DocumentRepository.update_status(
-                    document_id=job.document_id,
-                    user_id=job.user_id,
-                    status="failed",
-                    error_message="Job exceeded maximum retries after worker crash.",
+                    "Failing stale job %s: exceeded max attempts (%s/%s)",
+                    job_id,
+                    job.attempt,
+                    job.max_attempts,
                 )
                 return "failed"
 
+            job.status = DocumentJobStatus.QUEUED.value
+            job.worker_id = None
+            job.started_at = None
+            job.heartbeat_at = None
+            job.queued_at = now
+            if doc:
+                doc.status = DocumentJobStatus.QUEUED.value
+                doc.error_message = None
+
+            logger.warning(
+                "Requeueing stale job %s (attempt %s/%s)",
+                job_id,
+                job.attempt,
+                job.max_attempts,
+            )
+            return "requeued"
     @classmethod
     async def recover_message(
         cls,

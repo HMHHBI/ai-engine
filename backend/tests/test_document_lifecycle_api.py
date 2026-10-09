@@ -14,6 +14,7 @@ from app.repositories.document_job_repo import DocumentJobRepository
 from app.repositories.document_repo import DocumentRepository
 from app.repositories.user_repo import UserRepository
 from app.services.embedding_service import DocumentChunk
+from app.services.document_lifecycle_service import DocumentLifecycleService
 
 
 def auth_headers(user):
@@ -251,28 +252,47 @@ def test_document_lifecycle_transitions_through_extraction_and_indexing(
     user, chat = lifecycle_user_and_chat
     observed_states = []
 
-    original_update_status = DocumentRepository.update_status
+    original_atomic = DocumentLifecycleService._atomic_transition
 
-    def tracking_update_status(
-        document_id,
-        user_id,
-        status,
-        error_message=None,
-    ):
-        observed_states.append(status)
-        return original_update_status(
-            document_id=document_id,
-            user_id=user_id,
-            status=status,
-            error_message=error_message,
-        )
+
+
+    def tracking_atomic(*args, **kwargs):
+
+
+        status = kwargs.get("document_status")
+
+
+        if status:
+
+
+            observed_states.append(status)
+
+
+        return original_atomic(*args, **kwargs)
+
+
 
     with patch(
+
+
         "app.services.embedding_service.EmbeddingService.generate_embedding",
+
+
         return_value=[0.1] * 768,
-    ), patch(
-        "app.repositories.document_repo.DocumentRepository.update_status",
-        side_effect=tracking_update_status,
+
+
+    ), patch.object(
+
+
+        DocumentLifecycleService,
+
+
+        "_atomic_transition",
+
+
+        side_effect=tracking_atomic,
+
+
     ):
         response = client.post(
             f"/documents/chat/{chat.id}/upload",
@@ -309,28 +329,47 @@ def test_document_lifecycle_failure_marks_document_and_job_failed_and_retains_st
     user, chat = lifecycle_user_and_chat
     observed_states = []
 
-    original_update_status = DocumentRepository.update_status
+    original_atomic = DocumentLifecycleService._atomic_transition
 
-    def tracking_update_status(
-        document_id,
-        user_id,
-        status,
-        error_message=None,
-    ):
-        observed_states.append(status)
-        return original_update_status(
-            document_id=document_id,
-            user_id=user_id,
-            status=status,
-            error_message=error_message,
-        )
+
+
+    def tracking_atomic(*args, **kwargs):
+
+
+        status = kwargs.get("document_status")
+
+
+        if status:
+
+
+            observed_states.append(status)
+
+
+        return original_atomic(*args, **kwargs)
+
+
 
     with patch(
+
+
         "app.services.embedding_service.EmbeddingService.generate_embedding",
+
+
         return_value=None,
-    ), patch(
-        "app.repositories.document_repo.DocumentRepository.update_status",
-        side_effect=tracking_update_status,
+
+
+    ), patch.object(
+
+
+        DocumentLifecycleService,
+
+
+        "_atomic_transition",
+
+
+        side_effect=tracking_atomic,
+
+
     ):
         response = client.post(
             f"/documents/chat/{chat.id}/upload",

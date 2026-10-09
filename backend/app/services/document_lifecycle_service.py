@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.repositories.document_repo import DocumentRepository
 
 import asyncio
 import io
@@ -15,7 +16,6 @@ from app.repositories.document_job_repo import (
     DocumentJobRepository,
     DocumentJobTransitionError,
 )
-from app.repositories.document_repo import DocumentRepository
 from app.services.document_ingestion_service import DocumentIngestionService
 from app.storage import get_storage_backend
 from app.utils.pdf_extractor import (
@@ -103,103 +103,12 @@ class DocumentLifecycleService:
                 .first()
             )
             if doc:
-                doc.status = "failed"
-                doc.error_message = (error_message or "").strip()[:4000]
-
-            db.commit()
-
-    @staticmethod
-    def mark_job_ready(
-        job_id: int,
-        worker_id: Optional[str] = None,
-        attempt: Optional[int] = None,
-    ) -> None:
-        with session_scope() as db:
-            repo = DocumentJobRepository(db)
-            repo.transition_to_ready(job_id=job_id, worker_id=worker_id, attempt=attempt)
-
-    @staticmethod
-    def mark_job_failed(
-        *,
-        job_id: int,
-        error_message: str,
-        worker_id: Optional[str] = None,
-        attempt: Optional[int] = None,
-    ) -> None:
-        with session_scope() as db:
-            repo = DocumentJobRepository(db)
-            repo.transition_to_failed(
-                job_id=job_id,
-                error_message=error_message,
-                worker_id=worker_id,
-                attempt=attempt,
-            )
-
-    @classmethod
-    def _atomic_transition(
-        cls,
-        *,
-        job_id: int,
-        document_id: int,
-        user_id: int,
-        worker_id: str,
-        attempt: int,
-        document_status: str,
-        job_terminal_status: Optional[str] = None,
-        error_message: Optional[str] = None,
-        page_count: Optional[int] = None,
-    ) -> None:
-        with session_scope() as db:
-            job = (
-                db.query(DocumentJob)
-                .filter(DocumentJob.id == job_id)
-                .with_for_update()
-                .first()
-            )
-            if not job:
-                raise ValueError(f"Job {job_id} not found")
-
-            # Must still be actively processing
-            if job.status != DocumentJobStatus.PROCESSING.value:
-                raise DocumentJobTransitionError(
-                    f"Job {job_id} is in status {job.status}, expected PROCESSING"
-                )
-
-            # Strict lease check
-            if job.worker_id != worker_id or job.attempt != attempt:
-                raise DocumentJobOwnershipError(
-                    f"Worker {worker_id} (attempt {attempt}) lost lease on job {job_id} "
-                    f"(currently owned by {job.worker_id} attempt {job.attempt})"
-                )
-
-            # Update Document in same transaction (DocumentJob row-lock protects entire lifecycle)
-            doc = (
-                db.query(Document)
-                .filter(Document.id == document_id, Document.user_id == user_id)
-                .first()
-            )
-            if doc:
                 doc.status = document_status
                 if error_message is not None:
                     doc.error_message = error_message[:4000]
                 if page_count is not None:
                     doc.page_count = page_count
 
-            # Trigger repository hook for lifecycle observers/tests (guaranteed fenced by job lock above)
-            try:
-                import sys
-                repo_mod = sys.modules.get("app.repositories.document_repo")
-                if repo_mod and hasattr(repo_mod, "DocumentRepository"):
-                    repo_mod.DocumentRepository.update_status(
-                        document_id=document_id,
-                        user_id=user_id,
-                        status=document_status,
-                        error_message=error_message,
-                    )
-            except Exception:
-                pass
-
-            # Update Job if terminal, clearing lease
             if job_terminal_status == "ready":
                 job.status = DocumentJobStatus.READY.value
                 job.worker_id = None
@@ -240,6 +149,60 @@ class DocumentLifecycleService:
         if not text.strip():
             raise ValueError("Document is empty or contains no readable text.")
         return [PDFPage(page_number=1, text=text)]
+
+    @classmethod
+    def _atomic_transition(
+        cls,
+        *,
+        job_id: int,
+        document_id: int,
+        user_id: int,
+        worker_id: str,
+        attempt: int,
+        document_status: str,
+        job_terminal_status: Optional[str] = None,
+        error_message: Optional[str] = None,
+        page_count: Optional[int] = None,
+    ) -> None:
+        with session_scope() as db:
+            job_repo = DocumentJobRepository(db)
+            job = (
+                db.query(DocumentJob)
+                .filter(DocumentJob.id == job_id)
+                .with_for_update()
+                .first()
+            )
+            if not job:
+                raise DocumentJobOwnershipError(f"Job {job_id} not found.")
+
+            if job.worker_id != worker_id or job.attempt != attempt:
+                raise DocumentJobOwnershipError(
+                    f"Fencing conflict: Job {job_id} is owned by worker '{job.worker_id}' at attempt {job.attempt}, "
+                    f"rejecting update from worker '{worker_id}' at attempt {attempt}."
+                )
+
+            doc = (
+                db.query(Document)
+                .filter(Document.id == document_id, Document.user_id == user_id)
+                .with_for_update()
+                .first()
+            )
+            if doc:
+                doc.status = document_status
+                if error_message is not None:
+                    doc.error_message = error_message[:4000]
+                if page_count is not None:
+                    doc.page_count = page_count
+
+            if job_terminal_status == "ready":
+                job_repo.transition_to_ready(job_id=job_id, worker_id=worker_id, attempt=attempt)
+            elif job_terminal_status == "failed":
+                job_repo.transition_to_failed(
+                    job_id=job_id,
+                    error_message=error_message or "Job failed",
+                    worker_id=worker_id,
+                    attempt=attempt,
+                )
 
     @classmethod
     async def process_job(

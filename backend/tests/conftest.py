@@ -62,7 +62,22 @@ db_session_module.session_scope = _test_session_scope
 
 def _clean_database():
     """Dynamically truncate all application tables without touching schema or alembic_version."""
-    with test_engine.begin() as conn:
+    test_engine.dispose()
+    with test_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        # Terminate any stray backends holding locks on the public schema
+        try:
+            conn.execute(
+                text("""
+                    SELECT pg_terminate_backend(pid) 
+                    FROM pg_stat_activity 
+                    WHERE pid <> pg_backend_pid() 
+                      AND datname = current_database()
+                      AND state in ('idle in transaction', 'active');
+                """)
+            )
+        except Exception:
+            pass
+
         tables = conn.execute(
             text(
                 """
@@ -74,7 +89,15 @@ def _clean_database():
         ).fetchall()
         if tables:
             names = ", ".join(f'"{t[0]}"' for t in tables)
-            conn.execute(text(f"TRUNCATE TABLE {names} RESTART IDENTITY CASCADE;"))
+            try:
+                conn.execute(text("SET lock_timeout = '2s';"))
+                conn.execute(text(f"TRUNCATE TABLE {names} RESTART IDENTITY CASCADE;"))
+            except Exception:
+                for t in reversed(tables):
+                    try:
+                        conn.execute(text(f'DELETE FROM "{t[0]}";'))
+                    except Exception:
+                        pass
 
 
 @pytest.fixture(scope="session", autouse=True)
