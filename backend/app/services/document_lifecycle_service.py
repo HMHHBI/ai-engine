@@ -76,50 +76,47 @@ class DocumentLifecycleService:
         error_message: str,
     ) -> None:
         """
-        Atomically mark still-queued job and document as failed if enqueue fails.
-        Executes within a single transaction under row lock.
-        Leaves state completely untouched if worker has already claimed it.
+        Atomically fail a queued job after dispatch failure.
+        If a worker has already claimed the job, leave its state unchanged.
         """
         with session_scope() as db:
             job = (
                 db.query(DocumentJob)
-                .filter(DocumentJob.id == job_id)
+                .filter(
+                    DocumentJob.id == job_id,
+                    DocumentJob.document_id == document_id,
+                    DocumentJob.user_id == user_id,
+                )
                 .with_for_update()
                 .first()
             )
+
             if not job or job.status != DocumentJobStatus.QUEUED.value:
                 return
 
-            job.status = DocumentJobStatus.FAILED.value
-            job.error_message = (error_message or "").strip()[:4000]
-            job.finished_at = datetime.now(timezone.utc)
-            job.worker_id = None
-            job.heartbeat_at = None
+            now = datetime.now(timezone.utc)
+            message = (error_message or "Document job dispatch failed.").strip()[:4000]
 
             doc = (
                 db.query(Document)
-                .filter(Document.id == document_id, Document.user_id == user_id)
+                .filter(
+                    Document.id == document_id,
+                    Document.user_id == user_id,
+                )
                 .with_for_update()
                 .first()
             )
-            if doc:
-                doc.status = document_status
-                if error_message is not None:
-                    doc.error_message = error_message[:4000]
-                if page_count is not None:
-                    doc.page_count = page_count
 
-            if job_terminal_status == "ready":
-                job.status = DocumentJobStatus.READY.value
-                job.worker_id = None
-                job.heartbeat_at = None
-                job.finished_at = datetime.now(timezone.utc)
-            elif job_terminal_status == "failed":
-                job.status = DocumentJobStatus.FAILED.value
-                job.worker_id = None
-                job.heartbeat_at = None
-                job.error_message = (error_message or "")[:4000]
-                job.finished_at = datetime.now(timezone.utc)
+            job.status = DocumentJobStatus.FAILED.value
+            job.error_message = message
+            job.finished_at = now
+            job.worker_id = None
+            job.heartbeat_at = None
+
+            if doc:
+                doc.status = DocumentJobStatus.FAILED.value
+                doc.error_message = message
+
     @staticmethod
     def _read_storage(storage_key: str) -> bytes:
         storage = get_storage_backend()

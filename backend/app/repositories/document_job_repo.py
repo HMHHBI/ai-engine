@@ -223,7 +223,17 @@ class DocumentJobRepository:
         job = self.get_by_id(job_id)
         if not job:
             return False
-        return job.status == DocumentJobStatus.CANCELLED.value
+
+        if worker_id is not None and job.worker_id not in (worker_id, None):
+            return False
+
+        if job.status == DocumentJobStatus.CANCELLED.value:
+            return True
+
+        return (
+            job.status == DocumentJobStatus.PROCESSING.value
+            and job.cancel_requested_at is not None
+        )
 
     def transition_to_ready(
         self,
