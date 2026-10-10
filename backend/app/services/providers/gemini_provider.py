@@ -316,6 +316,13 @@ class GeminiProvider(BaseLLMProvider):
                 )
 
                 for chunk in stream:
+                    metadata = getattr(chunk, "usage_metadata", None)
+                    if metadata is not None:
+                        self.last_usage = {
+                            "input_tokens": getattr(metadata, "prompt_token_count", None),
+                            "output_tokens": getattr(metadata, "candidates_token_count", None),
+                            "total_tokens": getattr(metadata, "total_token_count", None),
+                        }
                     if stop_event.is_set():
                         break
 

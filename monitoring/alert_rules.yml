@@ -1,0 +1,177 @@
+groups:
+  - name: ai-engine-chat
+    rules:
+      - alert: ChatTTFTHigh
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (
+              rate(ai_chat_time_to_first_token_seconds_bucket[10m])
+            )
+          ) > 5
+        for: 10m
+        labels:
+          severity: warning
+          team: ai-platform
+        annotations:
+          summary: "Chat time-to-first-token is elevated"
+          description: "p95 TTFT has exceeded 5 seconds for 10 minutes."
+          runbook_url: "https://github.com/HMHHBI/ai-engine/blob/main/docs/runbooks/high-ttft-provider-outage.md"
+
+      - alert: ChatSSELatencyHigh
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (
+              rate(ai_chat_stream_duration_seconds_bucket[10m])
+            )
+          ) > 30
+        for: 10m
+        labels:
+          severity: warning
+          team: ai-platform
+        annotations:
+          summary: "Chat SSE stream duration is elevated"
+          description: "p95 stream duration exceeds 30 seconds for 10 minutes."
+          runbook_url: "https://github.com/HMHHBI/ai-engine/blob/main/docs/runbooks/high-ttft-provider-outage.md"
+
+      - alert: ChatStreamFailureRateHigh
+        expr: |
+          (
+            sum(rate(ai_chat_streams_total{status="failed"}[10m]))
+            /
+            clamp_min(sum(rate(ai_chat_streams_total[10m])), 0.001)
+          ) > 0.05
+          and
+          sum(increase(ai_chat_streams_total[10m])) >= 20
+        for: 5m
+        labels:
+          severity: critical
+          team: ai-platform
+        annotations:
+          summary: "Chat stream failure rate exceeds 5%"
+          description: "More than 5% of observed chat streams failed over 10 minutes."
+          runbook_url: "https://github.com/HMHHBI/ai-engine/blob/main/docs/runbooks/high-ttft-provider-outage.md"
+
+  - name: ai-engine-ingestion
+    rules:
+      - alert: DocumentQueueLagHigh
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (
+              rate(ai_document_queue_lag_seconds_bucket[5m])
+            )
+          ) > 60
+        for: 5m
+        labels:
+          severity: warning
+          team: ai-platform
+        annotations:
+          summary: "Document queue lag is high"
+          description: "p95 message age at worker pickup exceeds 60 seconds."
+          runbook_url: "https://github.com/HMHHBI/ai-engine/blob/main/docs/runbooks/stuck-pending-jobs.md"
+
+      - alert: DocumentIngestionFailures
+        expr: |
+          sum(increase(ai_document_ingestions_total{outcome="failed"}[10m])) >= 5
+        for: 5m
+        labels:
+          severity: critical
+          team: ai-platform
+        annotations:
+          summary: "Document ingestion failures detected"
+          description: "At least five ingestion failures occurred over 10 minutes."
+          runbook_url: "https://github.com/HMHHBI/ai-engine/blob/main/docs/runbooks/ingestion-dlq.md"
+
+      - alert: DocumentWorkerStalled
+        expr: |
+          (
+            ai_document_worker_last_success_timestamp_seconds > 0
+            and
+            time() - ai_document_worker_last_success_timestamp_seconds > 600
+          )
+          and
+          ai_document_queue_pending_messages > 0
+        for: 5m
+        labels:
+          severity: critical
+          team: ai-platform
+        annotations:
+          summary: "Document worker may be stalled"
+          description: "Pending jobs exist and no successful job has completed for over 10 minutes."
+          runbook_url: "https://github.com/HMHHBI/ai-engine/blob/main/docs/runbooks/stuck-pending-jobs.md"
+
+      - alert: DocumentDLQNotEmpty
+        expr: ai_document_dlq_messages > 0
+        for: 5m
+        labels:
+          severity: warning
+          team: ai-platform
+        annotations:
+          summary: "Document ingestion DLQ is non-empty"
+          description: "At least one message has remained in the DLQ for five minutes."
+          runbook_url: "https://github.com/HMHHBI/ai-engine/blob/main/docs/runbooks/ingestion-dlq.md"
+
+      - alert: DocumentDLQBacklogCritical
+        expr: ai_document_dlq_messages >= 10
+        for: 2m
+        labels:
+          severity: critical
+          team: ai-platform
+        annotations:
+          summary: "Document ingestion DLQ backlog is critical"
+          description: "The document DLQ contains at least 10 messages."
+          runbook_url: "https://github.com/HMHHBI/ai-engine/blob/main/docs/runbooks/ingestion-dlq.md"
+
+  - name: ai-engine-providers
+    rules:
+      - alert: LLMProviderErrorRateHigh
+        expr: |
+          (
+            sum by (provider) (
+              rate(ai_llm_provider_requests_total{outcome="error"}[10m])
+            )
+            /
+            clamp_min(
+              sum by (provider) (
+                rate(ai_llm_provider_requests_total[10m])
+              ),
+              0.001
+            )
+          ) > 0.10
+          and
+          sum by (provider) (
+            increase(ai_llm_provider_requests_total[10m])
+          ) >= 20
+        for: 5m
+        labels:
+          severity: critical
+          team: ai-platform
+        annotations:
+          summary: "LLM provider error rate is above 10%"
+          description: "Provider {{ $labels.provider }} has elevated errors over 10 minutes."
+          runbook_url: "https://github.com/HMHHBI/ai-engine/blob/main/docs/runbooks/high-ttft-provider-outage.md"
+
+      - alert: LLMProviderFailureBudgetBurn
+        expr: |
+          (
+            sum by (provider) (
+              rate(ai_llm_provider_requests_total{outcome="error"}[1h])
+            )
+            /
+            clamp_min(
+              sum by (provider) (
+                rate(ai_llm_provider_requests_total[1h])
+              ),
+              0.001
+            )
+          ) > 0.02
+        for: 15m
+        labels:
+          severity: warning
+          team: ai-platform
+        annotations:
+          summary: "LLM provider failure budget is burning"
+          description: "Provider {{ $labels.provider }} has an error ratio above 2% over one hour."
+          runbook_url: "https://github.com/HMHHBI/ai-engine/blob/main/docs/runbooks/high-ttft-provider-outage.md"

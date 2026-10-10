@@ -14,9 +14,12 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     String,
     Text,
+    UniqueConstraint,
     text,
+    JSON,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
@@ -233,7 +236,6 @@ class Chat(Base):
             "id",
         ),
     )
-
 
 
 class Document(Base):
@@ -509,6 +511,122 @@ class DocumentJob(Base):
             "document_id",
             unique=True,
             postgresql_where=text("status IN ('queued', 'processing')"),
+        ),
+    )
+
+
+class AIUsageEvent(Base):
+    __tablename__ = "ai_usage_events"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    request_id = Column(String(64), nullable=False, index=True)
+    idempotency_key = Column(String(128), nullable=False, unique=True, index=True)
+    user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    chat_id = Column(
+        Integer, ForeignKey("chats.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    message_id = Column(
+        Integer,
+        ForeignKey("messages.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    provider = Column(String(32), nullable=False, index=True)
+    model = Column(String(128), nullable=False, index=True)
+    operation = Column(String(64), nullable=False, default="chat")
+    input_tokens = Column(Integer, nullable=True)
+    output_tokens = Column(Integer, nullable=True)
+    total_tokens = Column(Integer, nullable=True)
+    usage_source = Column(String(32), nullable=False, default="provider_reported")
+    status = Column(String(32), nullable=False, default="succeeded")
+    cost_amount = Column(Numeric(18, 8), nullable=True)
+    cost_currency = Column(String(3), nullable=True, default="USD")
+    pricing_version = Column(String(64), nullable=True)
+    pricing_snapshot = Column(JSON, nullable=True)
+    provider_metadata = Column(JSON, nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=False)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "input_tokens IS NULL OR input_tokens >= 0",
+            name="ck_ai_usage_events_input_tokens_non_negative",
+        ),
+        CheckConstraint(
+            "output_tokens IS NULL OR output_tokens >= 0",
+            name="ck_ai_usage_events_output_tokens_non_negative",
+        ),
+        CheckConstraint(
+            "total_tokens IS NULL OR total_tokens >= 0",
+            name="ck_ai_usage_events_total_tokens_non_negative",
+        ),
+        CheckConstraint(
+            "cost_amount IS NULL OR cost_amount >= 0",
+            name="ck_ai_usage_events_cost_non_negative",
+        ),
+        Index("ix_ai_usage_events_user_created", "user_id", "created_at"),
+        Index("ix_ai_usage_events_chat_created", "chat_id", "created_at"),
+        Index(
+            "ix_ai_usage_events_provider_model_created",
+            "provider",
+            "model",
+            "created_at",
+        ),
+    )
+
+
+class ModelPricing(Base):
+    __tablename__ = "model_pricing"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    provider = Column(String(32), nullable=False, index=True)
+    model = Column(String(128), nullable=False, index=True)
+    currency = Column(String(3), nullable=False, default="USD")
+    input_rate_per_million = Column(Numeric(18, 8), nullable=False)
+    output_rate_per_million = Column(Numeric(18, 8), nullable=False)
+    cached_input_rate_per_million = Column(Numeric(18, 8), nullable=True)
+    pricing_version = Column(String(64), nullable=False)
+    effective_from = Column(DateTime(timezone=True), nullable=False)
+    effective_until = Column(DateTime(timezone=True), nullable=True)
+    source_reference = Column(String(255), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "input_rate_per_million >= 0",
+            name="ck_model_pricing_input_rate_non_negative",
+        ),
+        CheckConstraint(
+            "output_rate_per_million >= 0",
+            name="ck_model_pricing_output_rate_non_negative",
+        ),
+        CheckConstraint(
+            "cached_input_rate_per_million IS NULL OR cached_input_rate_per_million >= 0",
+            name="ck_model_pricing_cached_rate_non_negative",
+        ),
+        CheckConstraint(
+            "effective_until IS NULL OR effective_until > effective_from",
+            name="ck_model_pricing_effective_range",
+        ),
+        UniqueConstraint(
+            "provider",
+            "model",
+            "pricing_version",
+            name="uq_model_pricing_provider_model_version",
+        ),
+        Index(
+            "ix_model_pricing_lookup",
+            "provider",
+            "model",
+            "effective_from",
+            "effective_until",
         ),
     )
 

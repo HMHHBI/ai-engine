@@ -1,4 +1,8 @@
 from __future__ import annotations
+from app.core.metrics import record_llm_provider_request
+from app.core.metrics import observe_chat_stream, observe_time_to_first_token
+from datetime import datetime, timezone
+from app.services.usage_service import new_usage_ids, record_usage
 
 from app.storage import get_storage_backend, build_document_key
 from app.utils.pdf_extractor import extract_text_from_pdf, PDFExtractionError
@@ -918,10 +922,13 @@ async def _execute_ai_stream(
     # --------------------------------------------------------
     # Structured SSE stream
     # --------------------------------------------------------
-
+    @observe_chat_stream
     async def event_generator():
         full_text = ""
         chunk_count = 0
+        usage_request_id, usage_idempotency_key = new_usage_ids()
+        usage_started_at = datetime.now(timezone.utc)
+        usage_status = "succeeded"
         first_token_at: float | None = None
         stream_started_at = time.monotonic()
 
@@ -1207,7 +1214,15 @@ async def _execute_ai_stream(
                     },
                 )
 
+            record_llm_provider_request(
+                provider=ai_provider.value,
+                outcome="success",
+            )
         except asyncio.CancelledError:
+            record_llm_provider_request(
+                provider=ai_provider.value,
+                outcome="cancelled",
+            )
             logger.info(
                 "ai_stream_cancelled",
                 extra={
@@ -1232,6 +1247,10 @@ async def _execute_ai_stream(
             raise
 
         except AIProviderTimeout:
+            record_llm_provider_request(
+                provider=ai_provider.value,
+                outcome="error",
+            )
             logger.warning(
                 "ai_stream_failed",
                 extra={
@@ -1257,6 +1276,10 @@ async def _execute_ai_stream(
             return
 
         except AIProviderUnavailable:
+            record_llm_provider_request(
+                provider=ai_provider.value,
+                outcome="error",
+            )
             logger.warning(
                 "ai_stream_failed",
                 extra={
@@ -1282,6 +1305,10 @@ async def _execute_ai_stream(
             return
 
         except AIProviderError:
+            record_llm_provider_request(
+                provider=ai_provider.value,
+                outcome="error",
+            )
             logger.exception(
                 "ai_stream_failed",
                 extra={
@@ -1307,6 +1334,10 @@ async def _execute_ai_stream(
             return
 
         except Exception:
+            record_llm_provider_request(
+                provider=ai_provider.value,
+                outcome="error",
+            )
             logger.exception(
                 "ai_stream_failed",
                 extra={
