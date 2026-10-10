@@ -247,6 +247,7 @@ class OpenAIProvider(BaseLLMProvider):
                         "messages": messages,
                         "temperature": temperature,
                         "stream": True,
+            "stream_options": {"include_usage": True},
                     },
                 ) as response:
                     response.raise_for_status()

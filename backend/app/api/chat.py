@@ -1,4 +1,6 @@
 from __future__ import annotations
+from datetime import datetime, timezone
+from app.services.usage_service import new_usage_ids, record_usage
 
 from app.storage import get_storage_backend, build_document_key
 from app.utils.pdf_extractor import extract_text_from_pdf, PDFExtractionError
@@ -922,6 +924,9 @@ async def _execute_ai_stream(
     async def event_generator():
         full_text = ""
         chunk_count = 0
+        usage_request_id, usage_idempotency_key = new_usage_ids()
+        usage_started_at = datetime.now(timezone.utc)
+        usage_status = "succeeded"
         first_token_at: float | None = None
         stream_started_at = time.monotonic()
 
