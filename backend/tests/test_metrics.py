@@ -56,3 +56,17 @@ async def test_metrics_endpoint_returns_200_and_prometheus_format():
         body = response.text
         assert "ai_tokens_consumed_total" in body
         assert "ai_chat_streams_total" in body
+
+
+def test_provider_and_worker_metrics_track_values():
+    from app.core.metrics import (
+        record_llm_provider_request,
+        set_document_dlq_depth,
+        set_document_queue_pending,
+        record_document_worker_success,
+    )
+    record_llm_provider_request(provider="openai", outcome="success")
+    record_llm_provider_request(provider="gemini", outcome="error")
+    set_document_dlq_depth(3)
+    set_document_queue_pending(5)
+    record_document_worker_success()

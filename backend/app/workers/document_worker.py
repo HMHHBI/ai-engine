@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.core.metrics import record_document_worker_success, set_document_dlq_depth, set_document_queue_pending
 import traceback
 from app.services.document_job_dlq import DocumentJobDLQService
 from app.core.metrics import observe_document_queue_lag
@@ -235,6 +236,7 @@ class DocumentIngestionWorker:
             j_status, j_attempt, j_max, j_err = await asyncio.to_thread(_check_terminal_state)
 
             if j_status == "completed":
+                record_document_worker_success()
                 await self.redis.xack(DOCUMENT_JOB_QUEUE, DOCUMENT_JOB_CONSUMER_GROUP, message_id)
             elif j_status == "failed" and j_attempt >= j_max:
                 logger.warning("Job %s exhausted retries (%s/%s); routing to DLQ", job_id, j_attempt, j_max)

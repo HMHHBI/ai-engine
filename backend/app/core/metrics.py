@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 from fastapi import Response
 from prometheus_client import (
+    Gauge,
     CONTENT_TYPE_LATEST,
     Counter,
     Histogram,
@@ -156,3 +157,42 @@ def observe_document_queue_lag(message_id: str) -> None:
         return
     lag_seconds = max(0.0, time.time() - (timestamp_ms / 1000.0))
     DOCUMENT_QUEUE_LAG.observe(lag_seconds)
+
+# 5. LLM Provider Requests & Error Tracking
+LLM_PROVIDER_REQUESTS = Counter(
+    "ai_llm_provider_requests_total",
+    "LLM provider request outcomes",
+    ["provider", "outcome"],
+)
+
+# 6. DLQ Depth & Worker Health Gauges
+DOCUMENT_DLQ_MESSAGES = Gauge(
+    "ai_document_dlq_messages",
+    "Current number of entries in the document ingestion DLQ",
+)
+
+DOCUMENT_QUEUE_PENDING_MESSAGES = Gauge(
+    "ai_document_queue_pending_messages",
+    "Pending entries in the document worker consumer group",
+)
+
+DOCUMENT_WORKER_LAST_SUCCESS = Gauge(
+    "ai_document_worker_last_success_timestamp_seconds",
+    "Unix timestamp of the most recent successful document ingestion",
+)
+
+
+def record_llm_provider_request(*, provider: str, outcome: str) -> None:
+    LLM_PROVIDER_REQUESTS.labels(provider=provider, outcome=outcome).inc()
+
+
+def set_document_dlq_depth(count: int) -> None:
+    DOCUMENT_DLQ_MESSAGES.set(max(0, count))
+
+
+def set_document_queue_pending(count: int) -> None:
+    DOCUMENT_QUEUE_PENDING_MESSAGES.set(max(0, count))
+
+
+def record_document_worker_success() -> None:
+    DOCUMENT_WORKER_LAST_SUCCESS.set(time.time())

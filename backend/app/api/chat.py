@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.core.metrics import record_llm_provider_request
 from app.core.metrics import observe_chat_stream, observe_time_to_first_token
 from datetime import datetime, timezone
 from app.services.usage_service import new_usage_ids, record_usage
@@ -928,6 +929,7 @@ async def _execute_ai_stream(
         usage_request_id, usage_idempotency_key = new_usage_ids()
         usage_started_at = datetime.now(timezone.utc)
         usage_status = "succeeded"
+        record_llm_provider_request(provider=ai_provider.value, outcome="success")
         first_token_at: float | None = None
         stream_started_at = time.monotonic()
 
