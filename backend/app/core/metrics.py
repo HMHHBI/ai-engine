@@ -64,8 +64,29 @@ DOCUMENT_QUEUE_LAG = Histogram(
 )
 
 
+
+def refresh_redis_gauges() -> None:
+    """Refresh DLQ and pending queue gauges directly from Redis."""
+    try:
+        from app.core.redis import get_redis_client
+        import redis
+        client = get_redis_client()
+        # 1. DLQ messages count
+        dlq_len = client.xlen("ingestion:dlq")
+        DOCUMENT_DLQ_MESSAGES.set(dlq_len)
+        
+        # 2. Pending messages count in document-workers group
+        pending_info = client.xpending("ai:document:jobs", "document-workers")
+        pending_count = pending_info["pending"] if isinstance(pending_info, dict) else (pending_info[0] if pending_info else 0)
+        DOCUMENT_QUEUE_PENDING_MESSAGES.set(pending_count)
+    except Exception:
+        # Avoid breaking /metrics if Redis is temporarily unreachable
+        pass
+
+
 def metrics_response() -> Response:
     """Generate Prometheus scrape format response."""
+    refresh_redis_gauges()
     return Response(
         content=generate_latest(),
         media_type=CONTENT_TYPE_LATEST,
