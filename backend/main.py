@@ -126,8 +126,8 @@ app.add_middleware(
 app.include_router(api_router)
 
 @app.get("/metrics", include_in_schema=False)
-def prometheus_metrics():
-    return metrics_response()
+async def prometheus_metrics():
+    return await metrics_response()
 
 
 

@@ -929,7 +929,6 @@ async def _execute_ai_stream(
         usage_request_id, usage_idempotency_key = new_usage_ids()
         usage_started_at = datetime.now(timezone.utc)
         usage_status = "succeeded"
-        record_llm_provider_request(provider=ai_provider.value, outcome="success")
         first_token_at: float | None = None
         stream_started_at = time.monotonic()
 
@@ -1215,7 +1214,15 @@ async def _execute_ai_stream(
                     },
                 )
 
+            record_llm_provider_request(
+                provider=ai_provider.value,
+                outcome="success",
+            )
         except asyncio.CancelledError:
+            record_llm_provider_request(
+                provider=ai_provider.value,
+                outcome="error",
+            )
             logger.info(
                 "ai_stream_cancelled",
                 extra={
@@ -1240,6 +1247,10 @@ async def _execute_ai_stream(
             raise
 
         except AIProviderTimeout:
+            record_llm_provider_request(
+                provider=ai_provider.value,
+                outcome="error",
+            )
             logger.warning(
                 "ai_stream_failed",
                 extra={
@@ -1265,6 +1276,10 @@ async def _execute_ai_stream(
             return
 
         except AIProviderUnavailable:
+            record_llm_provider_request(
+                provider=ai_provider.value,
+                outcome="error",
+            )
             logger.warning(
                 "ai_stream_failed",
                 extra={
@@ -1290,6 +1305,10 @@ async def _execute_ai_stream(
             return
 
         except AIProviderError:
+            record_llm_provider_request(
+                provider=ai_provider.value,
+                outcome="error",
+            )
             logger.exception(
                 "ai_stream_failed",
                 extra={
@@ -1315,6 +1334,10 @@ async def _execute_ai_stream(
             return
 
         except Exception:
+            record_llm_provider_request(
+                provider=ai_provider.value,
+                outcome="error",
+            )
             logger.exception(
                 "ai_stream_failed",
                 extra={

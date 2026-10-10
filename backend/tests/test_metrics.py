@@ -74,28 +74,45 @@ def test_provider_and_worker_metrics_track_values():
 import pytest
 from unittest.mock import AsyncMock, patch
 
-def test_refresh_redis_gauges_success():
-    from app.core.metrics import refresh_redis_gauges, DOCUMENT_DLQ_MESSAGES, DOCUMENT_QUEUE_PENDING_MESSAGES
+@pytest.mark.asyncio
+async def test_refresh_redis_gauges_success():
     from unittest.mock import AsyncMock, patch
+    from app.core.metrics import (
+        DOCUMENT_DLQ_MESSAGES,
+        DOCUMENT_QUEUE_PENDING_MESSAGES,
+        refresh_redis_gauges,
+    )
 
     mock_redis = AsyncMock()
     mock_redis.xlen.return_value = 7
     mock_redis.xpending.return_value = {"pending": 12}
+    with patch(
+        "app.services.document_job_dispatcher.get_document_redis",
+        return_value=mock_redis,
+    ):
+        await refresh_redis_gauges()
+    assert DOCUMENT_DLQ_MESSAGES._value.get() == 7.0
+    assert DOCUMENT_QUEUE_PENDING_MESSAGES._value.get() == 12.0
 
-    with patch("app.services.document_job_dispatcher.get_document_redis", return_value=mock_redis):
-        refresh_redis_gauges()
-        assert DOCUMENT_DLQ_MESSAGES._value.get() == 7.0
-        assert DOCUMENT_QUEUE_PENDING_MESSAGES._value.get() == 12.0
 
+@pytest.mark.asyncio
+async def test_refresh_redis_gauges_on_redis_error():
+    from unittest.mock import AsyncMock, patch
+    from app.core.metrics import (
+        DOCUMENT_DLQ_MESSAGES,
+        DOCUMENT_QUEUE_PENDING_MESSAGES,
+        refresh_redis_gauges,
+    )
 
-def test_refresh_redis_gauges_on_redis_error():
-    from app.core.metrics import refresh_redis_gauges, DOCUMENT_DLQ_MESSAGES, DOCUMENT_QUEUE_PENDING_MESSAGES
-    from unittest.mock import patch
-
-    with patch("app.services.document_job_dispatcher.get_document_redis", side_effect=Exception("Redis down")):
-        refresh_redis_gauges()
-        assert DOCUMENT_DLQ_MESSAGES._value.get() == -1.0
-        assert DOCUMENT_QUEUE_PENDING_MESSAGES._value.get() == -1.0
+    mock_redis = AsyncMock()
+    mock_redis.xlen.side_effect = ConnectionError("Redis down")
+    with patch(
+        "app.services.document_job_dispatcher.get_document_redis",
+        return_value=mock_redis,
+    ):
+        await refresh_redis_gauges()
+    assert DOCUMENT_DLQ_MESSAGES._value.get() == -1.0
+    assert DOCUMENT_QUEUE_PENDING_MESSAGES._value.get() == -1.0
 
 
 def test_provider_metric_counters_increment_accurately():

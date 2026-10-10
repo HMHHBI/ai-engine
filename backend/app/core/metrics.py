@@ -66,49 +66,6 @@ DOCUMENT_QUEUE_LAG = Histogram(
 
 
 
-def refresh_redis_gauges() -> None:
-    """Refresh DLQ and pending queue gauges directly from Redis."""
-    import asyncio
-    try:
-        from app.services.document_job_dispatcher import get_document_redis
-        client = get_document_redis()
-
-        async def _fetch():
-            dlq_len = await client.xlen("ingestion:dlq")
-            pending_info = await client.xpending("ai:document:jobs", "document-workers")
-            pending_count = 0
-            if isinstance(pending_info, dict):
-                pending_count = pending_info.get("pending", 0)
-            elif isinstance(pending_info, (list, tuple)) and len(pending_info) > 0:
-                pending_count = pending_info[0]
-            return float(dlq_len), float(pending_count)
-
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-
-        if loop and loop.is_running():
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                dlq_val, pending_val = pool.submit(asyncio.run, _fetch()).result(timeout=2.0)
-        else:
-            dlq_val, pending_val = asyncio.run(_fetch())
-
-        DOCUMENT_DLQ_MESSAGES.set(dlq_val)
-        DOCUMENT_QUEUE_PENDING_MESSAGES.set(pending_val)
-    except Exception:
-        DOCUMENT_DLQ_MESSAGES.set(-1.0)
-        DOCUMENT_QUEUE_PENDING_MESSAGES.set(-1.0)
-
-
-def metrics_response() -> Response:
-    """Generate Prometheus scrape format response."""
-    refresh_redis_gauges()
-    return Response(
-        content=generate_latest(),
-        media_type=CONTENT_TYPE_LATEST,
-    )
 
 
 def observe_chat_stream(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -235,3 +192,33 @@ def set_document_queue_pending(count: int) -> None:
 
 def record_document_worker_success() -> None:
     DOCUMENT_WORKER_LAST_SUCCESS.set(time.time())
+
+async def refresh_redis_gauges() -> None:
+    """Refresh queue gauges using the current async Redis event loop."""
+    import asyncio
+    try:
+        from app.services.document_job_dispatcher import get_document_redis
+        client = get_document_redis()
+        async with asyncio.timeout(2.0):
+            dlq_len = await client.xlen("ingestion:dlq")
+            pending_info = await client.xpending(
+                "ai:document:jobs",
+                "document-workers",
+            )
+        if isinstance(pending_info, dict):
+            pending_count = pending_info.get("pending", 0)
+        elif isinstance(pending_info, (list, tuple)) and pending_info:
+            pending_count = pending_info[0]
+        else:
+            pending_count = 0
+        DOCUMENT_DLQ_MESSAGES.set(float(dlq_len))
+        DOCUMENT_QUEUE_PENDING_MESSAGES.set(float(pending_count))
+    except Exception:
+        DOCUMENT_DLQ_MESSAGES.set(-1.0)
+        DOCUMENT_QUEUE_PENDING_MESSAGES.set(-1.0)
+
+
+async def metrics_response() -> Response:
+    """Generate Prometheus scrape format response."""
+    await refresh_redis_gauges()
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
