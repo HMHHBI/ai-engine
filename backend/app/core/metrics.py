@@ -65,23 +65,41 @@ DOCUMENT_QUEUE_LAG = Histogram(
 
 
 
+
 def refresh_redis_gauges() -> None:
     """Refresh DLQ and pending queue gauges directly from Redis."""
+    import asyncio
     try:
-        from app.core.redis import get_redis_client
-        import redis
-        client = get_redis_client()
-        # 1. DLQ messages count
-        dlq_len = client.xlen("ingestion:dlq")
-        DOCUMENT_DLQ_MESSAGES.set(dlq_len)
-        
-        # 2. Pending messages count in document-workers group
-        pending_info = client.xpending("ai:document:jobs", "document-workers")
-        pending_count = pending_info["pending"] if isinstance(pending_info, dict) else (pending_info[0] if pending_info else 0)
-        DOCUMENT_QUEUE_PENDING_MESSAGES.set(pending_count)
+        from app.services.document_job_dispatcher import get_document_redis
+        client = get_document_redis()
+
+        async def _fetch():
+            dlq_len = await client.xlen("ingestion:dlq")
+            pending_info = await client.xpending("ai:document:jobs", "document-workers")
+            pending_count = 0
+            if isinstance(pending_info, dict):
+                pending_count = pending_info.get("pending", 0)
+            elif isinstance(pending_info, (list, tuple)) and len(pending_info) > 0:
+                pending_count = pending_info[0]
+            return float(dlq_len), float(pending_count)
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                dlq_val, pending_val = pool.submit(asyncio.run, _fetch()).result(timeout=2.0)
+        else:
+            dlq_val, pending_val = asyncio.run(_fetch())
+
+        DOCUMENT_DLQ_MESSAGES.set(dlq_val)
+        DOCUMENT_QUEUE_PENDING_MESSAGES.set(pending_val)
     except Exception:
-        # Avoid breaking /metrics if Redis is temporarily unreachable
-        pass
+        DOCUMENT_DLQ_MESSAGES.set(-1.0)
+        DOCUMENT_QUEUE_PENDING_MESSAGES.set(-1.0)
 
 
 def metrics_response() -> Response:

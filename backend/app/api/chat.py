@@ -930,7 +930,6 @@ async def _execute_ai_stream(
         usage_started_at = datetime.now(timezone.utc)
         usage_status = "succeeded"
         record_llm_provider_request(provider=ai_provider.value, outcome="success")
-        
         first_token_at: float | None = None
         stream_started_at = time.monotonic()
 
