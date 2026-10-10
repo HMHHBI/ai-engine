@@ -1,3 +1,5 @@
+from __future__ import annotations
+from app.core.metrics import metrics_response
 from app.services.embedding_service import EmbeddingService
 import httpx
 from contextlib import asynccontextmanager
@@ -122,6 +124,11 @@ app.add_middleware(
 
 # 4. Main API Router Integration
 app.include_router(api_router)
+
+@app.get("/metrics", include_in_schema=False)
+def prometheus_metrics():
+    return metrics_response()
+
 
 
 @app.get("/")

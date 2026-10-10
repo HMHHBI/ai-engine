@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.core.metrics import record_token_consumption
 
 import logging
 import uuid
@@ -118,4 +119,15 @@ def record_usage(
             )
             .on_conflict_do_nothing(index_elements=["idempotency_key"])
         )
-        db.execute(stmt)
+        result = db.execute(stmt)
+        inserted = result.rowcount == 1
+
+    if inserted:
+        record_token_consumption(
+            provider=provider,
+            model=model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            status=norm_status,
+            source=source,
+        )

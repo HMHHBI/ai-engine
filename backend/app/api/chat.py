@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.core.metrics import observe_chat_stream, observe_time_to_first_token
 from datetime import datetime, timezone
 from app.services.usage_service import new_usage_ids, record_usage
 
@@ -920,7 +921,7 @@ async def _execute_ai_stream(
     # --------------------------------------------------------
     # Structured SSE stream
     # --------------------------------------------------------
-
+    @observe_chat_stream
     async def event_generator():
         full_text = ""
         chunk_count = 0

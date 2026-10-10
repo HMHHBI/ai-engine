@@ -1,6 +1,7 @@
 from __future__ import annotations
 import traceback
 from app.services.document_job_dlq import DocumentJobDLQService
+from app.core.metrics import observe_document_queue_lag
 
 import asyncio
 import json
@@ -121,6 +122,7 @@ class DocumentIngestionWorker:
         return EmbeddingProvider(settings.DEFAULT_EMBEDDING_PROVIDER)
 
     async def process_job_message(self, message_id: str, raw_payload: str) -> None:
+        observe_document_queue_lag(message_id)
         try:
             data = json.loads(raw_payload)
             job_id = int(data["job_id"])

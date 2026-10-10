@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.core.metrics import observe_async_operation
 from app.repositories.document_repo import DocumentRepository
 
 import asyncio
@@ -209,6 +210,7 @@ class DocumentLifecycleService:
                 )
 
     @classmethod
+    @observe_async_operation("document_ingestion")
     async def process_job(
         cls,
         *,
