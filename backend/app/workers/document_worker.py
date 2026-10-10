@@ -1,4 +1,6 @@
 from __future__ import annotations
+import traceback
+from app.services.document_job_dlq import DocumentJobDLQService
 
 import asyncio
 import json
@@ -124,6 +126,16 @@ class DocumentIngestionWorker:
             job_id = int(data["job_id"])
         except Exception as e:
             logger.error(f"Malformed stream message {message_id}: {raw_payload} ({e})")
+            try:
+                await DocumentJobDLQService.forward_to_dlq(
+                    original_message_id=message_id,
+                    raw_payload=raw_payload,
+                    error_message=f"Malformed message: {e}",
+                    error_traceback=traceback.format_exc(),
+                    redis=self.redis,
+                )
+            except Exception:
+                logger.exception("Failed forwarding malformed message to DLQ")
             await self.redis.xack(DOCUMENT_JOB_QUEUE, DOCUMENT_JOB_CONSUMER_GROUP, message_id)
             return
 
@@ -180,15 +192,66 @@ class DocumentIngestionWorker:
             heartbeat_task = asyncio.create_task(
                 self._heartbeat_loop(job_id, stop_event, process_task=proc_task)
             )
+            proc_error = None
             try:
                 await proc_task
             except asyncio.CancelledError:
                 logger.info(f"Processing task cancelled for job {job_id}")
+                stop_event.set()
+                if not heartbeat_task.done():
+                    await heartbeat_task
+                raise
+            except Exception as exc:
+                proc_error = exc
+                logger.exception("Error processing job %s: %s", job_id, exc)
             finally:
                 stop_event.set()
                 if not heartbeat_task.done():
                     await heartbeat_task
+
+            # Coordinate ACK / DLQ lifecycle with durable DB state
+            def _check_terminal_state():
+                with session_scope() as db:
+                    j_repo = DocumentJobRepository(db)
+                    current_j = j_repo.get_by_id(job_id)
+                    if not current_j:
+                        return ("completed" if proc_error is None else "failed"), 1, 3, None
+                    raw_st = getattr(current_j, "status", None)
+                    if raw_st is None:
+                        st_str = "completed" if proc_error is None else "failed"
+                    elif hasattr(raw_st, "value"):
+                        st_str = raw_st.value
+                    else:
+                        st_str = str(raw_st)
+                    return (
+                        st_str,
+                        getattr(current_j, "attempt", 1),
+                        getattr(current_j, "max_attempts", 3),
+                        getattr(current_j, "error_message", None),
+                    )
+
+            j_status, j_attempt, j_max, j_err = await asyncio.to_thread(_check_terminal_state)
+
+            if j_status == "completed":
                 await self.redis.xack(DOCUMENT_JOB_QUEUE, DOCUMENT_JOB_CONSUMER_GROUP, message_id)
+            elif j_status == "failed" and j_attempt >= j_max:
+                logger.warning("Job %s exhausted retries (%s/%s); routing to DLQ", job_id, j_attempt, j_max)
+                tb_str = traceback.format_exc() if proc_error else None
+                await DocumentJobDLQService.forward_to_dlq(
+                    original_message_id=message_id,
+                    raw_payload=raw_payload,
+                    job_id=job_id,
+                    attempt=j_attempt,
+                    max_attempts=j_max,
+                    error_message=j_err or str(proc_error or "Exhausted retries"),
+                    error_traceback=tb_str,
+                    redis=self.redis,
+                )
+                await self.redis.xack(DOCUMENT_JOB_QUEUE, DOCUMENT_JOB_CONSUMER_GROUP, message_id)
+            elif j_status == "cancelled":
+                await self.redis.xack(DOCUMENT_JOB_QUEUE, DOCUMENT_JOB_CONSUMER_GROUP, message_id)
+            else:
+                logger.info("Job %s in status %s (attempt %s/%s); leaving in stream for retry recovery", job_id, j_status, j_attempt, j_max)
 
     async def _recovery_daemon_loop(self) -> None:
         recovery_interval = getattr(settings, "DOCUMENT_JOB_RECOVERY_INTERVAL_SECONDS", 15.0)
