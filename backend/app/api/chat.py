@@ -1221,7 +1221,7 @@ async def _execute_ai_stream(
         except asyncio.CancelledError:
             record_llm_provider_request(
                 provider=ai_provider.value,
-                outcome="error",
+                outcome=\"cancelled\",
             )
             logger.info(
                 "ai_stream_cancelled",
