@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.services.audit_log import record_audit_event
 
 from datetime import datetime, timezone
 from typing import Any, Literal

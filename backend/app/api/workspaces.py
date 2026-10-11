@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.services.audit_log import record_audit_event
 
 from datetime import datetime, timezone
 
@@ -110,6 +111,17 @@ def create_workspace(
     db.add(owner_membership)
     db.commit()
     db.refresh(workspace)
+    record_audit_event(
+        db,
+        action="workspace.created",
+        resource_type="workspace",
+        resource_id=workspace.id,
+        actor_id=current_user.id,
+        workspace_id=workspace.id,
+        outcome="success",
+        metadata={"workspace_name": workspace.name},
+    )
+    db.commit()
 
     return workspace
 
@@ -272,6 +284,17 @@ def invite_workspace_member(
     db.add(membership)
     db.commit()
     db.refresh(membership)
+    record_audit_event(
+        db,
+        action="workspace.member_added",
+        resource_type="membership",
+        resource_id=membership.id,
+        actor_id=current_user.id,
+        workspace_id=workspace_id,
+        outcome="success",
+        metadata={"target_user_id": membership.user_id, "role": membership.role},
+    )
+    db.commit()
 
     membership = (
         db.query(WorkspaceMembership)

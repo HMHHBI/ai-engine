@@ -20,6 +20,7 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
     JSON,
+    func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
@@ -816,7 +817,7 @@ class DocumentChunk(Base):
 
     chunk_index = Column(
         Integer,
-        nullable=True,
+        nullable=False,
     )
 
     embedding = Column(
@@ -850,6 +851,16 @@ class DocumentChunk(Base):
             "ix_document_chunks_document_id_id",
             "document_id",
             "id",
+        ),
+        UniqueConstraint(
+            "document_id",
+            "chunk_index",
+            name="uq_document_chunks_doc_chunk_idx",
+        ),
+        Index(
+            "ix_document_chunks_content_fts",
+            func.to_tsvector(text("'english'"), content),
+            postgresql_using="gin",
         ),
     )
 
@@ -1197,4 +1208,30 @@ class ResearchRunDocument(Base):
             "ix_research_run_documents_document",
             "document_id",
         ),
+    )
+
+class AuditEvent(Base):
+    __tablename__ = "audit_events"
+
+    id = Column(Integer, primary_key=True)
+    actor_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=True, index=True)
+    action = Column(String(80), nullable=False, index=True)
+    resource_type = Column(String(60), nullable=False)
+    resource_id = Column(String(60), nullable=True)
+    outcome = Column(String(20), nullable=False, default="success")  # success, failure, denied
+    metadata_payload = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    ip_address = Column(String(45), nullable=True)
+    user_agent = Column(String(255), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+        index=True,
+    )
+
+    __table_args__ = (
+        Index("ix_audit_events_workspace_created", "workspace_id", "created_at"),
+        Index("ix_audit_events_action_created", "action", "created_at"),
     )
