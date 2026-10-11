@@ -74,6 +74,7 @@ class OpenAIProvider(BaseLLMProvider):
             if stream_max_seconds is not None
             else settings.AI_STREAM_MAX_SECONDS
         )
+        self.last_usage: dict[str, int | None] | None = None
 
     def _build_headers(self) -> Dict[str, str]:
         return {
@@ -216,6 +217,7 @@ class OpenAIProvider(BaseLLMProvider):
         temperature: float = 0.2,
         **kwargs,
     ) -> AsyncGenerator[str, None]:
+        self.last_usage = None
         messages = self._build_messages(
             prompt,
             system_prompt,
