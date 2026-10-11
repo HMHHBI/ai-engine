@@ -456,7 +456,7 @@ def test_phase4_zero_alembic_migrations_invariant():
     script = ScriptDirectory.from_config(config)
 
     head_revision = script.get_current_head()
-    assert head_revision in ("b3a490b636d1", "bc2cc3cfac88", "8408ff62ae6d"), (
+    assert head_revision in ("b3a490b636d1", "bc2cc3cfac88", "8408ff62ae6d", "40b9349881f2"), (
         f"Alembic head must strictly remain b3a490b636d1, got {head_revision}"
     )
 

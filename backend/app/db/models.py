@@ -170,6 +170,13 @@ class User(Base):
         back_populates="added_by_user",
         passive_deletes=True,
     )
+    
+    requested_research_runs = relationship(
+        "ResearchRun",
+        back_populates="requester",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
 
 class Chat(Base):
@@ -371,6 +378,13 @@ class Document(Base):
     
     workspace_associations = relationship(
         "WorkspaceDocument",
+        back_populates="document",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    
+    research_associations = relationship(
+        "ResearchRunDocument",
         back_populates="document",
         cascade="all, delete-orphan",
         passive_deletes=True,
@@ -883,6 +897,13 @@ class Workspace(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    
+    research_runs = relationship(
+        "ResearchRun",
+        back_populates="workspace",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
     __table_args__ = (Index("ix_workspaces_created_by_id", "created_by", "id"),)
 
@@ -1028,6 +1049,152 @@ class WorkspaceDocument(Base):
         ),
         Index(
             "ix_workspace_documents_document",
+            "document_id",
+        ),
+    )
+
+
+class ResearchRun(Base):
+    __tablename__ = "research_runs"
+
+    id = Column(Integer, primary_key=True)
+
+    workspace_id = Column(
+        Integer,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    requester_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    query = Column(Text, nullable=False)
+
+    status = Column(
+        String(20),
+        nullable=False,
+        default="queued",
+        server_default="queued",
+    )
+
+    answer = Column(JSONB, nullable=True)
+
+    run_metadata = Column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+
+    error_message = Column(Text, nullable=True)
+
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    workspace = relationship(
+        "Workspace",
+        back_populates="research_runs",
+    )
+
+    requester = relationship(
+        "User",
+        back_populates="requested_research_runs",
+    )
+
+    document_associations = relationship(
+        "ResearchRunDocument",
+        back_populates="research_run",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued', 'running', 'completed', 'failed')",
+            name="ck_research_runs_valid_status",
+        ),
+        CheckConstraint(
+            "length(trim(query)) > 0",
+            name="ck_research_runs_query_nonempty",
+        ),
+        Index(
+            "ix_research_runs_workspace_created",
+            "workspace_id",
+            "created_at",
+        ),
+        Index(
+            "ix_research_runs_requester_created",
+            "requester_id",
+            "created_at",
+        ),
+        Index(
+            "ix_research_runs_workspace_status",
+            "workspace_id",
+            "status",
+        ),
+    )
+
+
+class ResearchRunDocument(Base):
+    __tablename__ = "research_run_documents"
+
+    id = Column(Integer, primary_key=True)
+
+    research_run_id = Column(
+        Integer,
+        ForeignKey("research_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    document_id = Column(
+        Integer,
+        ForeignKey("documents.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    provenance = Column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+
+    research_run = relationship(
+        "ResearchRun",
+        back_populates="document_associations",
+    )
+
+    document = relationship(
+        "Document",
+        back_populates="research_associations",
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "research_run_id",
+            "document_id",
+            name="uq_research_run_documents_run_document",
+        ),
+        Index(
+            "ix_research_run_documents_document",
             "document_id",
         ),
     )
