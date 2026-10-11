@@ -274,12 +274,22 @@ class OpenAIProvider(BaseLLMProvider):
                                 "OpenAI returned malformed stream data."
                             ) from exc
 
+                        choices = data.get("choices")
+                        usage = data.get("usage")
+                        if isinstance(usage, dict):
+                            self.last_usage = {
+                                "input_tokens": usage.get("prompt_tokens"),
+                                "output_tokens": usage.get("completion_tokens"),
+                                "total_tokens": usage.get("total_tokens"),
+                            }
+
+                        # OpenAI can send a final usage-only chunk with choices=[].
+                        if not choices:
+                            continue
+
                         try:
-                            delta = data["choices"][0].get(
-                                "delta",
-                                {},
-                            )
-                        except (KeyError, IndexError, TypeError) as exc:
+                            delta = choices[0].get("delta", {})
+                        except (IndexError, TypeError, AttributeError) as exc:
                             raise AIProviderResponseError(
                                 "OpenAI returned an invalid stream event."
                             ) from exc

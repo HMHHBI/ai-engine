@@ -96,3 +96,36 @@ def test_new_usage_ids_uniqueness():
     assert r1 != r2
     assert k1 != k2
     assert k1.startswith(f"usage_{r1}_")
+
+
+from app.db.models import AIUsageEvent
+from app.services.usage_service import record_usage, new_usage_ids
+
+def test_record_usage_creates_ledger_row(db_session):
+    request_id, idempotency_key = new_usage_ids()
+    record_usage(
+        request_id=request_id,
+        idempotency_key=idempotency_key,
+        provider="openai",
+        model="gpt-4o-mini",
+        usage={
+            "input_tokens": 11,
+            "output_tokens": 4,
+            "total_tokens": 15,
+        },
+        operation="chat",
+        status="succeeded",
+    )
+    row = (
+        db_session.query(AIUsageEvent)
+        .filter_by(idempotency_key=idempotency_key)
+        .one()
+    )
+    assert row.request_id == request_id
+    assert row.provider == "openai"
+    assert row.model == "gpt-4o-mini"
+    assert row.input_tokens == 11
+    assert row.output_tokens == 4
+    assert row.total_tokens == 15
+    assert row.status == "succeeded"
+    assert row.usage_source == "provider_reported"

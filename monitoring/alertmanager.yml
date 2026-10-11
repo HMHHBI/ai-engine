@@ -10,7 +10,15 @@ route:
     - matchers:
         - severity="critical"
       receiver: critical
+      continue: false
 
 receivers:
   - name: default
+    webhook_configs:
+      - url_file: /etc/alertmanager/secrets/default-webhook-url
+        send_resolved: true
+
   - name: critical
+    webhook_configs:
+      - url_file: /etc/alertmanager/secrets/critical-webhook-url
+        send_resolved: true

@@ -30,12 +30,20 @@ def test_token_metrics_skip_unknown_values():
     )
 
 
-def test_time_to_first_token_accepts_nonnegative_duration():
+def test_time_to_first_token_observes_histogram():
+    from app.core.metrics import CHAT_TIME_TO_FIRST_TOKEN, observe_time_to_first_token
+    import pytest
+    metric = CHAT_TIME_TO_FIRST_TOKEN.labels(
+        provider="openai",
+        model="gpt-4o-mini",
+    )
+    before_count = metric._sum.get()
     observe_time_to_first_token(
         provider="openai",
         model="gpt-4o-mini",
         seconds=0.25,
     )
+    assert metric._sum.get() == pytest.approx(before_count + 0.25)
 
 
 def test_queue_lag_ignores_malformed_stream_id():

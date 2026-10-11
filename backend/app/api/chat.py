@@ -1189,6 +1189,11 @@ async def _execute_ai_stream(
 
                 if first_token_at is None:
                     first_token_at = time.monotonic()
+                    observe_time_to_first_token(
+                        provider=ai_provider.value,
+                        model=ai_model.value,
+                        seconds=first_token_at - stream_started_at,
+                    )
 
                     logger.info(
                         "ai_first_token",
@@ -1219,6 +1224,7 @@ async def _execute_ai_stream(
                 outcome="success",
             )
         except asyncio.CancelledError:
+            usage_status = "cancelled"
             record_llm_provider_request(
                 provider=ai_provider.value,
                 outcome="cancelled",
@@ -1247,6 +1253,7 @@ async def _execute_ai_stream(
             raise
 
         except AIProviderTimeout:
+            usage_status = "partial" if chunk_count else "failed"
             record_llm_provider_request(
                 provider=ai_provider.value,
                 outcome="error",
@@ -1276,6 +1283,7 @@ async def _execute_ai_stream(
             return
 
         except AIProviderUnavailable:
+            usage_status = "partial" if chunk_count else "failed"
             record_llm_provider_request(
                 provider=ai_provider.value,
                 outcome="error",
@@ -1305,6 +1313,7 @@ async def _execute_ai_stream(
             return
 
         except AIProviderError:
+            usage_status = "partial" if chunk_count else "failed"
             record_llm_provider_request(
                 provider=ai_provider.value,
                 outcome="error",
@@ -1334,6 +1343,7 @@ async def _execute_ai_stream(
             return
 
         except Exception:
+            usage_status = "partial" if chunk_count else "failed"
             record_llm_provider_request(
                 provider=ai_provider.value,
                 outcome="error",
@@ -1361,6 +1371,36 @@ async def _execute_ai_stream(
                 },
             )
             return
+
+        finally:
+            try:
+                await asyncio.to_thread(
+                    record_usage,
+                    request_id=usage_request_id,
+                    idempotency_key=usage_idempotency_key,
+                    provider=ai_provider.value,
+                    model=ai_model.value,
+                    usage=getattr(provider, "last_usage", None),
+                    provider_metadata={
+                        "streamed_chunks": chunk_count,
+                    },
+                    user_id=current_user.id,
+                    chat_id=req.chat_id,
+                    operation="chat",
+                    status=usage_status,
+                    started_at=usage_started_at,
+                    completed_at=datetime.now(timezone.utc),
+                )
+            except Exception:
+                logger.exception(
+                    "ai_usage_recording_failed",
+                    extra={
+                        "event": "ai_usage_recording_failed",
+                        "provider": ai_provider.value,
+                        "model": ai_model.value,
+                        "chat_id": req.chat_id,
+                    },
+                )
 
         # 4. Persistence (Only upon successful generation)
         persisted_message = None
