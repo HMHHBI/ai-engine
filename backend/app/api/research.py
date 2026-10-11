@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import Response
 from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import get_current_user
@@ -23,6 +24,12 @@ from app.schemas.research_schema import (
 from app.services.multi_doc_retrieval import (
     DocumentSelectionError,
     retrieve_multi_document_candidates,
+)
+from app.services.research_export import (
+    build_research_export_bundle,
+    content_disposition_attachment,
+    render_research_export,
+    research_export_filename,
 )
 from app.services.research_synthesis import (
     SynthesisValidationError,
@@ -167,6 +174,7 @@ async def create_research_run(
         )
 
         citation_payloads = result["citations"]
+
         _persist_document_provenance(
             db,
             run=run,
@@ -208,6 +216,7 @@ async def create_research_run(
             )
             .first()
         )
+
         if failed_run is not None:
             failed_run.status = "failed"
             failed_run.error_message = str(exc)
@@ -229,6 +238,7 @@ async def create_research_run(
             )
             .first()
         )
+
         if failed_run is not None:
             failed_run.status = "failed"
             failed_run.error_message = str(exc)[:1000]
@@ -250,6 +260,7 @@ async def create_research_run(
             )
             .first()
         )
+
         if failed_run is not None:
             failed_run.status = "failed"
             failed_run.error_message = "Research synthesis failed."
@@ -289,3 +300,102 @@ def get_research_run(
         )
 
     return _run_response(run)
+
+
+@router.get(
+    "/workspaces/{workspace_id}/research/runs/{run_id}/export",
+    response_class=Response,
+    responses={
+        200: {
+            "description": "A reproducible Markdown or JSON research artifact.",
+            "content": {
+                "text/markdown": {},
+                "application/json": {},
+            },
+        },
+        404: {"description": "Workspace or research run not found."},
+        409: {"description": "Research run has not completed."},
+        422: {"description": "Research run failed or export data is invalid."},
+    },
+)
+def export_research_run(
+    workspace_id: int,
+    run_id: int,
+    export_format: Literal["markdown", "json"] = Query(
+        default="markdown",
+        alias="format",
+    ),
+    access=Depends(require_workspace_role("viewer")),
+    db: Session = Depends(get_db),
+) -> Response:
+    run = (
+        db.query(ResearchRun)
+        .options(
+            joinedload(ResearchRun.workspace),
+            joinedload(ResearchRun.document_associations).joinedload(
+                ResearchRunDocument.document
+            ),
+        )
+        .filter(
+            ResearchRun.id == run_id,
+            ResearchRun.workspace_id == workspace_id,
+        )
+        .first()
+    )
+
+    if run is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Research run not found.",
+        )
+
+    if run.status != "completed":
+        if run.status in {"queued", "running"}:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Research run cannot be exported while its status is "
+                    f"'{run.status}'. Wait until the run is completed."
+                ),
+            )
+
+        if run.status == "failed":
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Failed research runs cannot be exported.",
+            )
+
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only completed research runs can be exported.",
+        )
+
+    try:
+        bundle = build_research_export_bundle(run)
+        body, media_type = render_research_export(
+            bundle,
+            export_format=export_format,
+        )
+        filename = research_export_filename(
+            workspace_name=run.workspace.name,
+            workspace_id=run.workspace_id,
+            run_id=run.id,
+            export_format=export_format,
+        )
+        disposition = content_disposition_attachment(filename)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="The research run does not contain valid export data.",
+        ) from exc
+
+    return Response(
+        content=body,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": disposition,
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, no-store",
+        },
+        status_code=status.HTTP_200_OK,
+    )
