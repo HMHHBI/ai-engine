@@ -150,6 +150,26 @@ class User(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    
+    created_workspaces = relationship(
+        "Workspace",
+        back_populates="creator",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    workspace_memberships = relationship(
+        "WorkspaceMembership",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    workspace_documents_added = relationship(
+        "WorkspaceDocument",
+        back_populates="added_by_user",
+        passive_deletes=True,
+    )
 
 
 class Chat(Base):
@@ -344,6 +364,13 @@ class Document(Base):
 
     jobs = relationship(
         "DocumentJob",
+        back_populates="document",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    
+    workspace_associations = relationship(
+        "WorkspaceDocument",
         back_populates="document",
         cascade="all, delete-orphan",
         passive_deletes=True,
@@ -809,5 +836,198 @@ class DocumentChunk(Base):
             "ix_document_chunks_document_id_id",
             "document_id",
             "id",
+        ),
+    )
+
+
+class Workspace(Base):
+    __tablename__ = "workspaces"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(120), nullable=False)
+    created_by = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+
+    creator = relationship(
+        "User",
+        back_populates="created_workspaces",
+    )
+
+    memberships = relationship(
+        "WorkspaceMembership",
+        back_populates="workspace",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    document_associations = relationship(
+        "WorkspaceDocument",
+        back_populates="workspace",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    __table_args__ = (Index("ix_workspaces_created_by_id", "created_by", "id"),)
+
+
+class WorkspaceMembership(Base):
+    __tablename__ = "workspace_memberships"
+
+    id = Column(Integer, primary_key=True)
+
+    workspace_id = Column(
+        Integer,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    role = Column(
+        String(20),
+        nullable=False,
+        default="researcher",
+        server_default="researcher",
+    )
+
+    status = Column(
+        String(20),
+        nullable=False,
+        default="active",
+        server_default="active",
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+
+    workspace = relationship(
+        "Workspace",
+        back_populates="memberships",
+    )
+
+    user = relationship(
+        "User",
+        back_populates="workspace_memberships",
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "user_id",
+            name="uq_workspace_memberships_workspace_user",
+        ),
+        CheckConstraint(
+            "role IN ('owner', 'admin', 'researcher', 'viewer')",
+            name="ck_workspace_memberships_role",
+        ),
+        CheckConstraint(
+            "status IN ('active', 'invited')",
+            name="ck_workspace_memberships_status",
+        ),
+        Index(
+            "ix_workspace_memberships_workspace_status",
+            "workspace_id",
+            "status",
+        ),
+        Index(
+            "ix_workspace_memberships_user_status",
+            "user_id",
+            "status",
+        ),
+    )
+
+
+class WorkspaceDocument(Base):
+    __tablename__ = "workspace_documents"
+
+    id = Column(Integer, primary_key=True)
+
+    workspace_id = Column(
+        Integer,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    document_id = Column(
+        Integer,
+        ForeignKey("documents.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    added_by = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    added_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+
+    workspace = relationship(
+        "Workspace",
+        back_populates="document_associations",
+    )
+
+    document = relationship(
+        "Document",
+        back_populates="workspace_associations",
+    )
+
+    added_by_user = relationship(
+        "User",
+        back_populates="workspace_documents_added",
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "document_id",
+            name="uq_workspace_documents_workspace_document",
+        ),
+        Index(
+            "ix_workspace_documents_workspace_added",
+            "workspace_id",
+            "added_at",
+        ),
+        Index(
+            "ix_workspace_documents_document",
+            "document_id",
         ),
     )
