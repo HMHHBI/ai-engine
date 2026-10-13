@@ -888,25 +888,24 @@ async def _execute_ai_stream(
     )
 
     active_document = None
-    if chat.pdf_context:
-        if req.document_id is not None:
-            active_document = await asyncio.to_thread(
-                DocumentRepository.get_ready_for_chat,
-                document_id=req.document_id,
-                chat_id=req.chat_id,
-                user_id=current_user.id,
+    if req.document_id is not None:
+        active_document = await asyncio.to_thread(
+            DocumentRepository.get_ready_for_chat,
+            document_id=req.document_id,
+            chat_id=req.chat_id,
+            user_id=current_user.id,
+        )
+        if active_document is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Document not found.",
             )
-            if active_document is None:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Document not found.",
-                )
-        else:
-            active_document = await asyncio.to_thread(
-                DocumentRepository.get_active_for_chat,
-                chat_id=req.chat_id,
-                user_id=current_user.id,
-            )
+    else:
+        active_document = await asyncio.to_thread(
+            DocumentRepository.get_active_for_chat,
+            chat_id=req.chat_id,
+            user_id=current_user.id,
+        )
 
     logger.info(
         "ai_provider_selected",
@@ -935,7 +934,7 @@ async def _execute_ai_stream(
         context_chunks: list[dict[str, Any]] = []
         has_legacy_context = bool(getattr(chat, "pdf_context", None))
 
-        if chat.pdf_context and (active_document is not None or has_legacy_context):
+        if (active_document is not None) or has_legacy_context:
             rag_started_at = time.monotonic()
 
             logger.info(

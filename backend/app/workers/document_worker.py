@@ -110,9 +110,7 @@ class DocumentIngestionWorker:
 
     async def _resolve_embedding_provider(self, chat_id: int, user_id: int) -> EmbeddingProvider:
         def _get_chat():
-            with session_scope() as db:
-                repo = ChatRepository(db)
-                return repo.get_by_id(chat_id=chat_id, user_id=user_id)
+            return ChatRepository.get_by_id(chat_id=chat_id, user_id=user_id)
 
         chat = await asyncio.to_thread(_get_chat)
         if chat and getattr(chat, "embedding_provider", None):
@@ -148,7 +146,7 @@ class DocumentIngestionWorker:
                 job = job_repo.get_by_id(job_id)
                 if not job:
                     return None, None
-                doc_repo = DocumentRepository(db)
+                doc_repo = DocumentRepository()
                 doc = doc_repo.get_owned_document(document_id=job.document_id, user_id=job.user_id)
                 return job, doc
 

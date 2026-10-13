@@ -106,9 +106,9 @@ test.describe.serial("M4 Workspace Acceptance Suite (W1–W10)", () => {
     const openDocsBtn = sharedPage.locator('[data-testid="open-documents-button"]');
     await openDocsBtn.click();
 
-    const docItem = sharedPage.locator('[data-document-list-item="true"]')
-      .or(sharedPage.locator('text=rag_test_doc.pdf'))
-      .first();
+    const workspace = sharedPage.locator('[data-testid="document-workspace"]');
+    await expect(workspace).toBeVisible({ timeout: 15000 });
+    const docItem = workspace.locator('[data-testid="document-list-item"]').first();
     await expect(docItem).toBeVisible({ timeout: 15000 });
     await docItem.click();
 

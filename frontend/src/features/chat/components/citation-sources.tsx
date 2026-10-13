@@ -71,7 +71,7 @@ export function CitationSources({
 
   return (
     <div className="w-full max-w-full">
-      <button
+      <button data-testid="citation-badge"
         type="button"
         onClick={() => setIsOpen((open) => !open)}
         aria-expanded={isOpen}
@@ -191,7 +191,7 @@ export function CitationSources({
                     </div>
 
                     {canNavigate ? (
-                      <button
+                      <button data-testid="citation-badge"
                         type="button"
                         onClick={() => onCitationClick?.(source)}
                         className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-primary transition-colors hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

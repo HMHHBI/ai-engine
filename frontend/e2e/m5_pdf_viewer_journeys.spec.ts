@@ -92,29 +92,17 @@ test.describe.serial("M5 PDF Viewer Acceptance Suite (M5.11)", () => {
 
     await fileInput.setInputFiles(PDF_FIXTURE_PATH);
 
-    const documentItem = sharedPage
-      .locator('[data-testid="document-list-item"]')
-      .or(sharedPage.locator('[data-doc-id]'))
-      .or(sharedPage.locator("text=rag_test_doc.pdf"))
-      .first();
+    const workspace = sharedPage.locator('[data-testid="document-workspace"]');
+    await expect(workspace).toBeVisible({ timeout: 20000 });
 
-    await expect(documentItem).toBeVisible({
-      timeout: 45000,
-    });
+    const documentItem = workspace.locator('[data-testid="document-list-item"]').first();
+    await expect(documentItem).toBeVisible({ timeout: 45000 });
 
-    let extractedDocumentId = await documentItem.getAttribute("data-doc-id");
-
-    if (!extractedDocumentId) {
-      const parentWithDocId = sharedPage.locator("[data-doc-id]").first();
-      extractedDocumentId = await parentWithDocId.getAttribute("data-doc-id");
-    }
-
-    if (!extractedDocumentId) {
-      await documentItem.click();
-      await sharedPage.waitForURL(/docId=\d+/, { timeout: 15000 });
-      const currentUrl = new URL(sharedPage.url());
-      extractedDocumentId = currentUrl.searchParams.get("docId");
-    }
+    // Wait until document finishes processing (not processing/pending spinner)
+    await documentItem.click();
+    await sharedPage.waitForURL(/docId=\d+/, { timeout: 25000 });
+    const currentUrl = new URL(sharedPage.url());
+    let extractedDocumentId = currentUrl.searchParams.get("docId");
 
     expect(extractedDocumentId).toBeTruthy();
 
@@ -162,7 +150,11 @@ test.describe.serial("M5 PDF Viewer Acceptance Suite (M5.11)", () => {
         const openDocsBtn = sharedPage.locator('[data-testid="open-documents-button"]');
         if (await openDocsBtn.isVisible()) {
           await openDocsBtn.click();
-          const docItem = sharedPage.locator(`[data-doc-id="${uploadedDocId}"]`).or(sharedPage.locator("text=rag_test_doc.pdf")).first();
+          const workspace = sharedPage.locator('[data-testid="document-workspace"]');
+          await expect(workspace).toBeVisible({ timeout: 10000 });
+          const docItem = workspace.locator(`[data-testid="document-item-${uploadedDocId}"]`)
+            .or(workspace.locator('[data-testid="document-list-item"]'))
+            .first();
           if (await docItem.isVisible()) {
             await docItem.click();
           }
@@ -454,7 +446,14 @@ test.describe.serial("M5 PDF Viewer Acceptance Suite (M5.11)", () => {
     expect(expectedPage).toBeGreaterThanOrEqual(1);
     expect(expectedPage).toBeLessThanOrEqual(PDF_PAGE_COUNT);
 
-    await firstCitation.click();
+    const navBtn = firstCitation.getByRole("button", { name: /open in document/i })
+      .or(firstCitation.locator("button"))
+      .first();
+    if (await navBtn.isVisible()) {
+      await navBtn.click();
+    } else {
+      await firstCitation.click();
+    }
 
     await expect(
       sharedPage.locator('[data-testid="pdf-current-page"]'),
@@ -510,7 +509,14 @@ test.describe.serial("M5 PDF Viewer Acceptance Suite (M5.11)", () => {
 
     const citationCard = sharedPage.locator('[data-testid^="citation-source-"]').first();
     await expect(citationCard).toBeVisible();
-    await citationCard.click();
+    const navBtn = citationCard.getByRole("button", { name: /open in document/i })
+      .or(citationCard.locator("button"))
+      .first();
+    if (await navBtn.isVisible()) {
+      await navBtn.click();
+    } else {
+      await citationCard.click();
+    }
 
     await expect(
       sharedPage.locator('[data-testid="pdf-current-page"]'),
@@ -558,7 +564,14 @@ test.describe.serial("M5 PDF Viewer Acceptance Suite (M5.11)", () => {
 
     const citationCard = sharedPage.locator('[data-testid^="citation-source-"]').first();
     await expect(citationCard).toBeVisible();
-    await citationCard.click();
+    const navBtn = citationCard.getByRole("button", { name: /open in document/i })
+      .or(citationCard.locator("button"))
+      .first();
+    if (await navBtn.isVisible()) {
+      await navBtn.click();
+    } else {
+      await citationCard.click();
+    }
 
     await expect(
       sharedPage.locator('[data-testid="pdf-current-page"]'),
@@ -605,7 +618,14 @@ test.describe.serial("M5 PDF Viewer Acceptance Suite (M5.11)", () => {
     await openCitationSources();
 
     const citationCard = sharedPage.locator('[data-testid^="citation-source-"]').first();
-    await citationCard.click();
+    const navBtn = citationCard.getByRole("button", { name: /open in document/i })
+      .or(citationCard.locator("button"))
+      .first();
+    if (await navBtn.isVisible()) {
+      await navBtn.click();
+    } else {
+      await citationCard.click();
+    }
 
     await expect(
       sharedPage.locator('[data-testid="pdf-current-page"]'),
@@ -659,8 +679,12 @@ test.describe.serial("M5 PDF Viewer Acceptance Suite (M5.11)", () => {
     expect(count).toBeGreaterThan(1);
 
     // Rapidly trigger navigation target A (page 1) then target B (page 2)
-    await citationCards.first().click();
-    await citationCards.nth(1).click();
+    const firstBtn = citationCards.first().getByRole("button", { name: /open in document/i })
+      .or(citationCards.first().locator("button")).first();
+    const secondBtn = citationCards.nth(1).getByRole("button", { name: /open in document/i })
+      .or(citationCards.nth(1).locator("button")).first();
+    await firstBtn.click();
+    await secondBtn.click();
 
     // Latest target (target B -> page 2) must prevail
     await expect(
