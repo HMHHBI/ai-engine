@@ -8,6 +8,78 @@ import type {
 } from "@/types/api";
 import { chatRequestController } from "@/features/chat/stream/chat-request-controller";
 
+const documentPollingControllers =
+  new Map<number, AbortController>();
+
+const POLLING_DELAYS_MS = [
+  1000,
+  2000,
+  4000,
+  8000,
+  10000,
+];
+
+const MAX_POLL_DURATION_MS = 5 * 60 * 1000;
+
+function waitForPollingDelay(
+  delayMs: number,
+  signal: AbortSignal,
+): Promise<boolean> {
+  if (signal.aborted) {
+    return Promise.resolve(false);
+  }
+
+  return new Promise<boolean>((resolve) => {
+    let timeoutId: ReturnType<typeof setTimeout> | null =
+      null;
+
+    const cleanup = () => {
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+      }
+
+      signal.removeEventListener(
+        "abort",
+        onAbort,
+      );
+    };
+
+    const onAbort = () => {
+      cleanup();
+      resolve(false);
+    };
+
+    signal.addEventListener(
+      "abort",
+      onAbort,
+      { once: true },
+    );
+
+    timeoutId = setTimeout(() => {
+      cleanup();
+      resolve(true);
+    }, delayMs);
+  });
+}
+
+export function stopDocumentPolling(
+  documentId: number,
+): void {
+  const controller =
+    documentPollingControllers.get(
+      documentId,
+    );
+
+  if (!controller) {
+    return;
+  }
+
+  controller.abort();
+  documentPollingControllers.delete(
+    documentId,
+  );
+}
+
 export async function loadDocuments(
   chatId: number,
 ): Promise<Document[]> {
@@ -17,8 +89,11 @@ export async function loadDocuments(
   store.setError(chatId, null);
 
   try {
-    const docs = await documentApi.listForChat(chatId);
+    const docs =
+      await documentApi.listForChat(chatId);
+
     store.setDocuments(chatId, docs);
+
     return docs;
   } catch (err: unknown) {
     const message =
@@ -27,6 +102,7 @@ export async function loadDocuments(
         : "Failed to load documents";
 
     store.setError(chatId, message);
+
     throw err;
   } finally {
     store.setLoading(chatId, false);
@@ -36,8 +112,13 @@ export async function loadDocuments(
 export async function loadDocument(
   documentId: number,
 ): Promise<Document> {
-  const doc = await documentApi.get(documentId);
-  useDocumentStore.getState().addDocument(doc);
+  const doc =
+    await documentApi.get(documentId);
+
+  useDocumentStore
+    .getState()
+    .addDocument(doc);
+
   return doc;
 }
 
@@ -45,23 +126,33 @@ export async function updateDocument(
   documentId: number,
   payload: DocumentMetadataUpdate,
 ): Promise<Document> {
-  const store = useDocumentStore.getState();
+  const store =
+    useDocumentStore.getState();
 
-  store.setDocumentMutating(documentId, true);
+  store.setDocumentMutating(
+    documentId,
+    true,
+  );
 
   try {
-    const updated = await documentApi.update(
-      documentId,
-      payload,
-    );
+    const updated =
+      await documentApi.update(
+        documentId,
+        payload,
+      );
 
-    store.updateDocumentInStore(updated);
+    store.updateDocumentInStore(
+      updated,
+    );
 
     return updated;
   } finally {
     useDocumentStore
       .getState()
-      .setDocumentMutating(documentId, false);
+      .setDocumentMutating(
+        documentId,
+        false,
+      );
   }
 }
 
@@ -69,12 +160,22 @@ export async function deleteDocument(
   chatId: number,
   documentId: number,
 ): Promise<void> {
-  const store = useDocumentStore.getState();
+  const store =
+    useDocumentStore.getState();
 
-  store.setDocumentMutating(documentId, true);
+  stopDocumentPolling(
+    documentId,
+  );
+
+  store.setDocumentMutating(
+    documentId,
+    true,
+  );
 
   try {
-    await documentApi.delete(documentId);
+    await documentApi.delete(
+      documentId,
+    );
 
     store.removeDocumentFromStore(
       chatId,
@@ -83,7 +184,10 @@ export async function deleteDocument(
   } finally {
     useDocumentStore
       .getState()
-      .setDocumentMutating(documentId, false);
+      .setDocumentMutating(
+        documentId,
+        false,
+      );
   }
 }
 
@@ -91,17 +195,42 @@ export async function retryDocument(
   chatId: number,
   documentId: number,
 ): Promise<Document> {
-  const store = useDocumentStore.getState();
+  const store =
+    useDocumentStore.getState();
 
-  store.setDocumentMutating(documentId, true);
-  store.setError(chatId, null);
+  stopDocumentPolling(
+    documentId,
+  );
+
+  store.setDocumentMutating(
+    documentId,
+    true,
+  );
+
+  store.setError(
+    chatId,
+    null,
+  );
 
   try {
-    const response = await documentApi.retry(
-      documentId,
+    const response =
+      await documentApi.retry(
+        documentId,
+      );
+
+    store.updateDocumentInStore(
+      response,
     );
 
-    store.updateDocumentInStore(response);
+    if (
+      response.status !== "ready" &&
+      response.status !== "failed"
+    ) {
+      void pollDocumentUntilResolved(
+        chatId,
+        documentId,
+      );
+    }
 
     return response;
   } catch (err: unknown) {
@@ -110,12 +239,19 @@ export async function retryDocument(
         ? err.message
         : "Document retry failed.";
 
-    store.setError(chatId, message);
+    store.setError(
+      chatId,
+      message,
+    );
+
     throw err;
   } finally {
     useDocumentStore
       .getState()
-      .setDocumentMutating(documentId, false);
+      .setDocumentMutating(
+        documentId,
+        false,
+      );
   }
 }
 
@@ -123,35 +259,54 @@ export function selectDocument(
   chatId: number,
   documentId: number | null,
 ): boolean {
-  const store = useDocumentStore.getState();
+  const store =
+    useDocumentStore.getState();
 
   const currentSelected =
-    store.selectedDocumentIdByChat[chatId] ?? null;
+    store.selectedDocumentIdByChat[
+      chatId
+    ] ?? null;
 
   if (documentId === null) {
     if (currentSelected !== null) {
       chatRequestController.invalidate();
     }
 
-    store.clearSelectedDocument(chatId);
+    store.clearSelectedDocument(
+      chatId,
+    );
+
     return true;
   }
 
   const document = (
     store.documentsByChat[chatId] ?? []
-  ).find((item) => item.id === documentId);
+  ).find(
+    (item) =>
+      item.id === documentId,
+  );
 
-  if (!document || document.status !== "ready") {
+  if (
+    !document ||
+    document.status !== "ready"
+  ) {
     return false;
   }
 
-  if (currentSelected === documentId) {
+  if (
+    currentSelected === documentId
+  ) {
     chatRequestController.invalidate();
-    store.clearSelectedDocument(chatId);
+
+    store.clearSelectedDocument(
+      chatId,
+    );
+
     return true;
   }
 
   chatRequestController.invalidate();
+
   store.setSelectedDocument(
     chatId,
     documentId,
@@ -163,19 +318,25 @@ export function selectDocument(
 export function clearDocumentSelection(
   chatId: number,
 ): void {
-  const store = useDocumentStore.getState();
+  const store =
+    useDocumentStore.getState();
 
   const currentSelected =
-    store.selectedDocumentIdByChat[chatId] ?? null;
+    store.selectedDocumentIdByChat[
+      chatId
+    ] ?? null;
 
   if (currentSelected !== null) {
     chatRequestController.invalidate();
   }
 
-  store.clearSelectedDocument(chatId);
+  store.clearSelectedDocument(
+    chatId,
+  );
 }
 
-export const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+export const MAX_FILE_SIZE_BYTES =
+  10 * 1024 * 1024;
 
 export function validatePdfFile(
   file: File,
@@ -187,10 +348,15 @@ export function validatePdfFile(
     };
   }
 
-  if (!file.name.toLowerCase().endsWith(".pdf")) {
+  if (
+    !file.name
+      .toLowerCase()
+      .endsWith(".pdf")
+  ) {
     return {
       valid: false,
-      error: "Only PDF files are supported.",
+      error:
+        "Only PDF files are supported.",
     };
   }
 
@@ -212,7 +378,10 @@ export function validatePdfFile(
     };
   }
 
-  if (file.size > MAX_FILE_SIZE_BYTES) {
+  if (
+    file.size >
+    MAX_FILE_SIZE_BYTES
+  ) {
     return {
       valid: false,
       error:
@@ -223,63 +392,43 @@ export function validatePdfFile(
   return { valid: true };
 }
 
-const POLLING_DELAYS_MS = [
-  1000,
-  2000,
-  3000,
-  5000,
-];
-
-const MAX_POLL_DURATION_MS = 60000;
-
 export async function pollDocumentUntilResolved(
   chatId: number,
   targetDocumentId?: number,
 ): Promise<void> {
-  const startTime = Date.now();
-  let stepIndex = 0;
+  if (
+    targetDocumentId !== undefined
+  ) {
+    stopDocumentPolling(
+      targetDocumentId,
+    );
+  }
 
-  return new Promise<void>((resolve) => {
-    async function check() {
-      if (
-        Date.now() - startTime >=
-        MAX_POLL_DURATION_MS
-      ) {
-        resolve();
-        return;
-      }
+  const controller =
+    new AbortController();
 
-      try {
-        const docs =
-          await documentApi.listForChat(chatId);
+  if (
+    targetDocumentId !== undefined
+  ) {
+    documentPollingControllers.set(
+      targetDocumentId,
+      controller,
+    );
+  }
 
-        useDocumentStore
-          .getState()
-          .setDocuments(chatId, docs);
+  const signal =
+    controller.signal;
 
-        const target = targetDocumentId
-          ? docs.find(
-              (document) =>
-                document.id ===
-                targetDocumentId,
-            )
-          : docs.find(
-              (document) =>
-                document.status !== "ready" &&
-                document.status !== "failed",
-            );
+  const startedAt = Date.now();
 
-        if (
-          !target ||
-          target.status === "ready" ||
-          target.status === "failed"
-        ) {
-          resolve();
-          return;
-        }
-      } catch {
-      }
+  try {
+    let stepIndex = 0;
 
+    while (
+      Date.now() - startedAt <
+        MAX_POLL_DURATION_MS &&
+      !signal.aborted
+    ) {
       const delay =
         POLLING_DELAYS_MS[
           Math.min(
@@ -289,14 +438,109 @@ export async function pollDocumentUntilResolved(
         ];
 
       stepIndex += 1;
-      setTimeout(check, delay);
-    }
 
-    setTimeout(
-      check,
-      POLLING_DELAYS_MS[0],
-    );
-  });
+      const shouldContinue =
+        await waitForPollingDelay(
+          delay,
+          signal,
+        );
+
+      if (
+        !shouldContinue ||
+        signal.aborted
+      ) {
+        return;
+      }
+
+      if (
+        Date.now() - startedAt >=
+        MAX_POLL_DURATION_MS
+      ) {
+        return;
+      }
+
+      try {
+        const docs =
+          await documentApi.listForChat(
+            chatId,
+            { signal },
+          );
+
+        if (signal.aborted) {
+          return;
+        }
+
+        const target =
+          targetDocumentId !== undefined
+            ? docs.find(
+                (document) =>
+                  document.id ===
+                  targetDocumentId,
+              )
+            : docs.find(
+                (document) =>
+                  document.status !==
+                    "ready" &&
+                  document.status !==
+                    "failed",
+              );
+
+        if (
+          !target ||
+          target.status ===
+            "ready" ||
+          target.status ===
+            "failed"
+        ) {
+          if (!signal.aborted) {
+            useDocumentStore
+              .getState()
+              .setDocuments(
+                chatId,
+                docs,
+              );
+          }
+
+          return;
+        }
+
+        if (!signal.aborted) {
+          useDocumentStore
+            .getState()
+            .setDocuments(
+              chatId,
+              docs,
+            );
+        }
+      } catch (error) {
+        if (
+          signal.aborted
+        ) {
+          return;
+        }
+
+        if (
+          error instanceof DOMException &&
+          error.name ===
+            "AbortError"
+        ) {
+          return;
+        }
+      }
+    }
+  } finally {
+    if (
+      targetDocumentId !==
+      undefined &&
+      documentPollingControllers.get(
+        targetDocumentId,
+      ) === controller
+    ) {
+      documentPollingControllers.delete(
+        targetDocumentId,
+      );
+    }
+  }
 }
 
 export async function uploadDocument(
@@ -316,7 +560,9 @@ export async function uploadDocument(
   const store =
     useDocumentStore.getState();
 
-  if (store.uploadingByChat[chatId]) {
+  if (
+    store.uploadingByChat[chatId]
+  ) {
     throw new Error(
       "An upload is already in progress for this chat.",
     );
@@ -326,7 +572,11 @@ export async function uploadDocument(
     chatId,
     true,
   );
-  store.setError(chatId, null);
+
+  store.setError(
+    chatId,
+    null,
+  );
 
   try {
     const response =
@@ -335,40 +585,60 @@ export async function uploadDocument(
         file,
       );
 
-    store.addDocument(response);
-
-    const sessionStore = useChatSessionStore.getState();
-    const existingSession = sessionStore.sessions.find(
-      (session) => session.id === chatId,
+    store.addDocument(
+      response,
     );
+
+    const sessionStore =
+      useChatSessionStore.getState();
+
+    const existingSession =
+      sessionStore.sessions.find(
+        (session) =>
+          session.id === chatId,
+      );
 
     if (existingSession) {
       const nextDocuments =
-        useDocumentStore.getState().documentsByChat[chatId] ?? [];
+        useDocumentStore
+          .getState()
+          .documentsByChat[
+            chatId
+          ] ?? [];
 
-      const cleanTitle = response.filename
-        .replace(/\.[^.]+$/, "")
-        .replace(/[_-]+/g, " ")
-        .trim();
+      const cleanTitle =
+        response.filename
+          .replace(/\.[^.]+$/, "")
+          .replace(/[_-]+/g, " ")
+          .trim();
 
-      sessionStore.updateSession(chatId, {
-        title:
-          existingSession.title === "New Chat"
-            ? cleanTitle
-            : existingSession.title,
-        attached_documents_count: nextDocuments.length,
-        primary_document_title:
-          nextDocuments.length === 1
-            ? response.filename
-            : existingSession.primary_document_title,
-        last_active_at: response.updated_at,
-        updated_at: response.updated_at,
-      });
+      sessionStore.updateSession(
+        chatId,
+        {
+          title:
+            existingSession.title ===
+            "New Chat"
+              ? cleanTitle
+              : existingSession.title,
+          attached_documents_count:
+            nextDocuments.length,
+          primary_document_title:
+            nextDocuments.length === 1
+              ? response.filename
+              : existingSession.primary_document_title,
+          last_active_at:
+            response.updated_at,
+          updated_at:
+            response.updated_at,
+        },
+      );
     }
 
     if (
-      response.status !== "ready" &&
-      response.status !== "failed"
+      response.status !==
+        "ready" &&
+      response.status !==
+        "failed"
     ) {
       void pollDocumentUntilResolved(
         chatId,
@@ -382,7 +652,8 @@ export async function uploadDocument(
       chunks_total: 0,
       chunks_indexed: 0,
       chunks_failed:
-        response.status === "failed"
+        response.status ===
+        "failed"
           ? 1
           : 0,
       embedding_provider: "",

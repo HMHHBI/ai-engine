@@ -112,6 +112,7 @@ class ChatSessionActions {
       .hydrateChatDocuments(chatId, [], null);
 
     useChatSessionStore.getState().addSession(session);
+    useChatStore.getState().setActiveChat(chatId);
 
     return chatId;
   }

@@ -55,7 +55,7 @@ class MockTelemetryProvider(BaseLLMProvider):
     ) -> str:
         return "mock response"
 
-    async def generate_stream(self, prompt: str, system_prompt: str | None = None):
+    async def generate_stream(self, prompt: str, system_prompt: str | None = None, **kwargs):
         await asyncio.sleep(0.01)
         yield ""  # Empty chunk to test chunk counter filter
         yield "Hello"

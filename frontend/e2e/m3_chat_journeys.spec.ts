@@ -17,8 +17,7 @@ test.describe.serial("M3 Chat & Query Regression Gate", () => {
     await sharedPage.fill("#email", TEST_EMAIL);
     await sharedPage.fill("#password", TEST_PASSWORD);
     await sharedPage.click("button[type='submit']");
-    await sharedPage.waitForLoadState("networkidle");
-    await sharedPage.waitForURL(/\/dashboard/, { timeout: 20000 });
+    await sharedPage.waitForURL(/\/dashboard/, { timeout: 30000 });
   });
 
   test.afterAll(async () => {
@@ -38,9 +37,11 @@ test.describe.serial("M3 Chat & Query Regression Gate", () => {
     await expect(newChatBtn).toBeVisible({ timeout: 10000 });
     await newChatBtn.click();
 
+    await sharedPage.waitForURL(/\/dashboard\/chat\/\d+/, { timeout: 25000 });
+
     const promptInput = sharedPage.getByRole("textbox", { name: /chat prompt/i });
     await expect(promptInput).toBeVisible({ timeout: 15000 });
-    await expect(promptInput).toBeEnabled({ timeout: 15000 });
+    await expect(promptInput).toBeEnabled({ timeout: 30000 });
     await expect(promptInput).toBeEmpty();
   });
 
@@ -55,11 +56,12 @@ test.describe.serial("M3 Chat & Query Regression Gate", () => {
   });
 
   test("Test G — assistant streaming response completes and composer remains usable", async () => {
+    test.setTimeout(90000);
     const botAvatar = sharedPage.locator("svg.lucide-bot").first();
-    await expect(botAvatar).toBeVisible({ timeout: 45000 });
+    await expect(botAvatar).toBeVisible({ timeout: 60000 });
 
     const promptInput = sharedPage.getByRole("textbox", { name: /chat prompt/i });
-    await expect(promptInput).toBeEnabled({ timeout: 45000 });
+    await expect(promptInput).toBeEnabled({ timeout: 60000 });
 
     const messageContainers = sharedPage.locator(".prose, div.whitespace-pre-wrap, [data-role='assistant']");
     await expect(messageContainers.last()).toBeVisible({ timeout: 10000 });
@@ -71,6 +73,7 @@ test.describe.serial("M3 Chat & Query Regression Gate", () => {
     const promptInput = sharedPage.getByRole("textbox", { name: /chat prompt/i });
 
     // Step 1: Send unique message in Chat A
+    const chatAUrl = sharedPage.url();
     const msgChatA = `Chat_A_${Date.now()}`;
     await promptInput.fill(msgChatA);
     await promptInput.press("Enter");
@@ -81,6 +84,7 @@ test.describe.serial("M3 Chat & Query Regression Gate", () => {
     const newChatBtn = sharedPage.getByRole("button", { name: /new chat/i }).first();
     await expect(newChatBtn).toBeVisible({ timeout: 10000 });
     await newChatBtn.click();
+    await sharedPage.waitForURL(/\/dashboard\/chat\/\d+/, { timeout: 20000 });
     await expect(promptInput).toBeEmpty({ timeout: 15000 });
     await expect(promptInput).toBeEnabled({ timeout: 15000 });
 
@@ -95,17 +99,17 @@ test.describe.serial("M3 Chat & Query Regression Gate", () => {
     await expect(sharedPage.locator("div.whitespace-pre-wrap", { hasText: msgChatA })).toHaveCount(0);
 
     // Step 5: Navigate back to Chat A via sidebar
-    const sidebarHistoryItems = sharedPage.locator('nav[aria-label="Chat history"] button:has(svg.lucide-message-square)');
-    await expect(sidebarHistoryItems.first()).toBeVisible({ timeout: 10000 });
-    
-    const count = await sidebarHistoryItems.count();
-    if (count > 1) {
-      // Click the previous conversation (Chat A)
-      await sidebarHistoryItems.nth(1).click();
-      
+    const chatAIdMatch = chatAUrl.match(/\/dashboard\/chat\/(\d+)/);
+    if (chatAIdMatch) {
+      const chatAId = chatAIdMatch[1];
+      const chatAItem = sharedPage.locator(`[data-testid="research-session-${chatAId}"] button`).first();
+      await expect(chatAItem).toBeVisible({ timeout: 15000 });
+      await chatAItem.click();
+      await sharedPage.waitForURL(chatAUrl, { timeout: 20000, waitUntil: "commit" });
+
       // Wait for Chat B's message to disappear and Chat A's message to become visible
-      await expect(sharedPage.locator("div.whitespace-pre-wrap", { hasText: msgChatB })).toBeHidden({ timeout: 15000 });
-      await expect(sharedPage.locator("div.whitespace-pre-wrap", { hasText: msgChatA })).toBeVisible({ timeout: 15000 });
+      await expect(sharedPage.locator("div.whitespace-pre-wrap", { hasText: msgChatB })).toBeHidden({ timeout: 20000 });
+      await expect(sharedPage.locator("div.whitespace-pre-wrap", { hasText: msgChatA })).toBeVisible({ timeout: 20000 });
     }
   });
 

@@ -26,6 +26,16 @@ export function AuthGuard({ children }: AuthGuardProps) {
   );
 
   useEffect(() => {
+    // Fallback if zustand rehydrate callback delayed on empty storage
+    if (mounted && !isHydrated && !token) {
+      const timer = setTimeout(() => {
+        useAuthStore.getState().setHydrated(true);
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [mounted, isHydrated, token]);
+
+  useEffect(() => {
     if (!mounted || !isHydrated || token) {
       return;
     }

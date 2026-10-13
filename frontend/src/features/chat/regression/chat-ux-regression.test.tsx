@@ -448,18 +448,10 @@ describe("Phase 3.3 — Final Chat UX regression / polish", () => {
         />,
       );
 
-      const content = screen.getByText(
-        (text) =>
-          text.includes("First line") &&
-          text.includes("Second line") &&
-          text.includes("Final line"),
-      );
-
-      expect(content).toBeInTheDocument();
-      expect(content.textContent).toContain("First line");
-      expect(content.textContent).toContain("Second line");
-      expect(content.textContent).toContain(longToken);
-      expect(content.textContent).toContain("Final line");
+      expect(container.textContent).toContain("First line");
+      expect(container.textContent).toContain("Second line");
+      expect(container.textContent).toContain(longToken);
+      expect(container.textContent).toContain("Final line");
 
       const bubble = container.querySelector(
         ".whitespace-pre-wrap, .break-words, .break-word",

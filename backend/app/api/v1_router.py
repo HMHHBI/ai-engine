@@ -1,13 +1,20 @@
 from fastapi import APIRouter
-from app.api import auth, chat, user, health, documents # Apne controllers import karein
+from app.api import (
+    auth,
+    chat,
+    user,
+    health,
+    documents,
+    workspaces,
+    research,
+)
 
 api_router = APIRouter()
 
-# Laravel ke Route::group ki tarah yahan hum routes ko jorh rahe hain
-# api_router.include_router(test.router)
 api_router.include_router(auth.router)
 api_router.include_router(chat.router)
 api_router.include_router(user.router)
 api_router.include_router(health.router)
 api_router.include_router(documents.router)
-# Agay ja kar agar aap 'user.py' banate hain toh wo bhi yahan add hoga
+api_router.include_router(workspaces.router)
+api_router.include_router(research.router)

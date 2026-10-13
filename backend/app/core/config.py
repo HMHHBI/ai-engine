@@ -161,6 +161,14 @@ class Settings(BaseSettings):
     AI_STREAM_MAX_DURATION_SECONDS: int = 120
     AI_STREAM_LEASE_TTL_SECONDS: int = 180
     HEARTBEAT_INTERVAL_SECONDS: float = 15.0
+    # Document Worker Concurrency & Recovery Settings
+    DOCUMENT_WORKER_CONCURRENCY: int = 4
+    DOCUMENT_JOB_STALE_AFTER_SECONDS: float = 60.0
+    DOCUMENT_JOB_RECOVERY_INTERVAL_SECONDS: float = 15.0
+    DOCUMENT_JOB_RECOVERY_BATCH_SIZE: int = 10
+    DOCUMENT_JOB_RECOVERY_IDLE_SECONDS: float = 60.0
+    DOCUMENT_JOB_READ_COUNT: int = 5
+
 
     model_config = SettingsConfigDict(
         env_file=".env",

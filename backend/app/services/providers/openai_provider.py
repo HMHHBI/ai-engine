@@ -74,12 +74,38 @@ class OpenAIProvider(BaseLLMProvider):
             if stream_max_seconds is not None
             else settings.AI_STREAM_MAX_SECONDS
         )
+        self.last_usage: dict[str, int | None] | None = None
 
     def _build_headers(self) -> Dict[str, str]:
         return {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
+
+    @staticmethod
+    def _normalize_history(
+        history: Optional[List[Dict[str, str]]],
+    ) -> List[Dict[str, str]]:
+        normalized: List[Dict[str, str]] = []
+
+        for message in history or []:
+            role = str(message.get("role", "")).strip().lower()
+            content = str(message.get("content", "")).strip()
+
+            if not content:
+                continue
+
+            if role not in {"user", "assistant", "system"}:
+                continue
+
+            normalized.append(
+                {
+                    "role": role,
+                    "content": content,
+                }
+            )
+
+        return normalized
 
     @staticmethod
     def _build_messages(
@@ -98,7 +124,7 @@ class OpenAIProvider(BaseLLMProvider):
             )
 
         if history:
-            messages.extend(history)
+            messages.extend(OpenAIProvider._normalize_history(history))
 
         messages.append(
             {
@@ -191,6 +217,7 @@ class OpenAIProvider(BaseLLMProvider):
         temperature: float = 0.2,
         **kwargs,
     ) -> AsyncGenerator[str, None]:
+        self.last_usage = None
         messages = self._build_messages(
             prompt,
             system_prompt,
@@ -222,6 +249,7 @@ class OpenAIProvider(BaseLLMProvider):
                         "messages": messages,
                         "temperature": temperature,
                         "stream": True,
+            "stream_options": {"include_usage": True},
                     },
                 ) as response:
                     response.raise_for_status()
@@ -248,12 +276,22 @@ class OpenAIProvider(BaseLLMProvider):
                                 "OpenAI returned malformed stream data."
                             ) from exc
 
+                        choices = data.get("choices")
+                        usage = data.get("usage")
+                        if isinstance(usage, dict):
+                            self.last_usage = {
+                                "input_tokens": usage.get("prompt_tokens"),
+                                "output_tokens": usage.get("completion_tokens"),
+                                "total_tokens": usage.get("total_tokens"),
+                            }
+
+                        # OpenAI can send a final usage-only chunk with choices=[].
+                        if not choices:
+                            continue
+
                         try:
-                            delta = data["choices"][0].get(
-                                "delta",
-                                {},
-                            )
-                        except (KeyError, IndexError, TypeError) as exc:
+                            delta = choices[0].get("delta", {})
+                        except (IndexError, TypeError, AttributeError) as exc:
                             raise AIProviderResponseError(
                                 "OpenAI returned an invalid stream event."
                             ) from exc

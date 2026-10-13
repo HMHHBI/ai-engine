@@ -4,6 +4,7 @@ import {
   expect,
   vi,
   beforeEach,
+  afterEach,
 } from "vitest";
 
 import {
@@ -13,6 +14,8 @@ import {
   selectDocument,
   clearDocumentSelection,
   retryDocument,
+  pollDocumentUntilResolved,
+  stopDocumentPolling,
 } from "./document-actions";
 
 import { documentApi } from "@/lib/api/documents";
@@ -49,31 +52,49 @@ const sampleDoc: Document = {
   updated_at: "2026-09-06T00:00:00Z",
 };
 
+const processingDoc: Document = {
+  ...sampleDoc,
+  status: "processing",
+};
+
 const failedDoc: Document = {
   ...sampleDoc,
   status: "failed",
   error_message: "Embedding failed.",
 };
 
-const lifecycleResponse: DocumentLifecycleResponse = {
-  ...failedDoc,
-  job: {
-    id: 501,
-    document_id: 100,
-    status: "ready",
-    attempt: 1,
-    max_attempts: 3,
-    error_message: null,
-    queued_at: "2026-09-06T00:00:00Z",
-    started_at: "2026-09-06T00:00:01Z",
-    finished_at: "2026-09-06T00:00:02Z",
-  },
+const readyDoc: Document = {
+  ...sampleDoc,
+  status: "ready",
+  error_message: null,
 };
+
+const lifecycleResponse:
+  DocumentLifecycleResponse = {
+    ...failedDoc,
+    job: {
+      id: 501,
+      document_id: 100,
+      status: "ready",
+      attempt: 1,
+      max_attempts: 3,
+      error_message: null,
+      queued_at: "2026-09-06T00:00:00Z",
+      started_at: "2026-09-06T00:00:01Z",
+      finished_at: "2026-09-06T00:00:02Z",
+    },
+  };
 
 describe("document-actions", () => {
   beforeEach(() => {
+    vi.useFakeTimers();
     vi.clearAllMocks();
     useDocumentStore.getState().reset();
+  });
+
+  afterEach(() => {
+    vi.runOnlyPendingTimers();
+    vi.useRealTimers();
   });
 
   it("loadDocuments populates store on success", async () => {
@@ -160,16 +181,17 @@ describe("document-actions", () => {
       result.filename,
     ).toBe("renamed.pdf");
 
-    const state =
-      useDocumentStore.getState();
-
     expect(
-      state.documentsByChat[5][0]
+      useDocumentStore
+        .getState()
+        .documentsByChat[5][0]
         .filename,
     ).toBe("renamed.pdf");
 
     expect(
-      state.mutatingDocumentIds[100],
+      useDocumentStore
+        .getState()
+        .mutatingDocumentIds[100],
     ).toBe(false);
   });
 
@@ -241,12 +263,12 @@ describe("document-actions", () => {
         failedDoc,
       ]);
 
-    const response: DocumentLifecycleResponse =
-      {
-        ...lifecycleResponse,
-        status: "ready",
-        error_message: null,
-      };
+    const response:
+      DocumentLifecycleResponse = {
+      ...lifecycleResponse,
+      status: "ready",
+      error_message: null,
+    };
 
     vi.mocked(
       documentApi.retry,
@@ -276,6 +298,157 @@ describe("document-actions", () => {
         .getState()
         .mutatingDocumentIds[100],
     ).toBe(false);
+  });
+
+  it("polling updates processing document to ready", async () => {
+    useDocumentStore
+      .getState()
+      .setDocuments(5, [
+        processingDoc,
+      ]);
+
+    vi.mocked(
+      documentApi.listForChat,
+    ).mockResolvedValueOnce([
+      readyDoc,
+    ]);
+
+    const polling =
+      pollDocumentUntilResolved(
+        5,
+        100,
+      );
+
+    await vi.advanceTimersByTimeAsync(
+      1000,
+    );
+
+    await polling;
+
+    expect(
+      useDocumentStore
+        .getState()
+        .documentsByChat[5][0]
+        .status,
+    ).toBe("ready");
+  });
+
+  it("polling updates processing document to failed", async () => {
+    useDocumentStore
+      .getState()
+      .setDocuments(5, [
+        processingDoc,
+      ]);
+
+    vi.mocked(
+      documentApi.listForChat,
+    ).mockResolvedValueOnce([
+      failedDoc,
+    ]);
+
+    const polling =
+      pollDocumentUntilResolved(
+        5,
+        100,
+      );
+
+    await vi.advanceTimersByTimeAsync(
+      1000,
+    );
+
+    await polling;
+
+    const document =
+      useDocumentStore
+        .getState()
+        .documentsByChat[5][0];
+
+    expect(
+      document.status,
+    ).toBe("failed");
+
+    expect(
+      document.error_message,
+    ).toBe("Embedding failed.");
+  });
+
+  it("cancels an active document poll", async () => {
+    vi.mocked(
+      documentApi.listForChat,
+    ).mockResolvedValue([
+      processingDoc,
+    ]);
+
+    const polling =
+      pollDocumentUntilResolved(
+        5,
+        100,
+      );
+
+    stopDocumentPolling(100);
+
+    await vi.advanceTimersByTimeAsync(
+      1000,
+    );
+
+    await polling;
+
+    expect(
+      documentApi.listForChat,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("does not overwrite store after poll is cancelled", async () => {
+    useDocumentStore
+      .getState()
+      .setDocuments(5, [
+        processingDoc,
+      ]);
+
+    let resolveRequest:
+      | ((value: Document[]) => void)
+      | undefined;
+
+    vi.mocked(
+      documentApi.listForChat,
+    ).mockImplementationOnce(
+      () =>
+        new Promise<Document[]>(
+          (resolve) => {
+            resolveRequest = resolve;
+          },
+        ),
+    );
+
+    const polling =
+      pollDocumentUntilResolved(
+        5,
+        100,
+      );
+
+    await vi.advanceTimersByTimeAsync(
+      1000,
+    );
+
+    expect(
+      documentApi.listForChat,
+    ).toHaveBeenCalledTimes(1);
+
+    stopDocumentPolling(100);
+
+    resolveRequest?.([
+      readyDoc,
+    ]);
+
+    await vi.runOnlyPendingTimersAsync();
+    await polling;
+
+    expect(
+      useDocumentStore
+        .getState()
+        .documentsByChat[5][0]
+        .status,
+    ).toBe("processing");
   });
 
   it("selection only accepts ready documents", () => {
@@ -320,5 +493,30 @@ describe("document-actions", () => {
         .getState()
         .selectedDocumentIdByChat[5],
     ).toBeNull();
+  });
+  it("passes abort signal to listForChat and aborts on stopDocumentPolling", async () => {
+    let capturedSignal: AbortSignal | undefined;
+    let finishRequest: (() => void) | undefined;
+
+    vi.mocked(documentApi.listForChat).mockImplementation(
+      (_chatId: number, options?: RequestInit) => {
+        capturedSignal = options?.signal as AbortSignal;
+        return new Promise((resolve) => {
+          finishRequest = () => resolve([sampleDoc]);
+        });
+      },
+    );
+
+    const polling = pollDocumentUntilResolved(5, 100);
+
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(capturedSignal).toBeDefined();
+    expect(capturedSignal?.aborted).toBe(false);
+
+    stopDocumentPolling(100);
+    expect(capturedSignal?.aborted).toBe(true);
+
+    finishRequest?.();
+    await polling;
   });
 });

@@ -1,3 +1,7 @@
+from __future__ import annotations
+import asyncio
+from app.workers.document_worker import DocumentIngestionWorker
+from app.core.metrics import metrics_response
 from app.services.embedding_service import EmbeddingService
 import httpx
 from contextlib import asynccontextmanager
@@ -42,33 +46,33 @@ async def lifespan(app: FastAPI):
 
     try:
         with engine.connect() as conn:
-            # Verify database connectivity and enable pgvector.
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
             conn.commit()
-
         logger.info("database_ready", extra={"event": "database_ready"})
-
     except Exception as exc:
-        logger.exception(
-            "database_init_failed", extra={"event": "database_init_failed"}
-        )
-        raise RuntimeError(
-            "Application startup failed: database initialization is unavailable."
-        ) from exc
+        logger.exception("database_init_failed", extra={"event": "database_init_failed"})
+        raise RuntimeError("Application startup failed: database initialization is unavailable.") from exc
 
     # Startup: Initialize persistent HTTP client for EmbeddingService
     http_client = httpx.AsyncClient(timeout=30.0)
     EmbeddingService.set_client(http_client)
-    logger.info("http_client_initialized", extra={"event": "http_client_initialized"})
+
+    # Ingestion worker for single-instance / Render deployment
+    document_worker = DocumentIngestionWorker()
+    worker_task = asyncio.create_task(document_worker.run())
+    logger.info("document_worker_started_in_lifespan")
 
     yield
 
-    # Shutdown: Teardown persistent HTTP client
-    EmbeddingService.set_client(None)
+    # Shutdown
+    worker_task.cancel()
+    try:
+        await worker_task
+    except (asyncio.CancelledError, Exception):
+        pass
+
     await http_client.aclose()
     logger.info("http_client_closed", extra={"event": "http_client_closed"})
-
-    # Shutdown
     logger.info("application_shutdown", extra={"event": "application_shutdown"})
 
 
@@ -122,6 +126,11 @@ app.add_middleware(
 
 # 4. Main API Router Integration
 app.include_router(api_router)
+
+@app.get("/metrics", include_in_schema=False)
+async def prometheus_metrics():
+    return await metrics_response()
+
 
 
 @app.get("/")

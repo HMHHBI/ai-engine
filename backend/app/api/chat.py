@@ -1,4 +1,8 @@
 from __future__ import annotations
+from app.core.metrics import record_llm_provider_request
+from app.core.metrics import observe_chat_stream, observe_time_to_first_token
+from datetime import datetime, timezone
+from app.services.usage_service import new_usage_ids, record_usage
 
 from app.storage import get_storage_backend, build_document_key
 from app.utils.pdf_extractor import extract_text_from_pdf, PDFExtractionError
@@ -102,6 +106,126 @@ PERSONA_PROMPTS: dict[str, str] = {
 
 RERANK_INITIAL_K = 20
 RERANK_FINAL_K = 6
+
+MAX_HISTORY_TURNS = 8
+MAX_HISTORY_MESSAGES = 16
+MAX_HISTORY_CHARS = 12_000
+MAX_HISTORY_MESSAGE_CHARS = 4_000
+MAX_RETRIEVAL_HISTORY_CHARS = 6_000
+
+
+def _normalize_history_role(role: str) -> str | None:
+    normalized = role.strip().lower()
+
+    if normalized == "user":
+        return "user"
+
+    if normalized in {"ai", "assistant"}:
+        return "assistant"
+
+    if normalized == "system":
+        return "system"
+
+    return None
+
+
+def _build_provider_history(
+    messages: list[Any],
+    current_message_id: int,
+) -> list[dict[str, str]]:
+    candidates: list[dict[str, str]] = []
+
+    for message in messages:
+        if message.id == current_message_id:
+            continue
+
+        role = _normalize_history_role(str(message.role))
+        if role is None:
+            continue
+
+        content = str(message.content or "").strip()
+        if not content:
+            continue
+
+        content = content[:MAX_HISTORY_MESSAGE_CHARS]
+
+        candidates.append(
+            {
+                "role": role,
+                "content": content,
+            }
+        )
+
+    selected: list[dict[str, str]] = []
+    total_chars = 0
+
+    for message in reversed(candidates):
+        message_chars = len(message["content"])
+
+        if selected and total_chars + message_chars > MAX_HISTORY_CHARS:
+            break
+
+        if not selected and message_chars > MAX_HISTORY_CHARS:
+            message = {
+                "role": message["role"],
+                "content": message["content"][:MAX_HISTORY_CHARS],
+            }
+            message_chars = len(message["content"])
+
+        selected.append(message)
+        total_chars += message_chars
+
+        if len(selected) >= MAX_HISTORY_MESSAGES:
+            break
+
+    selected.reverse()
+
+    return selected
+
+
+def _build_retrieval_query(
+    current_prompt: str,
+    history: list[dict[str, str]],
+) -> str:
+    recent_history = history[-4:]
+
+    selected: list[dict[str, str]] = []
+    total_chars = 0
+
+    for message in reversed(recent_history):
+        content = message["content"]
+        remaining = MAX_RETRIEVAL_HISTORY_CHARS - total_chars
+
+        if remaining <= 0:
+            break
+
+        if len(content) > remaining:
+            content = content[-remaining:]
+
+        selected.append(
+            {
+                "role": message["role"],
+                "content": content,
+            }
+        )
+        total_chars += len(content)
+
+    selected.reverse()
+
+    if not selected:
+        return current_prompt
+
+    history_context = "\n".join(
+        f"{message['role'].upper()}: {message['content']}"
+        for message in selected
+    )
+
+    return (
+        "Previous conversation context:\n"
+        f"{history_context}\n\n"
+        "Current user question:\n"
+        f"{current_prompt}"
+    )
 
 
 def _build_rerank_candidates(
@@ -751,26 +875,37 @@ async def _execute_ai_stream(
             detail="Chat not found.",
         )
 
+    history_messages = await asyncio.to_thread(
+        ChatRepository.get_history,
+        chat_id=req.chat_id,
+        user_id=current_user.id,
+        limit=MAX_HISTORY_MESSAGES + 1,
+    )
+
+    conversation_history = _build_provider_history(
+        history_messages,
+        current_message_id=prepared_message.id,
+    )
+
     active_document = None
-    if chat.pdf_context:
-        if req.document_id is not None:
-            active_document = await asyncio.to_thread(
-                DocumentRepository.get_ready_for_chat,
-                document_id=req.document_id,
-                chat_id=req.chat_id,
-                user_id=current_user.id,
+    if req.document_id is not None:
+        active_document = await asyncio.to_thread(
+            DocumentRepository.get_ready_for_chat,
+            document_id=req.document_id,
+            chat_id=req.chat_id,
+            user_id=current_user.id,
+        )
+        if active_document is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Document not found.",
             )
-            if active_document is None:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Document not found.",
-                )
-        else:
-            active_document = await asyncio.to_thread(
-                DocumentRepository.get_active_for_chat,
-                chat_id=req.chat_id,
-                user_id=current_user.id,
-            )
+    else:
+        active_document = await asyncio.to_thread(
+            DocumentRepository.get_active_for_chat,
+            chat_id=req.chat_id,
+            user_id=current_user.id,
+        )
 
     logger.info(
         "ai_provider_selected",
@@ -786,17 +921,20 @@ async def _execute_ai_stream(
     # --------------------------------------------------------
     # Structured SSE stream
     # --------------------------------------------------------
-
+    @observe_chat_stream
     async def event_generator():
         full_text = ""
         chunk_count = 0
+        usage_request_id, usage_idempotency_key = new_usage_ids()
+        usage_started_at = datetime.now(timezone.utc)
+        usage_status = "succeeded"
         first_token_at: float | None = None
         stream_started_at = time.monotonic()
 
         context_chunks: list[dict[str, Any]] = []
         has_legacy_context = bool(getattr(chat, "pdf_context", None))
 
-        if chat.pdf_context and (active_document is not None or has_legacy_context):
+        if (active_document is not None) or has_legacy_context:
             rag_started_at = time.monotonic()
 
             logger.info(
@@ -814,8 +952,13 @@ async def _execute_ai_stream(
                     else req.chat_id
                 )
 
-                query_vector = await EmbeddingService.generate_embedding(
+                retrieval_query = _build_retrieval_query(
                     clean_prompt,
+                    conversation_history,
+                )
+
+                query_vector = await EmbeddingService.generate_embedding(
+                    retrieval_query,
                     model_provider=embedding_provider.value,
                 )
 
@@ -830,7 +973,7 @@ async def _execute_ai_stream(
                         VectorRepository.search_hybrid_chunks,
                         user_id=current_user.id,
                         document_id=doc_id,
-                        query_text=req.prompt,
+                        query_text=retrieval_query,
                         query_vector=query_vector,
                         top_k=retrieval_top_k,
                         max_distance=0.70,
@@ -1005,6 +1148,7 @@ async def _execute_ai_stream(
             async for token in provider.generate_stream(
                 prompt=clean_prompt,
                 system_prompt=system_prompt,
+                history=conversation_history,
             ):
                 elapsed_stream_s = time.monotonic() - stream_started_at
                 if elapsed_stream_s > settings.AI_STREAM_MAX_DURATION_SECONDS:
@@ -1044,6 +1188,11 @@ async def _execute_ai_stream(
 
                 if first_token_at is None:
                     first_token_at = time.monotonic()
+                    observe_time_to_first_token(
+                        provider=ai_provider.value,
+                        model=ai_model.value,
+                        seconds=first_token_at - stream_started_at,
+                    )
 
                     logger.info(
                         "ai_first_token",
@@ -1069,7 +1218,16 @@ async def _execute_ai_stream(
                     },
                 )
 
+            record_llm_provider_request(
+                provider=ai_provider.value,
+                outcome="success",
+            )
         except asyncio.CancelledError:
+            usage_status = "cancelled"
+            record_llm_provider_request(
+                provider=ai_provider.value,
+                outcome="cancelled",
+            )
             logger.info(
                 "ai_stream_cancelled",
                 extra={
@@ -1094,6 +1252,11 @@ async def _execute_ai_stream(
             raise
 
         except AIProviderTimeout:
+            usage_status = "partial" if chunk_count else "failed"
+            record_llm_provider_request(
+                provider=ai_provider.value,
+                outcome="error",
+            )
             logger.warning(
                 "ai_stream_failed",
                 extra={
@@ -1119,6 +1282,11 @@ async def _execute_ai_stream(
             return
 
         except AIProviderUnavailable:
+            usage_status = "partial" if chunk_count else "failed"
+            record_llm_provider_request(
+                provider=ai_provider.value,
+                outcome="error",
+            )
             logger.warning(
                 "ai_stream_failed",
                 extra={
@@ -1144,6 +1312,11 @@ async def _execute_ai_stream(
             return
 
         except AIProviderError:
+            usage_status = "partial" if chunk_count else "failed"
+            record_llm_provider_request(
+                provider=ai_provider.value,
+                outcome="error",
+            )
             logger.exception(
                 "ai_stream_failed",
                 extra={
@@ -1169,6 +1342,11 @@ async def _execute_ai_stream(
             return
 
         except Exception:
+            usage_status = "partial" if chunk_count else "failed"
+            record_llm_provider_request(
+                provider=ai_provider.value,
+                outcome="error",
+            )
             logger.exception(
                 "ai_stream_failed",
                 extra={
@@ -1192,6 +1370,36 @@ async def _execute_ai_stream(
                 },
             )
             return
+
+        finally:
+            try:
+                await asyncio.to_thread(
+                    record_usage,
+                    request_id=usage_request_id,
+                    idempotency_key=usage_idempotency_key,
+                    provider=ai_provider.value,
+                    model=ai_model.value,
+                    usage=getattr(provider, "last_usage", None),
+                    provider_metadata={
+                        "streamed_chunks": chunk_count,
+                    },
+                    user_id=current_user.id,
+                    chat_id=req.chat_id,
+                    operation="chat",
+                    status=usage_status,
+                    started_at=usage_started_at,
+                    completed_at=datetime.now(timezone.utc),
+                )
+            except Exception:
+                logger.exception(
+                    "ai_usage_recording_failed",
+                    extra={
+                        "event": "ai_usage_recording_failed",
+                        "provider": ai_provider.value,
+                        "model": ai_model.value,
+                        "chat_id": req.chat_id,
+                    },
+                )
 
         # 4. Persistence (Only upon successful generation)
         persisted_message = None

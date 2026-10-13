@@ -21,8 +21,6 @@ function ChatPageContent({ params }: ChatPageProps) {
 
   const parsedId = Number(rawChatId);
 
-  const activeChatId = useChatStore((state) => state.activeChatId);
-
   useEffect(() => {
     if (!Number.isInteger(parsedId) || parsedId <= 0) {
       chatSessionActions.invalidateHydration();
@@ -30,21 +28,29 @@ function ChatPageContent({ params }: ChatPageProps) {
       return;
     }
 
-    if (activeChatId === parsedId) {
+    if (useChatStore.getState().activeChatId === parsedId) {
       return;
     }
+
+    let isSubscribed = true;
 
     void chatSessionActions
       .hydrateSession(parsedId)
       .then((loaded) => {
-        if (!loaded) {
+        if (!loaded || !isSubscribed) {
           return;
         }
       })
       .catch(() => {
-        router.replace("/dashboard");
+        if (isSubscribed) {
+          router.replace("/dashboard");
+        }
       });
-  }, [parsedId, activeChatId, router]);
+
+    return () => {
+      isSubscribed = false;
+    };
+  }, [parsedId, router]);
 
   return <AppShell />;
 }
