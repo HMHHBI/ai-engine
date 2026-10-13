@@ -36,7 +36,7 @@ test.describe("M3 Auth Regression Gate", () => {
     await page.fill("#email", TEST_EMAIL);
     await page.fill("#password", TEST_PASSWORD);
     await page.click("button[type='submit']");
-    await page.waitForURL(/\/dashboard/, { timeout: 20000, waitUntil: "commit" });
+    await page.waitForURL(/\/dashboard/, { timeout: 20000 });
 
     await page.reload();
 
@@ -49,18 +49,18 @@ test.describe("M3 Auth Regression Gate", () => {
     await page.fill("#email", TEST_EMAIL);
     await page.fill("#password", TEST_PASSWORD);
     await page.click("button[type='submit']");
-    await page.waitForURL(/\/dashboard/, { timeout: 20000, waitUntil: "commit" });
+    await page.waitForURL(/\/dashboard/, { timeout: 20000 });
 
     const logoutBtn = page.getByRole("button", { name: /log out/i }).or(page.locator("button:has-text('Log out')")).first();
     await expect(logoutBtn).toBeVisible({ timeout: 10000 });
     await logoutBtn.click();
 
-    await page.waitForURL(/\/login/, { timeout: 20000, waitUntil: "commit" });
+    await page.waitForURL(/\/login/, { timeout: 20000 });
     await expect(page).toHaveURL(/\/login/);
     await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
 
     await page.goto("/dashboard", { waitUntil: "domcontentloaded" });
-    await page.waitForURL(/\/login/, { timeout: 20000, waitUntil: "commit" });
+    await page.waitForURL(/\/login/, { timeout: 20000 });
     await expect(page).toHaveURL(/\/login/);
   });
 });

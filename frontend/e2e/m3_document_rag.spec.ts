@@ -15,9 +15,9 @@ test.describe.serial("M3 Document, RAG & Shell Regression Gate", () => {
     sharedPage = await context.newPage();
     monitoring = attachPageMonitoring(sharedPage);
 
-    sharedPage.on("console", msg => console.log("PAGE LOG:", msg.type(), msg.text()));
-    sharedPage.on("requestfailed", req => console.log("REQ FAILED:", req.url(), req.failure()?.errorText));
-    sharedPage.on("response", res => {
+    sharedPage.on("console", (msg: any) => console.log("PAGE LOG:", msg.type(), msg.text()));
+    sharedPage.on("requestfailed", (req: any) => console.log("REQ FAILED:", req.url(), req.failure()?.errorText));
+    sharedPage.on("response", (res: any) => {
       if (res.url().includes(":8000") || res.url().includes("/api")) {
         console.log("API RESP:", res.request().method(), res.url(), res.status());
       }

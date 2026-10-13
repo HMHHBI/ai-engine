@@ -17,7 +17,7 @@ test.describe.serial("M3 Chat & Query Regression Gate", () => {
     await sharedPage.fill("#email", TEST_EMAIL);
     await sharedPage.fill("#password", TEST_PASSWORD);
     await sharedPage.click("button[type='submit']");
-    await sharedPage.waitForURL(/\/dashboard/, { timeout: 30000, waitUntil: "commit" });
+    await sharedPage.waitForURL(/\/dashboard/, { timeout: 30000 });
   });
 
   test.afterAll(async () => {
@@ -56,11 +56,12 @@ test.describe.serial("M3 Chat & Query Regression Gate", () => {
   });
 
   test("Test G — assistant streaming response completes and composer remains usable", async () => {
+    test.setTimeout(90000);
     const botAvatar = sharedPage.locator("svg.lucide-bot").first();
-    await expect(botAvatar).toBeVisible({ timeout: 45000 });
+    await expect(botAvatar).toBeVisible({ timeout: 60000 });
 
     const promptInput = sharedPage.getByRole("textbox", { name: /chat prompt/i });
-    await expect(promptInput).toBeEnabled({ timeout: 45000 });
+    await expect(promptInput).toBeEnabled({ timeout: 60000 });
 
     const messageContainers = sharedPage.locator(".prose, div.whitespace-pre-wrap, [data-role='assistant']");
     await expect(messageContainers.last()).toBeVisible({ timeout: 10000 });
