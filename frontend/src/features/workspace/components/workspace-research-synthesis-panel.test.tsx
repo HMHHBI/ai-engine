@@ -31,8 +31,8 @@ describe("WorkspaceResearchSynthesisPanel", () => {
 
   it("enforces minimum 2 documents before allowing synthesis submission", () => {
     useWorkspaceStore.setState({
-      workspaceDocuments: { 10: mockDocs },
-      researchRuns: { 10: [] },
+      documentsByWorkspace: { 10: mockDocs },
+      researchRunsByWorkspace: { 10: [] },
     });
 
     render(<WorkspaceResearchSynthesisPanel workspaceId={10} />);
@@ -60,8 +60,8 @@ describe("WorkspaceResearchSynthesisPanel", () => {
 
   it("triggers synthesis and displays answer with citations", async () => {
     useWorkspaceStore.setState({
-      workspaceDocuments: { 10: mockDocs },
-      researchRuns: { 10: [] },
+      documentsByWorkspace: { 10: mockDocs },
+      researchRunsByWorkspace: { 10: [] },
     });
 
     vi.mocked(workspaceActions.triggerResearchSynthesis).mockResolvedValueOnce({
@@ -110,8 +110,8 @@ describe("WorkspaceResearchSynthesisPanel", () => {
     vi.mocked(workspaceService.downloadResearchExport).mockResolvedValue(undefined);
 
     useWorkspaceStore.setState({
-      workspaceDocuments: { 10: mockDocs },
-      researchRuns: {
+      documentsByWorkspace: { 10: mockDocs },
+      researchRunsByWorkspace: {
         10: [
           {
             id: 88,

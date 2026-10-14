@@ -7,6 +7,7 @@ import { useWorkspaceStore } from "../store/workspace-store";
 import { workspaceActions } from "../actions/workspace-actions";
 import { apiClient } from "@/lib/api/client";
 import type { Document as ApiDocument } from "@/types/api";
+import type { WorkspaceDocument } from "@/types/workspace";
 import { cn } from "@/lib/utils";
 
 interface WorkspaceDocumentManagerProps {
@@ -19,7 +20,7 @@ export function WorkspaceDocumentManager({
   className,
 }: WorkspaceDocumentManagerProps) {
   const attachedDocs = useWorkspaceStore(
-    (state) => state.workspaceDocuments[workspaceId] ?? [],
+    (state) => state.documentsByWorkspace?.[workspaceId] ?? [],
   );
   const isLoading = useWorkspaceStore((state) => state.isLoading);
   const error = useWorkspaceStore((state) => state.error);
@@ -38,7 +39,7 @@ export function WorkspaceDocumentManager({
       .catch(() => {});
   }, [workspaceId]);
 
-  const attachedIds = new Set(attachedDocs.map((d) => d.document_id));
+  const attachedIds = new Set(attachedDocs.map((d: WorkspaceDocument) => d.document_id));
   const unattachedDocs = allAvailableDocs.filter((d) => !attachedIds.has(d.id));
 
   function toggleSelectToAttach(id: number) {
@@ -89,7 +90,7 @@ export function WorkspaceDocumentManager({
             No documents attached yet.
           </p>
         ) : (
-          attachedDocs.map((doc) => (
+          attachedDocs.map((doc: WorkspaceDocument) => (
             <div
               key={doc.document_id}
               className="flex items-center justify-between rounded-lg border border-border/60 bg-card/60 px-3 py-2 text-xs"

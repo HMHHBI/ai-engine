@@ -15,6 +15,7 @@ import { useWorkspaceStore } from "../store/workspace-store";
 import { workspaceActions } from "../actions/workspace-actions";
 import { workspaceService } from "../services/workspace-service";
 import type { ResearchRun } from "@/types/research";
+import type { WorkspaceDocument } from "@/types/workspace";
 import { cn } from "@/lib/utils";
 
 interface WorkspaceResearchSynthesisPanelProps {
@@ -27,10 +28,10 @@ export function WorkspaceResearchSynthesisPanel({
   className,
 }: WorkspaceResearchSynthesisPanelProps) {
   const documents = useWorkspaceStore(
-    (state) => state.workspaceDocuments?.[workspaceId] ?? [],
+    (state) => state.documentsByWorkspace?.[workspaceId] ?? [],
   );
   const runs = useWorkspaceStore(
-    (state) => state.researchRuns?.[workspaceId] ?? [],
+    (state) => state.researchRunsByWorkspace?.[workspaceId] ?? [],
   );
   const isLoading = useWorkspaceStore((state) => state.isLoading);
   const error = useWorkspaceStore((state) => state.error);
@@ -49,7 +50,7 @@ export function WorkspaceResearchSynthesisPanel({
   }
 
   function selectAllDocs() {
-    setSelectedDocIds(documents.map((d) => d.document_id));
+    setSelectedDocIds(documents.map((d: WorkspaceDocument) => d.document_id));
   }
 
   function clearDocSelection() {
@@ -138,7 +139,7 @@ export function WorkspaceResearchSynthesisPanel({
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-1">
-              {documents.map((doc) => {
+              {documents.map((doc: WorkspaceDocument) => {
                 const checked = selectedDocIds.includes(doc.document_id);
                 return (
                   <label

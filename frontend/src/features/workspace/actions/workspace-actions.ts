@@ -1,6 +1,7 @@
 import { workspaceService } from "../services/workspace-service";
 import { useWorkspaceStore } from "../store/workspace-store";
 import type { CreateResearchRunInput } from "@/types/research";
+import type { WorkspaceDocument } from "@/types/workspace";
 
 export const workspaceActions = {
   async loadWorkspaces(): Promise<void> {
@@ -62,10 +63,10 @@ export const workspaceActions = {
     store.setError(null);
     try {
       await workspaceService.detachDocument(workspaceId, documentId);
-      const current = store.workspaceDocuments[workspaceId] ?? [];
+      const current = store.documentsByWorkspace[workspaceId] ?? [];
       store.setWorkspaceDocuments(
         workspaceId,
-        current.filter((d) => d.document_id !== documentId),
+        current.filter((d: WorkspaceDocument) => d.document_id !== documentId),
       );
     } catch (err) {
       store.setError(err instanceof Error ? err.message : "Failed to detach document.");

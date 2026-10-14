@@ -31,7 +31,7 @@ describe("WorkspaceDocumentManager", () => {
 
   it("loads documents on mount and displays attached documents", () => {
     useWorkspaceStore.setState({
-      workspaceDocuments: { 5: mockAttached },
+      documentsByWorkspace: { 5: mockAttached },
     });
     vi.mocked(apiClient.get).mockResolvedValueOnce([]);
 
@@ -44,7 +44,7 @@ describe("WorkspaceDocumentManager", () => {
 
   it("attaches unattached documents when selected", async () => {
     useWorkspaceStore.setState({
-      workspaceDocuments: { 5: mockAttached },
+      documentsByWorkspace: { 5: mockAttached },
     });
 
     vi.mocked(apiClient.get).mockResolvedValueOnce([
@@ -65,7 +65,7 @@ describe("WorkspaceDocumentManager", () => {
 
   it("detaches document on delete button click", () => {
     useWorkspaceStore.setState({
-      workspaceDocuments: { 5: mockAttached },
+      documentsByWorkspace: { 5: mockAttached },
     });
     vi.mocked(apiClient.get).mockResolvedValueOnce([]);
 
