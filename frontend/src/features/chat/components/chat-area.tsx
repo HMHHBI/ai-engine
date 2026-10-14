@@ -532,8 +532,8 @@ export function ChatArea({
         </div>
       )}
 
-      <div className="border-t border-border bg-background">
-        <div className="mx-auto flex w-full max-w-3xl items-center justify-end px-2.5 pb-2 sm:px-4">
+      <div className="bg-background/80 backdrop-blur-md">
+        <div className="mx-auto flex w-full max-w-3xl items-center justify-end px-2.5 pt-2 pb-1 sm:px-4">
           <ModelSelector
             model={model}
             provider={provider}

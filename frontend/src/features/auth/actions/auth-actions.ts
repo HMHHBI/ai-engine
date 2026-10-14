@@ -1,3 +1,4 @@
+import { useWorkspaceStore } from "@/features/workspace/store/workspace-store";
 import { authApi } from "@/lib/api/auth";
 import { userApi } from "@/lib/api/user";
 import { useAuthStore } from "@/features/auth";
@@ -65,5 +66,6 @@ export const authActions = {
 
   logout(): void {
     useAuthStore.getState().logout();
+    useWorkspaceStore.getState().reset();
   },
 };
