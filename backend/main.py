@@ -72,8 +72,8 @@ async def lifespan(app: FastAPI):
         pass
     except asyncio.TimeoutError:
         logger.error(
-            "document_worker_shutdown_timeout",
-            extra={"event": "document_worker_shutdown_timeout"},
+            "document_worker_shutdown_timeout_hard_exceeded",
+            extra={"event": "document_worker_shutdown_timeout_hard_exceeded"},
         )
     except Exception:
         logger.exception(

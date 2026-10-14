@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     DB_POOL_RECYCLE: int = 1800
     DB_POOL_PRE_PING: bool = True
     DB_DEPLOYMENT_CONNECTION_BUDGET: int = 100
+    DB_API_REPLICAS: int = 2
+    DB_WORKER_REPLICAS: int = 1
+    DB_ADMIN_HEADROOM: int = 10
 
     # ------------------------------------------------------------------
     # Frontend / CORS
@@ -244,10 +247,17 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_aggregate_connection_budget(self) -> "Settings":
-        if self.DB_POOL_SIZE + self.DB_MAX_OVERFLOW > self.DB_DEPLOYMENT_CONNECTION_BUDGET:
+        per_instance_max = self.DB_POOL_SIZE + self.DB_MAX_OVERFLOW
+        total_aggregate_demand = (
+            (self.DB_API_REPLICAS * per_instance_max)
+            + (self.DB_WORKER_REPLICAS * per_instance_max)
+            + self.DB_ADMIN_HEADROOM
+        )
+        if total_aggregate_demand > self.DB_DEPLOYMENT_CONNECTION_BUDGET:
             raise ValueError(
-                f"Single-process pool capacity ({self.DB_POOL_SIZE + self.DB_MAX_OVERFLOW}) "
-                f"exceeds DB_DEPLOYMENT_CONNECTION_BUDGET ({self.DB_DEPLOYMENT_CONNECTION_BUDGET})"
+                f"Deployment aggregate connection demand ({total_aggregate_demand}) exceeds "
+                f"DB_DEPLOYMENT_CONNECTION_BUDGET ({self.DB_DEPLOYMENT_CONNECTION_BUDGET}). "
+                f"Formula: N_api*(P+O) + N_worker*(P+O) + headroom"
             )
         return self
 
