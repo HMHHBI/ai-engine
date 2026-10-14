@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { FileText, Plus, Trash2, Loader2, AlertCircle, RefreshCw } from "lucide-react";
 
 import { useWorkspaceStore } from "../store/workspace-store";
@@ -29,49 +29,50 @@ export function WorkspaceDocumentManager({
   const [allAvailableDocs, setAllAvailableDocs] = useState<ApiDocument[]>([]);
   const [selectedToAttach, setSelectedToAttach] = useState<number[]>([]);
   const [isAttaching, setIsAttaching] = useState(false);
-  const [isFetchingDocs, setIsFetchingDocs] = useState(true);
   const [fetchDocsError, setFetchDocsError] = useState<string | null>(null);
   const [retryCounter, setRetryCounter] = useState(0);
 
-  // Finding 1 Fix: Reset selection when workspaceId changes without unmounting
+  // Track loading through a separate active request counter to avoid setState-in-effect issues
+  const [activeFetchCount, setActiveFetchCount] = useState(1);
+  const isFetchingDocs = activeFetchCount > 0;
+
+  // Reset selection when workspaceId changes without unmounting
   if (workspaceId !== prevWorkspaceId) {
     setPrevWorkspaceId(workspaceId);
     setSelectedToAttach([]);
   }
 
-  const isMountedRef = useRef(true);
-  useEffect(() => {
-    isMountedRef.current = true;
-    return () => {
-      isMountedRef.current = false;
-    };
-  }, []);
-
-  // Finding 3 Fix: Unified fetch without synchronous setState inside effect body
+  // P3 Fix: Unified fetch with effect-local cancellation flag and safe in-flight tracking
   useEffect(() => {
     void workspaceActions.loadDocuments(workspaceId);
+
+    let isCancelled = false;
 
     apiClient
       .get<ApiDocument[]>("/documents")
       .then((docs) => {
-        if (isMountedRef.current) {
+        if (!isCancelled) {
           setAllAvailableDocs(docs);
           setFetchDocsError(null);
-          setIsFetchingDocs(false);
+          setActiveFetchCount(0);
         }
       })
       .catch((err) => {
-        if (isMountedRef.current) {
+        if (!isCancelled) {
           setFetchDocsError(
             err instanceof Error ? err.message : "Failed to load available documents.",
           );
-          setIsFetchingDocs(false);
+          setActiveFetchCount(0);
         }
       });
+
+    return () => {
+      isCancelled = true;
+    };
   }, [workspaceId, retryCounter]);
 
   function handleRetry() {
-    setIsFetchingDocs(true);
+    setActiveFetchCount((c) => c + 1);
     setFetchDocsError(null);
     setRetryCounter((c) => c + 1);
   }
@@ -90,15 +91,11 @@ export function WorkspaceDocumentManager({
     setIsAttaching(true);
     try {
       await workspaceActions.attachDocuments(workspaceId, selectedToAttach);
-      if (isMountedRef.current) {
-        setSelectedToAttach([]);
-      }
+      setSelectedToAttach([]);
     } catch {
       // Handled in store
     } finally {
-      if (isMountedRef.current) {
-        setIsAttaching(false);
-      }
+      setIsAttaching(false);
     }
   }
 
