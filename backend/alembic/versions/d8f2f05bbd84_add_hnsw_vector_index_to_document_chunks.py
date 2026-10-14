@@ -8,7 +8,6 @@ Create Date: 2026-10-14 20:30:00.000000
 from typing import Sequence, Union
 
 from alembic import op
-import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
@@ -19,11 +18,8 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Autocommit mode is strictly required by PostgreSQL for CONCURRENT index builds
-    conn = op.get_bind()
-    conn.execution_options(isolation_level="AUTOCOMMIT")
-    conn.execute(
-        sa.text(
+    with op.get_context().autocommit_block():
+        op.execute(
             """
             CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_document_chunks_embedding_hnsw
             ON document_chunks
@@ -31,12 +27,8 @@ def upgrade() -> None:
             WITH (m = 16, ef_construction = 64);
             """
         )
-    )
 
 
 def downgrade() -> None:
-    conn = op.get_bind()
-    conn.execution_options(isolation_level="AUTOCOMMIT")
-    conn.execute(
-        sa.text("DROP INDEX CONCURRENTLY IF EXISTS ix_document_chunks_embedding_hnsw;")
-    )
+    with op.get_context().autocommit_block():
+        op.execute("DROP INDEX CONCURRENTLY IF EXISTS ix_document_chunks_embedding_hnsw;")

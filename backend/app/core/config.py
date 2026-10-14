@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     DB_POOL_PRE_PING: bool = True
     DB_DEPLOYMENT_CONNECTION_BUDGET: int = 100
     DB_API_REPLICAS: int = 2
-    DB_WORKER_REPLICAS: int = 1
+    DB_WORKER_REPLICAS: int = 0
     DB_ADMIN_HEADROOM: int = 10
 
     # ------------------------------------------------------------------
@@ -248,12 +248,15 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_aggregate_connection_budget(self) -> "Settings":
         per_instance_max = self.DB_POOL_SIZE + self.DB_MAX_OVERFLOW
+        # If worker runs inside the API lifespan, worker pool demand is absorbed by N_api.
+        # When DB_WORKER_REPLICAS > 0, it models dedicated out-of-process workers.
         total_aggregate_demand = (
             (self.DB_API_REPLICAS * per_instance_max)
             + (self.DB_WORKER_REPLICAS * per_instance_max)
             + self.DB_ADMIN_HEADROOM
         )
-        if total_aggregate_demand > self.DB_DEPLOYMENT_CONNECTION_BUDGET:
+        # Demand must remain strictly below deployment connection budget
+        if total_aggregate_demand >= self.DB_DEPLOYMENT_CONNECTION_BUDGET:
             raise ValueError(
                 f"Deployment aggregate connection demand ({total_aggregate_demand}) exceeds "
                 f"DB_DEPLOYMENT_CONNECTION_BUDGET ({self.DB_DEPLOYMENT_CONNECTION_BUDGET}). "

@@ -67,14 +67,12 @@ async def lifespan(app: FastAPI):
     # Shutdown: bounded graceful draining
     worker_task.cancel()
     try:
-        await asyncio.wait_for(worker_task, timeout=10.0)
-    except asyncio.CancelledError:
-        pass
-    except asyncio.TimeoutError:
-        logger.error(
-            "document_worker_shutdown_timeout_hard_exceeded",
-            extra={"event": "document_worker_shutdown_timeout_hard_exceeded"},
-        )
+        done, pending = await asyncio.wait([worker_task], timeout=10.0)
+        if pending:
+            logger.error(
+                "document_worker_shutdown_hard_deadline_exceeded",
+                extra={"event": "document_worker_shutdown_hard_deadline_exceeded", "pending_tasks": len(pending)},
+            )
     except Exception:
         logger.exception(
             "document_worker_shutdown_failed",
