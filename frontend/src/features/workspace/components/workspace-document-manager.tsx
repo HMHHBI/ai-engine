@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { FileText, Plus, Trash2, Loader2, AlertCircle, RefreshCw } from "lucide-react";
 
 import { useWorkspaceStore } from "../store/workspace-store";
@@ -32,33 +32,37 @@ export function WorkspaceDocumentManager({
   const [fetchDocsError, setFetchDocsError] = useState<string | null>(null);
   const [retryCounter, setRetryCounter] = useState(0);
 
-  // Track loading through a separate active request counter to avoid setState-in-effect issues
+  // Active fetch count initialized to 1 for initial mount
   const [activeFetchCount, setActiveFetchCount] = useState(1);
   const isFetchingDocs = activeFetchCount > 0;
 
-  // Reset selection when workspaceId changes without unmounting
+  // When workspaceId changes, reset selection AND restart loading indicator during render
   if (workspaceId !== prevWorkspaceId) {
     setPrevWorkspaceId(workspaceId);
     setSelectedToAttach([]);
+    setActiveFetchCount(1);
+    setFetchDocsError(null);
   }
 
-  // P3 Fix: Unified fetch with effect-local cancellation flag and safe in-flight tracking
+  const latestRequestIdRef = useRef(0);
+
   useEffect(() => {
     void workspaceActions.loadDocuments(workspaceId);
 
+    const requestId = ++latestRequestIdRef.current;
     let isCancelled = false;
 
     apiClient
       .get<ApiDocument[]>("/documents")
       .then((docs) => {
-        if (!isCancelled) {
+        if (!isCancelled && requestId === latestRequestIdRef.current) {
           setAllAvailableDocs(docs);
           setFetchDocsError(null);
           setActiveFetchCount(0);
         }
       })
       .catch((err) => {
-        if (!isCancelled) {
+        if (!isCancelled && requestId === latestRequestIdRef.current) {
           setFetchDocsError(
             err instanceof Error ? err.message : "Failed to load available documents.",
           );
@@ -72,7 +76,7 @@ export function WorkspaceDocumentManager({
   }, [workspaceId, retryCounter]);
 
   function handleRetry() {
-    setActiveFetchCount((c) => c + 1);
+    setActiveFetchCount(1);
     setFetchDocsError(null);
     setRetryCounter((c) => c + 1);
   }
