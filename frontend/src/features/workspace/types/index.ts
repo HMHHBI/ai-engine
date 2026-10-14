@@ -13,3 +13,6 @@ export interface WorkspaceUiState {
   /** Reset UI state to defaults */
   resetUiState: () => void;
 }
+
+export * from "@/types/workspace";
+export * from "@/types/research";

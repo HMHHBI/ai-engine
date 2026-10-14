@@ -11,7 +11,6 @@ export const workspaceActions = {
       const list = await workspaceService.listWorkspaces();
       store.setWorkspaces(list);
 
-      // Reconcile active workspace ID
       const currentActiveId = store.activeWorkspaceId;
       const isCurrentValid = list.some((ws) => ws.id === currentActiveId);
 
@@ -39,6 +38,40 @@ export const workspaceActions = {
       useWorkspaceStore.getState().setError(
         err instanceof Error ? err.message : "Failed to load workspace documents.",
       );
+    }
+  },
+
+  async attachDocuments(workspaceId: number, documentIds: number[]): Promise<void> {
+    const store = useWorkspaceStore.getState();
+    store.setLoading(true);
+    store.setError(null);
+    try {
+      const updated = await workspaceService.attachDocuments(workspaceId, documentIds);
+      store.setWorkspaceDocuments(workspaceId, updated);
+    } catch (err) {
+      store.setError(err instanceof Error ? err.message : "Failed to attach documents.");
+      throw err;
+    } finally {
+      store.setLoading(false);
+    }
+  },
+
+  async detachDocument(workspaceId: number, documentId: number): Promise<void> {
+    const store = useWorkspaceStore.getState();
+    store.setLoading(true);
+    store.setError(null);
+    try {
+      await workspaceService.detachDocument(workspaceId, documentId);
+      const current = store.workspaceDocuments[workspaceId] ?? [];
+      store.setWorkspaceDocuments(
+        workspaceId,
+        current.filter((d) => d.document_id !== documentId),
+      );
+    } catch (err) {
+      store.setError(err instanceof Error ? err.message : "Failed to detach document.");
+      throw err;
+    } finally {
+      store.setLoading(false);
     }
   },
 
