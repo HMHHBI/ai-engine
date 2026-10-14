@@ -71,8 +71,8 @@ export function MessageBubble({
             "rounded-2xl px-4 py-2.5 text-xs leading-5 shadow-sm",
             "sm:px-4 sm:py-3 sm:text-sm sm:leading-6",
             isUser
-              ? "bg-zinc-100 font-medium text-zinc-950"
-              : "border border-zinc-800 bg-zinc-900 text-zinc-100",
+              ? "bg-primary font-medium text-primary-foreground shadow-xs"
+              : "border border-border/80 bg-card text-card-foreground shadow-xs",
           )}
         >
           {isUser ? (
@@ -114,7 +114,7 @@ export function MessageBubble({
 
       {isUser && (
         <div
-          className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-zinc-300"
+          className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full border border-border/80 bg-secondary text-secondary-foreground shadow-xs"
           aria-hidden="true"
         >
           <User className="size-4" />

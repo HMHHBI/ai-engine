@@ -291,11 +291,11 @@ export function ChatComposer({ chatId, model, provider, documentId }: ChatCompos
   }
 
   return (
-    <div className="border-t border-border bg-background pb-[max(0px,env(safe-area-inset-bottom))]">
+    <div className="border-t border-border/60 bg-background/85 backdrop-blur-md pb-[max(0px,env(safe-area-inset-bottom))]">
       <div className="mx-auto w-full max-w-3xl px-2.5 py-2.5 sm:px-4 sm:py-4">
         <div
           className={cn(
-            "relative overflow-hidden rounded-2xl border border-border bg-card",
+            "relative overflow-hidden rounded-2xl border border-border/80 bg-card/95 backdrop-blur-sm shadow-xs transition-all",
             "shadow-sm transition-colors",
             "focus-within:border-ring focus-within:ring-1 focus-within:ring-ring/40",
           )}

@@ -22,6 +22,7 @@ import { chatSessionActions } from "@/features/chat/actions/chat-session-actions
 import { authActions } from "@/features/auth/actions/auth-actions";
 import { useAuthStore } from "@/features/auth";
 import { UserProfileModal } from "@/features/auth/components/user-profile-modal";
+import { WorkspaceSwitcher } from "@/features/workspace/components/workspace-switcher";
 import { cn } from "@/lib/utils";
 
 interface AppSidebarProps {
@@ -125,7 +126,7 @@ export function AppSidebar({
         aria-label={mobileOpen ? "Navigation sidebar" : undefined}
         className={cn(
           "fixed inset-y-0 left-0 z-50 flex flex-col",
-          "border-r border-border bg-background",
+          "border-r border-border/60 bg-background/95 backdrop-blur-md",
           "transition-[width,transform] duration-200 ease-out",
           "md:relative md:z-auto md:translate-x-0",
           collapsed ? "md:w-16" : "md:w-64",
@@ -137,7 +138,7 @@ export function AppSidebar({
         {/* Brand */}
         <div
           className={cn(
-            "flex h-14 shrink-0 items-center border-b border-border px-3",
+            "flex h-14 shrink-0 items-center border-b border-border/60 px-3",
             collapsed ? "justify-center" : "justify-between",
           )}
         >
@@ -169,8 +170,10 @@ export function AppSidebar({
           </div>
         </div>
 
+        <WorkspaceSwitcher collapsed={collapsed} />
+
         {/* New chat */}
-        <div className="p-3">
+        <div className="px-3 pb-3 pt-1">
           <button
             type="button"
             disabled={isCreatingChat}
@@ -179,7 +182,7 @@ export function AppSidebar({
               "flex w-full items-center rounded-lg",
               "bg-primary text-primary-foreground",
               "text-sm font-medium",
-              "transition-opacity hover:opacity-90",
+              "shadow-xs transition-all duration-150 hover:opacity-95 active:scale-[0.98]",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               "disabled:pointer-events-none disabled:opacity-50",
               collapsed
@@ -221,7 +224,7 @@ export function AppSidebar({
         </nav>
 
         {/* Bottom controls */}
-        <div className="space-y-1 border-t border-border p-3">
+        <div className="space-y-1 border-t border-border/60 p-3">
           <button
             type="button"
             onClick={() => setTheme(isDark ? "light" : "dark")}

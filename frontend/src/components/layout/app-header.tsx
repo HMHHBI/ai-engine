@@ -84,7 +84,7 @@ export const AppHeader = forwardRef<HTMLButtonElement, AppHeaderProps>(
 
     return (
       <>
-        <header className="flex h-14 shrink-0 items-center justify-between border-b border-border px-2 sm:px-3">
+        <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between border-b border-border/70 bg-background/80 backdrop-blur-md px-2 sm:px-3">
           <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
             <div className="md:hidden">
               <IconButton
@@ -136,7 +136,7 @@ export const AppHeader = forwardRef<HTMLButtonElement, AppHeaderProps>(
                 {personaOpen && (
                   <div
                     role="menu"
-                    className="absolute right-0 top-full z-40 mt-2 w-44 rounded-lg border border-border bg-background p-1 shadow-lg"
+                    className="absolute right-0 top-full z-40 mt-2 w-44 rounded-xl border border-border/80 bg-background/95 p-1 shadow-xl backdrop-blur-md ring-1 ring-black/5 dark:ring-white/5"
                   >
                     {PERSONAS.map((item) => (
                       <button
