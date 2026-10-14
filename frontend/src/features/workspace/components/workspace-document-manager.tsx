@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { FileText, Plus, Trash2, Loader2, AlertCircle, RefreshCw } from "lucide-react";
 
 import { useWorkspaceStore } from "../store/workspace-store";
@@ -25,53 +25,56 @@ export function WorkspaceDocumentManager({
   const isLoading = useWorkspaceStore((state) => state.isLoading);
   const error = useWorkspaceStore((state) => state.error);
 
+  const [prevWorkspaceId, setPrevWorkspaceId] = useState(workspaceId);
   const [allAvailableDocs, setAllAvailableDocs] = useState<ApiDocument[]>([]);
   const [selectedToAttach, setSelectedToAttach] = useState<number[]>([]);
   const [isAttaching, setIsAttaching] = useState(false);
-  const [isFetchingDocs, setIsFetchingDocs] = useState(false);
+  const [isFetchingDocs, setIsFetchingDocs] = useState(true);
   const [fetchDocsError, setFetchDocsError] = useState<string | null>(null);
+  const [retryCounter, setRetryCounter] = useState(0);
 
-  function fetchAvailableDocs() {
-    setIsFetchingDocs(true);
-    setFetchDocsError(null);
-    apiClient
-      .get<ApiDocument[]>("/documents")
-      .then((docs) => {
-        setAllAvailableDocs(docs);
-      })
-      .catch((err) => {
-        setFetchDocsError(
-          err instanceof Error ? err.message : "Failed to load available documents.",
-        );
-      })
-      .finally(() => {
-        setIsFetchingDocs(false);
-      });
+  // Finding 1 Fix: Reset selection when workspaceId changes without unmounting
+  if (workspaceId !== prevWorkspaceId) {
+    setPrevWorkspaceId(workspaceId);
+    setSelectedToAttach([]);
   }
 
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  // Finding 3 Fix: Unified fetch without synchronous setState inside effect body
   useEffect(() => {
     void workspaceActions.loadDocuments(workspaceId);
-    let isCancelled = false;
 
     apiClient
       .get<ApiDocument[]>("/documents")
       .then((docs) => {
-        if (!isCancelled) {
+        if (isMountedRef.current) {
           setAllAvailableDocs(docs);
+          setFetchDocsError(null);
+          setIsFetchingDocs(false);
         }
       })
       .catch((err) => {
-        if (!isCancelled) {
+        if (isMountedRef.current) {
           setFetchDocsError(
             err instanceof Error ? err.message : "Failed to load available documents.",
           );
+          setIsFetchingDocs(false);
         }
       });
+  }, [workspaceId, retryCounter]);
 
-    return () => {
-      isCancelled = true;
-    };
-  }, [workspaceId]);
+  function handleRetry() {
+    setIsFetchingDocs(true);
+    setFetchDocsError(null);
+    setRetryCounter((c) => c + 1);
+  }
 
   const attachedIds = new Set(attachedDocs.map((d: WorkspaceDocument) => d.document_id));
   const unattachedDocs = allAvailableDocs.filter((d) => !attachedIds.has(d.id));
@@ -87,11 +90,15 @@ export function WorkspaceDocumentManager({
     setIsAttaching(true);
     try {
       await workspaceActions.attachDocuments(workspaceId, selectedToAttach);
-      setSelectedToAttach([]);
+      if (isMountedRef.current) {
+        setSelectedToAttach([]);
+      }
     } catch {
       // Handled in store
     } finally {
-      setIsAttaching(false);
+      if (isMountedRef.current) {
+        setIsAttaching(false);
+      }
     }
   }
 
@@ -154,7 +161,7 @@ export function WorkspaceDocumentManager({
           {fetchDocsError && (
             <button
               type="button"
-              onClick={fetchAvailableDocs}
+              onClick={handleRetry}
               className="flex items-center gap-1 text-[11px] text-destructive hover:underline"
             >
               <RefreshCw className="size-3" />
@@ -164,7 +171,7 @@ export function WorkspaceDocumentManager({
         </div>
 
         {isFetchingDocs && (
-          <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
+          <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground" data-testid="fetching-docs-indicator">
             <Loader2 className="size-3.5 animate-spin" />
             <span>Loading documents...</span>
           </div>

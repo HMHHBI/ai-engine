@@ -39,7 +39,7 @@ export function WorkspaceResearchSynthesisPanel({
 
   const [prevWorkspaceId, setPrevWorkspaceId] = useState(workspaceId);
   const [query, setQuery] = useState("");
-  const [selectedDocIds, setSelectedDocIds] = useState<number[]>([]);
+  const [rawSelectedDocIds, setRawSelectedDocIds] = useState<number[]>([]);
   const [latestRun, setLatestRun] = useState<ResearchRun | null>(null);
   const [exportingFormat, setExportingFormat] = useState<"markdown" | "json" | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -48,10 +48,14 @@ export function WorkspaceResearchSynthesisPanel({
   if (workspaceId !== prevWorkspaceId) {
     setPrevWorkspaceId(workspaceId);
     setQuery("");
-    setSelectedDocIds([]);
+    setRawSelectedDocIds([]);
     setLatestRun(null);
     setExportError(null);
   }
+
+  // Finding 2 Fix: Reconcile selectedDocIds strictly against current workspace documents
+  const validDocIdSet = new Set(documents.map((d: WorkspaceDocument) => d.document_id));
+  const selectedDocIds = rawSelectedDocIds.filter((id) => validDocIdSet.has(id));
 
   // Derive active run safely: prioritize freshly triggered run if belonging to current workspace, else latest from store
   const activeRun: ResearchRun | null =
@@ -62,17 +66,20 @@ export function WorkspaceResearchSynthesisPanel({
   const isFormValid = query.trim().length > 0 && selectedDocIds.length >= 2;
 
   function toggleDocSelection(docId: number) {
-    setSelectedDocIds((prev) =>
-      prev.includes(docId) ? prev.filter((item) => item !== docId) : [...prev, docId],
-    );
+    setRawSelectedDocIds((prev) => {
+      const currentFiltered = prev.filter((id) => validDocIdSet.has(id));
+      return currentFiltered.includes(docId)
+        ? currentFiltered.filter((item) => item !== docId)
+        : [...currentFiltered, docId];
+    });
   }
 
   function selectAllDocs() {
-    setSelectedDocIds(documents.map((d: WorkspaceDocument) => d.document_id));
+    setRawSelectedDocIds(documents.map((d: WorkspaceDocument) => d.document_id));
   }
 
   function clearDocSelection() {
-    setSelectedDocIds([]);
+    setRawSelectedDocIds([]);
   }
 
   async function handleRunSynthesis(e: React.FormEvent) {

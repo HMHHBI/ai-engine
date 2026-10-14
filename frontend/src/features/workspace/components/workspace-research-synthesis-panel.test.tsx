@@ -210,3 +210,41 @@ describe("WorkspaceResearchSynthesisPanel", () => {
     const checkWs2 = screen.getByLabelText(/Paper10.pdf/i) as HTMLInputElement;
     expect(checkWs2.checked).toBe(false);
   });
+
+  it("drops detached documents from selection and disables submission if count falls below 2", () => {
+    const initialDocs = [
+      { document_id: 1, filename: "Paper1.pdf", chat_id: null, mime_type: "pdf", status: "ready", added_by: 1, added_at: "" },
+      { document_id: 2, filename: "Paper2.pdf", chat_id: null, mime_type: "pdf", status: "ready", added_by: 1, added_at: "" },
+    ];
+
+    useWorkspaceStore.setState({
+      documentsByWorkspace: { 10: initialDocs },
+      researchRunsByWorkspace: { 10: [] },
+    });
+
+    const { rerender } = render(<WorkspaceResearchSynthesisPanel workspaceId={10} />);
+
+    // Select both docs
+    fireEvent.click(screen.getByLabelText(/Paper1.pdf/i));
+    fireEvent.click(screen.getByLabelText(/Paper2.pdf/i));
+    fireEvent.change(screen.getByPlaceholderText(/Compare the methodologies/i), {
+      target: { value: "Synthesize" },
+    });
+
+    const submitBtn = screen.getByRole("button", { name: /Run Synthesis/i });
+    expect(submitBtn).not.toBeDisabled();
+
+    // Now document 2 is detached from workspace in store
+    useWorkspaceStore.setState({
+      documentsByWorkspace: {
+        10: [initialDocs[0]],
+      },
+    });
+
+    rerender(<WorkspaceResearchSynthesisPanel workspaceId={10} />);
+
+    // Active selection count should now only be 1, disabling submission
+    expect(screen.getByText(/1 \/ 1 selected/i)).toBeDefined();
+    expect(screen.getByText(/Minimum 2 documents required/i)).toBeDefined();
+    expect(submitBtn).toBeDisabled();
+  });

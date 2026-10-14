@@ -77,3 +77,27 @@ describe("WorkspaceDocumentManager", () => {
     expect(workspaceActions.detachDocument).toHaveBeenCalledWith(5, 101);
   });
 });
+
+  it("resets selectedToAttach when workspaceId changes without unmounting", async () => {
+    vi.mocked(apiClient.get).mockResolvedValue([
+      { id: 201, filename: "PaperX.pdf", user_id: 1, status: "ready", content_hash: "hx", created_at: "", updated_at: "" },
+    ]);
+
+    useWorkspaceStore.setState({
+      documentsByWorkspace: { 1: [], 2: [] },
+    });
+
+    const { rerender } = render(<WorkspaceDocumentManager workspaceId={1} />);
+
+    const checkbox = await screen.findByLabelText(/PaperX.pdf/i);
+    fireEvent.click(checkbox);
+    expect((checkbox as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByRole("button", { name: /Attach Selected \(1\)/i })).toBeDefined();
+
+    // Switch workspace to 2 without unmounting
+    rerender(<WorkspaceDocumentManager workspaceId={2} />);
+
+    // Selection must be cleared
+    const checkboxAfterSwitch = (await screen.findByLabelText(/PaperX.pdf/i)) as HTMLInputElement;
+    expect(checkboxAfterSwitch.checked).toBe(false);
+  });

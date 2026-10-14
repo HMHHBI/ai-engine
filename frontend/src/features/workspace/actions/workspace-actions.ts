@@ -1,7 +1,9 @@
 import { workspaceService } from "../services/workspace-service";
 import { useWorkspaceStore } from "../store/workspace-store";
+import { apiClient } from "@/lib/api/client";
 import type { CreateResearchRunInput } from "@/types/research";
 import type { WorkspaceDocument } from "@/types/workspace";
+import type { Document as ApiDocument } from "@/types/api";
 
 export const workspaceActions = {
   async loadWorkspaces(): Promise<void> {
@@ -40,6 +42,10 @@ export const workspaceActions = {
         err instanceof Error ? err.message : "Failed to load workspace documents.",
       );
     }
+  },
+
+  async fetchAvailableDocuments(): Promise<ApiDocument[]> {
+    return await apiClient.get<ApiDocument[]>("/documents");
   },
 
   async attachDocuments(workspaceId: number, documentIds: number[]): Promise<void> {
