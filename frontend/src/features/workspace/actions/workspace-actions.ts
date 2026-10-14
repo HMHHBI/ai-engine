@@ -10,8 +10,13 @@ export const workspaceActions = {
     try {
       const list = await workspaceService.listWorkspaces();
       store.setWorkspaces(list);
-      if (list.length > 0 && store.activeWorkspaceId === null) {
-        store.setActiveWorkspaceId(list[0].id);
+
+      // Reconcile active workspace ID
+      const currentActiveId = store.activeWorkspaceId;
+      const isCurrentValid = list.some((ws) => ws.id === currentActiveId);
+
+      if (!isCurrentValid) {
+        store.setActiveWorkspaceId(list.length > 0 ? list[0].id : null);
       }
     } catch (err) {
       store.setError(err instanceof Error ? err.message : "Failed to load workspaces.");
@@ -38,16 +43,21 @@ export const workspaceActions = {
   },
 
   async createWorkspace(name: string): Promise<number | null> {
+    const store = useWorkspaceStore.getState();
+    store.setLoading(true);
+    store.setError(null);
     try {
       const workspace = await workspaceService.createWorkspace(name);
       await this.loadWorkspaces();
-      useWorkspaceStore.getState().setActiveWorkspaceId(workspace.id);
+      store.setActiveWorkspaceId(workspace.id);
       return workspace.id;
     } catch (err) {
-      useWorkspaceStore.getState().setError(
+      store.setError(
         err instanceof Error ? err.message : "Failed to create workspace.",
       );
       return null;
+    } finally {
+      store.setLoading(false);
     }
   },
 
@@ -55,15 +65,20 @@ export const workspaceActions = {
     workspaceId: number,
     input: CreateResearchRunInput,
   ) {
+    const store = useWorkspaceStore.getState();
+    store.setLoading(true);
+    store.setError(null);
     try {
       const run = await workspaceService.createResearchRun(workspaceId, input);
-      useWorkspaceStore.getState().addResearchRun(workspaceId, run);
+      store.addResearchRun(workspaceId, run);
       return run;
     } catch (err) {
-      useWorkspaceStore.getState().setError(
+      store.setError(
         err instanceof Error ? err.message : "Failed to trigger research synthesis.",
       );
       throw err;
+    } finally {
+      store.setLoading(false);
     }
   },
 };

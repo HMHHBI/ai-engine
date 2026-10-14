@@ -10,6 +10,14 @@ import type {
   CreateResearchRunInput,
 } from "@/types/research";
 
+export type ResearchExportFormat = "markdown" | "json";
+
+export interface ResearchExportResponse {
+  contentType: string;
+  filename: string;
+  content: string | Record<string, unknown>;
+}
+
 export const workspaceService = {
   // --- Workspace CRUD ---
   async listWorkspaces(): Promise<Workspace[]> {
@@ -98,13 +106,30 @@ export const workspaceService = {
     );
   },
 
-  async exportResearchRun(
+  async downloadResearchExport(
     workspaceId: number,
     runId: number,
-    format: "markdown" | "json" = "markdown",
-  ): Promise<string> {
-    return apiClient.get<string>(
-      `/workspaces/${workspaceId}/research/runs/${runId}/export?format=${format}`,
-    );
+    format: ResearchExportFormat = "markdown",
+  ): Promise<void> {
+    const rawUrl = `${(process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "")}/workspaces/${workspaceId}/research/runs/${runId}/export?format=${format}`;
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+
+    const response = await fetch(rawUrl, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+
+    if (!response.ok) {
+      throw new Error(`Export download failed with status ${response.status}`);
+    }
+
+    const blob = await response.blob();
+    const downloadUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = downloadUrl;
+    link.download = `research-run-${runId}.${format === "json" ? "json" : "md"}`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(downloadUrl);
   },
 };

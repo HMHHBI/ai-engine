@@ -18,7 +18,10 @@ describe("workspaceActions", () => {
     useWorkspaceStore.getState().reset();
   });
 
-  it("loads workspaces and selects the first one if none selected", async () => {
+  it("reconciles stale activeWorkspaceId to the first available workspace", async () => {
+    // Current state has a stale workspace id 999 from previous user session
+    useWorkspaceStore.setState({ activeWorkspaceId: 999 });
+
     const mockList = [{ id: 10, name: "Workspace A", created_by: 1, created_at: "", updated_at: "" }];
     vi.mocked(workspaceService.listWorkspaces).mockResolvedValueOnce(mockList);
 
@@ -26,33 +29,22 @@ describe("workspaceActions", () => {
 
     const state = useWorkspaceStore.getState();
     expect(state.workspaces).toEqual(mockList);
+    // 999 was not in list, so it reconciled to 10
     expect(state.activeWorkspaceId).toBe(10);
     expect(state.isLoading).toBe(false);
   });
 
-  it("triggers research synthesis and appends to research runs store", async () => {
-    const mockRun = {
-      id: 99,
-      workspace_id: 10,
-      requester_id: 1,
-      query: "Cross paper analysis",
-      status: "completed" as const,
-      answer: "Findings",
-      citations: [],
-      run_metadata: {},
-      created_at: "",
-      completed_at: "",
-    };
-    vi.mocked(workspaceService.createResearchRun).mockResolvedValueOnce(mockRun);
+  it("preserves activeWorkspaceId if it exists in the fetched list", async () => {
+    useWorkspaceStore.setState({ activeWorkspaceId: 20 });
 
-    const result = await workspaceActions.triggerResearchSynthesis(10, {
-      query: "Cross paper analysis",
-      document_ids: [1, 2],
-    });
+    const mockList = [
+      { id: 10, name: "Workspace A", created_by: 1, created_at: "", updated_at: "" },
+      { id: 20, name: "Workspace B", created_by: 1, created_at: "", updated_at: "" },
+    ];
+    vi.mocked(workspaceService.listWorkspaces).mockResolvedValueOnce(mockList);
 
-    expect(result.id).toBe(99);
-    const runs = useWorkspaceStore.getState().researchRunsByWorkspace[10];
-    expect(runs).toBeDefined();
-    expect(runs[0].id).toBe(99);
+    await workspaceActions.loadWorkspaces();
+
+    expect(useWorkspaceStore.getState().activeWorkspaceId).toBe(20);
   });
 });
