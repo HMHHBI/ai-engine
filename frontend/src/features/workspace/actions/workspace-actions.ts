@@ -1,6 +1,9 @@
 import { workspaceService } from "../services/workspace-service";
 import { useWorkspaceStore } from "../store/workspace-store";
+import { apiClient } from "@/lib/api/client";
 import type { CreateResearchRunInput } from "@/types/research";
+import type { WorkspaceDocument } from "@/types/workspace";
+import type { Document as ApiDocument } from "@/types/api";
 
 export const workspaceActions = {
   async loadWorkspaces(): Promise<void> {
@@ -11,7 +14,6 @@ export const workspaceActions = {
       const list = await workspaceService.listWorkspaces();
       store.setWorkspaces(list);
 
-      // Reconcile active workspace ID
       const currentActiveId = store.activeWorkspaceId;
       const isCurrentValid = list.some((ws) => ws.id === currentActiveId);
 
@@ -39,6 +41,44 @@ export const workspaceActions = {
       useWorkspaceStore.getState().setError(
         err instanceof Error ? err.message : "Failed to load workspace documents.",
       );
+    }
+  },
+
+  async fetchAvailableDocuments(): Promise<ApiDocument[]> {
+    return await apiClient.get<ApiDocument[]>("/documents");
+  },
+
+  async attachDocuments(workspaceId: number, documentIds: number[]): Promise<void> {
+    const store = useWorkspaceStore.getState();
+    store.setLoading(true);
+    store.setError(null);
+    try {
+      const updated = await workspaceService.attachDocuments(workspaceId, documentIds);
+      store.setWorkspaceDocuments(workspaceId, updated);
+    } catch (err) {
+      store.setError(err instanceof Error ? err.message : "Failed to attach documents.");
+      throw err;
+    } finally {
+      store.setLoading(false);
+    }
+  },
+
+  async detachDocument(workspaceId: number, documentId: number): Promise<void> {
+    const store = useWorkspaceStore.getState();
+    store.setLoading(true);
+    store.setError(null);
+    try {
+      await workspaceService.detachDocument(workspaceId, documentId);
+      const current = store.documentsByWorkspace[workspaceId] ?? [];
+      store.setWorkspaceDocuments(
+        workspaceId,
+        current.filter((d: WorkspaceDocument) => d.document_id !== documentId),
+      );
+    } catch (err) {
+      store.setError(err instanceof Error ? err.message : "Failed to detach document.");
+      throw err;
+    } finally {
+      store.setLoading(false);
     }
   },
 

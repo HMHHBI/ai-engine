@@ -6,6 +6,17 @@ import { useChatStore } from "@/features/chat/store/chat-store";
 import { useChatSessionStore } from "@/features/chat/store/chat-session-store";
 import { chatSessionActions } from "@/features/chat/actions/chat-session-actions";
 
+const mockPush = vi.fn();
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: mockPush }),
+  usePathname: () => "/dashboard",
+  useSearchParams: () => ({
+    get: vi.fn().mockReturnValue(null),
+    toString: () => "",
+  }),
+}));
+
 vi.mock("@/features/chat/actions/chat-session-actions", () => ({
   chatSessionActions: {
     updatePersona: vi.fn(),
@@ -113,5 +124,19 @@ describe("AppHeader", () => {
     );
 
     expect(screen.queryByTestId("research-mode-selector")).toBeNull();
+  });
+
+  it("toggles research synthesis view query param on button click", () => {
+    render(
+      <AppHeader
+        onOpenMobileSidebar={vi.fn()}
+        onToggleSidebar={vi.fn()}
+      />,
+    );
+
+    const toggleBtn = screen.getByTestId("toggle-research-synthesis-button");
+    fireEvent.click(toggleBtn);
+
+    expect(mockPush).toHaveBeenCalledWith("/dashboard?view=research");
   });
 });
