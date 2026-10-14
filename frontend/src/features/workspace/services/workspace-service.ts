@@ -12,16 +12,11 @@ import type {
 
 export type ResearchExportFormat = "markdown" | "json";
 
-export interface ResearchExportResponse {
-  contentType: string;
-  filename: string;
-  content: string | Record<string, unknown>;
-}
-
 export const workspaceService = {
   // --- Workspace CRUD ---
+  // Backend defines collection routes on @router.get("/") & @router.post("/") with prefix="/workspaces"
   async listWorkspaces(): Promise<Workspace[]> {
-    return apiClient.get<Workspace[]>("/workspaces");
+    return apiClient.get<Workspace[]>("/workspaces/");
   },
 
   async getWorkspace(workspaceId: number): Promise<Workspace> {
@@ -29,7 +24,7 @@ export const workspaceService = {
   },
 
   async createWorkspace(name: string): Promise<Workspace> {
-    return apiClient.post<Workspace>("/workspaces", { name });
+    return apiClient.post<Workspace>("/workspaces/", { name });
   },
 
   async updateWorkspace(workspaceId: number, name: string): Promise<Workspace> {
@@ -130,6 +125,9 @@ export const workspaceService = {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    window.URL.revokeObjectURL(downloadUrl);
+    // Defer revocation slightly for defensive cross-browser download handling
+    setTimeout(() => {
+      window.URL.revokeObjectURL(downloadUrl);
+    }, 100);
   },
 };
