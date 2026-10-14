@@ -1,4 +1,14 @@
 services:
+  db:
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+
+  redis:
+    ports:
+      - "6379:6379"
+
   backend:
     volumes:
       - ./backend:/app
@@ -9,4 +19,3 @@ services:
       - ./frontend:/app
       - /app/node_modules
       - /app/.next
-    command: npm run dev

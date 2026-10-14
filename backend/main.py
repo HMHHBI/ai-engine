@@ -64,16 +64,26 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Shutdown
+    # Shutdown: bounded graceful draining
     worker_task.cancel()
     try:
-        await worker_task
-    except (asyncio.CancelledError, Exception):
+        await asyncio.wait_for(worker_task, timeout=10.0)
+    except asyncio.CancelledError:
         pass
-
-    await http_client.aclose()
-    logger.info("http_client_closed", extra={"event": "http_client_closed"})
-    logger.info("application_shutdown", extra={"event": "application_shutdown"})
+    except asyncio.TimeoutError:
+        logger.error(
+            "document_worker_shutdown_timeout",
+            extra={"event": "document_worker_shutdown_timeout"},
+        )
+    except Exception:
+        logger.exception(
+            "document_worker_shutdown_failed",
+            extra={"event": "document_worker_shutdown_failed"},
+        )
+    finally:
+        await http_client.aclose()
+        logger.info("http_client_closed", extra={"event": "http_client_closed"})
+        logger.info("application_shutdown", extra={"event": "application_shutdown"})
 
 
 app = FastAPI(
@@ -130,7 +140,6 @@ app.include_router(api_router)
 @app.get("/metrics", include_in_schema=False)
 async def prometheus_metrics():
     return await metrics_response()
-
 
 
 @app.get("/")
