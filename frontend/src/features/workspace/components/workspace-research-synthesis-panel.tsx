@@ -8,13 +8,14 @@ import {
   FileText,
   Loader2,
   CheckCircle2,
+  Clock,
   BookmarkCheck,
 } from "lucide-react";
 
 import { useWorkspaceStore } from "../store/workspace-store";
 import { workspaceActions } from "../actions/workspace-actions";
 import { workspaceService } from "../services/workspace-service";
-import type { ResearchRun } from "@/types/research";
+import type { ResearchRun, ResearchStatus } from "@/types/research";
 import type { WorkspaceDocument } from "@/types/workspace";
 import { cn } from "@/lib/utils";
 
@@ -36,10 +37,27 @@ export function WorkspaceResearchSynthesisPanel({
   const isLoading = useWorkspaceStore((state) => state.isLoading);
   const error = useWorkspaceStore((state) => state.error);
 
+  const [prevWorkspaceId, setPrevWorkspaceId] = useState(workspaceId);
   const [query, setQuery] = useState("");
   const [selectedDocIds, setSelectedDocIds] = useState<number[]>([]);
-  const [activeRun, setActiveRun] = useState<ResearchRun | null>(runs[0] ?? null);
+  const [latestRun, setLatestRun] = useState<ResearchRun | null>(null);
   const [exportingFormat, setExportingFormat] = useState<"markdown" | "json" | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  // If workspaceId changed, reset local workflow state during render
+  if (workspaceId !== prevWorkspaceId) {
+    setPrevWorkspaceId(workspaceId);
+    setQuery("");
+    setSelectedDocIds([]);
+    setLatestRun(null);
+    setExportError(null);
+  }
+
+  // Derive active run safely: prioritize freshly triggered run if belonging to current workspace, else latest from store
+  const activeRun: ResearchRun | null =
+    latestRun && latestRun.workspace_id === workspaceId
+      ? latestRun
+      : (runs[0] ?? null);
 
   const isFormValid = query.trim().length > 0 && selectedDocIds.length >= 2;
 
@@ -66,22 +84,60 @@ export function WorkspaceResearchSynthesisPanel({
         query: query.trim(),
         document_ids: selectedDocIds,
       });
-      setActiveRun(result);
+      setLatestRun(result);
       setQuery("");
     } catch {
-      // Handled in store
+      // Store captures error
     }
   }
 
   async function handleExport(format: "markdown" | "json") {
     if (!activeRun) return;
     setExportingFormat(format);
+    setExportError(null);
     try {
       await workspaceService.downloadResearchExport(workspaceId, activeRun.id, format);
     } catch (err) {
-      console.error("Export download failed:", err);
+      setExportError(
+        err instanceof Error
+          ? err.message
+          : `Failed to export research results as ${format.toUpperCase()}.`,
+      );
     } finally {
       setExportingFormat(null);
+    }
+  }
+
+  function renderStatusBadge(status: ResearchStatus) {
+    switch (status) {
+      case "completed":
+        return (
+          <span className="flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+            <CheckCircle2 className="size-4" />
+            <span>Completed</span>
+          </span>
+        );
+      case "running":
+        return (
+          <span className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400">
+            <Loader2 className="size-4 animate-spin" />
+            <span>Running</span>
+          </span>
+        );
+      case "queued":
+        return (
+          <span className="flex items-center gap-1.5 text-xs font-semibold text-amber-600 dark:text-amber-400">
+            <Clock className="size-4" />
+            <span>Queued</span>
+          </span>
+        );
+      case "failed":
+        return (
+          <span className="flex items-center gap-1.5 text-xs font-semibold text-destructive">
+            <AlertCircle className="size-4" />
+            <span>Failed</span>
+          </span>
+        );
     }
   }
 
@@ -135,7 +191,7 @@ export function WorkspaceResearchSynthesisPanel({
 
           {documents.length === 0 ? (
             <div className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
-              No documents associated with this workspace yet. Attach documents to begin synthesis.
+              No documents associated with this workspace yet. Attach documents in the manager to begin synthesis.
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-1">
@@ -214,14 +270,11 @@ export function WorkspaceResearchSynthesisPanel({
       {activeRun && (
         <div className="flex flex-col gap-4 rounded-xl border border-border/70 bg-card/40 p-4 shadow-xs" data-testid="research-run-result">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border/60 pb-3">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="size-4 text-emerald-500" />
+            <div className="flex items-center gap-3">
               <span className="text-xs font-semibold text-foreground">
                 Run #{activeRun.id} Output
               </span>
-              <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] text-muted-foreground font-mono">
-                {activeRun.status}
-              </span>
+              {renderStatusBadge(activeRun.status)}
             </div>
 
             {/* Export Actions */}
@@ -229,7 +282,7 @@ export function WorkspaceResearchSynthesisPanel({
               <button
                 type="button"
                 onClick={() => handleExport("markdown")}
-                disabled={exportingFormat !== null}
+                disabled={exportingFormat !== null || activeRun.status !== "completed"}
                 className="flex items-center gap-1.5 rounded border border-border bg-background px-2.5 py-1 text-xs text-foreground hover:bg-secondary disabled:opacity-50"
               >
                 {exportingFormat === "markdown" ? (
@@ -242,7 +295,7 @@ export function WorkspaceResearchSynthesisPanel({
               <button
                 type="button"
                 onClick={() => handleExport("json")}
-                disabled={exportingFormat !== null}
+                disabled={exportingFormat !== null || activeRun.status !== "completed"}
                 className="flex items-center gap-1.5 rounded border border-border bg-background px-2.5 py-1 text-xs text-foreground hover:bg-secondary disabled:opacity-50"
               >
                 {exportingFormat === "json" ? (
@@ -255,10 +308,32 @@ export function WorkspaceResearchSynthesisPanel({
             </div>
           </div>
 
-          {/* Synthesized Answer */}
-          <div className="prose prose-sm dark:prose-invert max-w-none text-xs leading-relaxed text-foreground whitespace-pre-wrap">
-            {activeRun.answer || "No synthesized answer generated."}
-          </div>
+          {exportError && (
+            <div className="flex items-center justify-between rounded-lg bg-destructive/10 p-2.5 text-xs text-destructive">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="size-3.5 shrink-0" />
+                <span>{exportError}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setExportError(null)}
+                className="text-[11px] underline hover:no-underline"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          {/* Synthesized Answer or Failure Notice */}
+          {activeRun.status === "failed" ? (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
+              {activeRun.error_message || "Synthesis run encountered an error and could not be completed."}
+            </div>
+          ) : (
+            <div className="prose prose-sm dark:prose-invert max-w-none text-xs leading-relaxed text-foreground whitespace-pre-wrap">
+              {activeRun.answer || "No synthesized answer generated."}
+            </div>
+          )}
 
           {/* Citations List */}
           {activeRun.citations && activeRun.citations.length > 0 && (

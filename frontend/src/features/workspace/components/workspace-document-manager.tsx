@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { FileText, Plus, Trash2, Loader2, AlertCircle } from "lucide-react";
+import { FileText, Plus, Trash2, Loader2, AlertCircle, RefreshCw } from "lucide-react";
 
 import { useWorkspaceStore } from "../store/workspace-store";
 import { workspaceActions } from "../actions/workspace-actions";
@@ -28,15 +28,49 @@ export function WorkspaceDocumentManager({
   const [allAvailableDocs, setAllAvailableDocs] = useState<ApiDocument[]>([]);
   const [selectedToAttach, setSelectedToAttach] = useState<number[]>([]);
   const [isAttaching, setIsAttaching] = useState(false);
+  const [isFetchingDocs, setIsFetchingDocs] = useState(false);
+  const [fetchDocsError, setFetchDocsError] = useState<string | null>(null);
+
+  function fetchAvailableDocs() {
+    setIsFetchingDocs(true);
+    setFetchDocsError(null);
+    apiClient
+      .get<ApiDocument[]>("/documents")
+      .then((docs) => {
+        setAllAvailableDocs(docs);
+      })
+      .catch((err) => {
+        setFetchDocsError(
+          err instanceof Error ? err.message : "Failed to load available documents.",
+        );
+      })
+      .finally(() => {
+        setIsFetchingDocs(false);
+      });
+  }
 
   useEffect(() => {
     void workspaceActions.loadDocuments(workspaceId);
+    let isCancelled = false;
 
-    // Fetch user documents to allow attaching
     apiClient
       .get<ApiDocument[]>("/documents")
-      .then((docs) => setAllAvailableDocs(docs))
-      .catch(() => {});
+      .then((docs) => {
+        if (!isCancelled) {
+          setAllAvailableDocs(docs);
+        }
+      })
+      .catch((err) => {
+        if (!isCancelled) {
+          setFetchDocsError(
+            err instanceof Error ? err.message : "Failed to load available documents.",
+          );
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
   }, [workspaceId]);
 
   const attachedIds = new Set(attachedDocs.map((d: WorkspaceDocument) => d.document_id));
@@ -114,46 +148,79 @@ export function WorkspaceDocumentManager({
       </div>
 
       {/* Attach more section */}
-      {unattachedDocs.length > 0 && (
-        <div className="mt-2 flex flex-col gap-2 border-t border-border/60 pt-3">
+      <div className="mt-2 flex flex-col gap-2 border-t border-border/60 pt-3">
+        <div className="flex items-center justify-between">
           <span className="text-xs font-semibold text-muted-foreground">Attach Documents</span>
-          <div className="max-h-36 overflow-y-auto space-y-1">
-            {unattachedDocs.map((doc) => (
-              <label
-                key={doc.id}
-                className={cn(
-                  "flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs cursor-pointer transition-colors",
-                  selectedToAttach.includes(doc.id)
-                    ? "border-primary/50 bg-primary/5 text-foreground"
-                    : "border-border/60 hover:bg-muted/40 text-muted-foreground",
-                )}
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedToAttach.includes(doc.id)}
-                  onChange={() => toggleSelectToAttach(doc.id)}
-                  className="size-3 rounded border-border text-primary focus:ring-primary"
-                />
-                <span className="truncate">{doc.filename}</span>
-              </label>
-            ))}
-          </div>
-
-          <button
-            type="button"
-            onClick={handleAttach}
-            disabled={selectedToAttach.length === 0 || isAttaching}
-            className="flex items-center justify-center gap-1.5 rounded-lg bg-secondary px-3 py-1.5 text-xs font-medium text-foreground hover:bg-secondary/80 disabled:opacity-50 transition-colors"
-          >
-            {isAttaching ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <Plus className="size-3.5" />
-            )}
-            <span>Attach Selected ({selectedToAttach.length})</span>
-          </button>
+          {fetchDocsError && (
+            <button
+              type="button"
+              onClick={fetchAvailableDocs}
+              className="flex items-center gap-1 text-[11px] text-destructive hover:underline"
+            >
+              <RefreshCw className="size-3" />
+              <span>Retry</span>
+            </button>
+          )}
         </div>
-      )}
+
+        {isFetchingDocs && (
+          <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
+            <Loader2 className="size-3.5 animate-spin" />
+            <span>Loading documents...</span>
+          </div>
+        )}
+
+        {fetchDocsError && (
+          <div className="flex items-center gap-2 rounded-lg bg-destructive/10 p-2 text-xs text-destructive">
+            <AlertCircle className="size-3 shrink-0" />
+            <span>{fetchDocsError}</span>
+          </div>
+        )}
+
+        {!isFetchingDocs && !fetchDocsError && unattachedDocs.length === 0 && (
+          <p className="py-1 text-xs text-muted-foreground">All available documents are already attached.</p>
+        )}
+
+        {!isFetchingDocs && unattachedDocs.length > 0 && (
+          <>
+            <div className="max-h-36 overflow-y-auto space-y-1">
+              {unattachedDocs.map((doc) => (
+                <label
+                  key={doc.id}
+                  className={cn(
+                    "flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs cursor-pointer transition-colors",
+                    selectedToAttach.includes(doc.id)
+                      ? "border-primary/50 bg-primary/5 text-foreground"
+                      : "border-border/60 hover:bg-muted/40 text-muted-foreground",
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedToAttach.includes(doc.id)}
+                    onChange={() => toggleSelectToAttach(doc.id)}
+                    className="size-3 rounded border-border text-primary focus:ring-primary"
+                  />
+                  <span className="truncate">{doc.filename}</span>
+                </label>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={handleAttach}
+              disabled={selectedToAttach.length === 0 || isAttaching}
+              className="flex items-center justify-center gap-1.5 rounded-lg bg-secondary px-3 py-1.5 text-xs font-medium text-foreground hover:bg-secondary/80 disabled:opacity-50 transition-colors"
+            >
+              {isAttaching ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Plus className="size-3.5" />
+              )}
+              <span>Attach Selected ({selectedToAttach.length})</span>
+            </button>
+          </>
+        )}
+      </div>
     </div>
   );
 }

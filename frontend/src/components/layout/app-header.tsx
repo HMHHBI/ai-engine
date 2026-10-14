@@ -1,7 +1,8 @@
 "use client";
 
 import { forwardRef, useRef, useState } from "react";
-import { ChevronDown, FileText, Menu, PanelLeft, Settings } from "lucide-react";
+import { ChevronDown, FileText, Menu, PanelLeft, Settings, Sparkles } from "lucide-react";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 
 import { IconButton } from "@/components/ui/icon-button";
 import { RagStatusBadge } from "@/features/chat/components/rag-status-badge";
@@ -35,8 +36,14 @@ const PERSONAS: ChatPersona[] = [
 
 export const AppHeader = forwardRef<HTMLButtonElement, AppHeaderProps>(
   function AppHeader({ onOpenMobileSidebar, onToggleSidebar }, ref) {
+    const router = useRouter();
+    const pathname = usePathname();
+    const searchParams = useSearchParams();
+
+    const isResearchView = searchParams?.get("view") === "research";
+
     const [settingsOpen, setSettingsOpen] = useState(false);
-  const settingsTriggerRef = useRef<HTMLButtonElement>(null);
+    const settingsTriggerRef = useRef<HTMLButtonElement>(null);
     const [documentsOpen, setDocumentsOpen] = useState(false);
     const [personaOpen, setPersonaOpen] = useState(false);
     const [personaSaving, setPersonaSaving] = useState(false);
@@ -51,8 +58,21 @@ export const AppHeader = forwardRef<HTMLButtonElement, AppHeaderProps>(
         : state.sessions.find((item) => item.id === activeChatId),
     );
 
-    const title = activeSession?.title ?? "AI Engine";
+    const title = isResearchView
+      ? "Research Synthesis"
+      : (activeSession?.title ?? "AI Engine");
     const persona = activeSession?.persona ?? "default";
+
+    function toggleResearchView() {
+      const params = new URLSearchParams(searchParams?.toString() ?? "");
+      if (isResearchView) {
+        params.delete("view");
+      } else {
+        params.set("view", "research");
+      }
+      const query = params.toString();
+      router.push(query ? `${pathname}?${query}` : pathname);
+    }
 
     async function handlePersonaChange(nextPersona: ChatPersona) {
       if (
@@ -115,7 +135,17 @@ export const AppHeader = forwardRef<HTMLButtonElement, AppHeaderProps>(
           </div>
 
           <div className="ml-1.5 flex shrink-0 items-center gap-1 sm:ml-2">
-            {activeChatId !== null && activeSession && (
+            {/* Quick Toggle for Cross-Document Synthesis Workbench */}
+            <IconButton
+              label={isResearchView ? "Exit research synthesis" : "Open research synthesis"}
+              onClick={toggleResearchView}
+              className={`size-9 ${isResearchView ? "text-primary bg-primary/10" : ""}`}
+              data-testid="toggle-research-synthesis-button"
+            >
+              <Sparkles className="size-4" />
+            </IconButton>
+
+            {activeChatId !== null && activeSession && !isResearchView && (
               <div className="relative">
                 <button
                   type="button"
@@ -164,10 +194,10 @@ export const AppHeader = forwardRef<HTMLButtonElement, AppHeaderProps>(
                 )}
               </div>
             )}
-            
-            <RagStatusBadge chatId={activeChatId} />
 
-            {activeChatId !== null && (
+            {!isResearchView && <RagStatusBadge chatId={activeChatId} />}
+
+            {activeChatId !== null && !isResearchView && (
               <>
                 <IconButton
                   ref={docTriggerRef}
@@ -182,7 +212,7 @@ export const AppHeader = forwardRef<HTMLButtonElement, AppHeaderProps>(
                 <IconButton
                   label="Chat settings"
                   ref={settingsTriggerRef}
-            onClick={() => setSettingsOpen(true)}
+                  onClick={() => setSettingsOpen(true)}
                   className="size-9"
                 >
                   <Settings className="size-4" />
@@ -195,15 +225,15 @@ export const AppHeader = forwardRef<HTMLButtonElement, AppHeaderProps>(
         {activeChatId !== null && (
           <>
             {settingsOpen && (
-            <ChatSettingsDrawer
-              chatId={activeChatId}
-              open
-              onClose={() => {
-                setSettingsOpen(false);
-                settingsTriggerRef.current?.focus();
-              }}
-            />
-          )}
+              <ChatSettingsDrawer
+                chatId={activeChatId}
+                open
+                onClose={() => {
+                  setSettingsOpen(false);
+                  settingsTriggerRef.current?.focus();
+                }}
+              />
+            )}
 
             <DocumentWorkspace
               chatId={activeChatId}

@@ -144,3 +144,69 @@ describe("WorkspaceResearchSynthesisPanel", () => {
     expect(workspaceService.downloadResearchExport).toHaveBeenCalledWith(10, 88, "json");
   });
 });
+
+  it("reconciles state and resets selections when switching workspaces without unmounting", () => {
+    const ws1Docs = [
+      { document_id: 1, filename: "Paper1.pdf", chat_id: null, mime_type: "pdf", status: "ready", added_by: 1, added_at: "" },
+      { document_id: 2, filename: "Paper2.pdf", chat_id: null, mime_type: "pdf", status: "ready", added_by: 1, added_at: "" },
+    ];
+    const ws2Docs = [
+      { document_id: 10, filename: "Paper10.pdf", chat_id: null, mime_type: "pdf", status: "ready", added_by: 1, added_at: "" },
+      { document_id: 20, filename: "Paper20.pdf", chat_id: null, mime_type: "pdf", status: "ready", added_by: 1, added_at: "" },
+    ];
+
+    useWorkspaceStore.setState({
+      documentsByWorkspace: { 1: ws1Docs, 2: ws2Docs },
+      researchRunsByWorkspace: {
+        1: [
+          {
+            id: 101,
+            workspace_id: 1,
+            requester_id: 1,
+            query: "Q1",
+            status: "completed",
+            answer: "Workspace 1 Answer",
+            citations: [],
+            run_metadata: {},
+            created_at: "",
+            completed_at: "",
+          },
+        ],
+        2: [
+          {
+            id: 202,
+            workspace_id: 2,
+            requester_id: 1,
+            query: "Q2",
+            status: "completed",
+            answer: "Workspace 2 Answer",
+            citations: [],
+            run_metadata: {},
+            created_at: "",
+            completed_at: "",
+          },
+        ],
+      },
+    });
+
+    const { rerender } = render(<WorkspaceResearchSynthesisPanel workspaceId={1} />);
+
+    // Verified ws 1 answer
+    expect(screen.getByText("Workspace 1 Answer")).toBeDefined();
+    expect(screen.getByText("Run #101 Output")).toBeDefined();
+
+    // Select doc in ws 1
+    fireEvent.click(screen.getByLabelText(/Paper1.pdf/i));
+
+    // Switch workspace to 2 without unmounting
+    rerender(<WorkspaceResearchSynthesisPanel workspaceId={2} />);
+
+    // Old workspace run must not persist
+    expect(screen.queryByText("Workspace 1 Answer")).toBeNull();
+    expect(screen.getByText("Workspace 2 Answer")).toBeDefined();
+    expect(screen.getByText("Run #202 Output")).toBeDefined();
+
+    // Selections must be reset
+    const checkWs2 = screen.getByLabelText(/Paper10.pdf/i) as HTMLInputElement;
+    expect(checkWs2.checked).toBe(false);
+  });
