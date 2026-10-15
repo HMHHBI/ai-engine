@@ -1,4 +1,6 @@
 from __future__ import annotations
+from fastapi import Request
+from app.core.rate_limiter import limiter
 import os
 
 import asyncio
@@ -98,7 +100,9 @@ def _document_with_job(
     response_model=DocumentLifecycleOut,
     status_code=status.HTTP_201_CREATED,
 )
+@limiter.limit("10/minute")
 async def upload_document(
+    request: Request,
     chat_id: int,
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),

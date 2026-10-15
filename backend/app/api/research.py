@@ -1,4 +1,6 @@
 from __future__ import annotations
+from fastapi import Request
+from app.core.rate_limiter import limiter
 from app.services.audit_log import record_audit_event
 
 from datetime import datetime, timezone
@@ -135,7 +137,9 @@ def _persist_document_provenance(
     response_model=ResearchRunOut,
     status_code=status.HTTP_201_CREATED,
 )
+@limiter.limit("5/minute")
 async def create_research_run(
+    request: Request,
     workspace_id: int,
     payload: ResearchRunCreate,
     current_user: User = Depends(get_current_user),

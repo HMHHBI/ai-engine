@@ -1,4 +1,5 @@
 from __future__ import annotations
+from pydantic import ValidationError
 
 import asyncio
 from unittest.mock import AsyncMock, patch
@@ -338,3 +339,25 @@ def test_settings_expose_centralized_ai_timeouts():
     assert settings.AI_POOL_TIMEOUT > 0
     assert settings.AI_REQUEST_TIMEOUT > 0
     assert settings.AI_STREAM_MAX_SECONDS > 0
+
+def test_settings_rejects_zero_or_negative_api_replicas():
+    with pytest.raises(ValidationError, match="DB_API_REPLICAS must be at least 1"):
+        Settings(
+            DATABASE_URL="postgresql://test:test@localhost/test",
+            SECRET_KEY="a" * 32,
+            DB_API_REPLICAS=0,
+        )
+
+def test_settings_rejects_negative_worker_replicas_or_headroom():
+    with pytest.raises(ValidationError, match="Replica and headroom counters must be non-negative"):
+        Settings(
+            DATABASE_URL="postgresql://test:test@localhost/test",
+            SECRET_KEY="a" * 32,
+            DB_WORKER_REPLICAS=-1,
+        )
+    with pytest.raises(ValidationError, match="Replica and headroom counters must be non-negative"):
+        Settings(
+            DATABASE_URL="postgresql://test:test@localhost/test",
+            SECRET_KEY="a" * 32,
+            DB_ADMIN_HEADROOM=-5,
+        )
