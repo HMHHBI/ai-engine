@@ -1,7 +1,8 @@
+import os
 from enum import Enum
 from typing import List, Optional, Union, Literal
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,11 +26,12 @@ class EmbeddingProvider(str, Enum):
 
 class Settings(BaseSettings):
     # ------------------------------------------------------------------
-    # Application
+    # Application & Environment
     # ------------------------------------------------------------------
 
     PROJECT_NAME: str = "Hassan AI Engine"
     VERSION: str = "1.0.0"
+    APP_ENV: str = "development"
 
     # ------------------------------------------------------------------
     # Database
@@ -42,6 +44,10 @@ class Settings(BaseSettings):
     DB_POOL_TIMEOUT: float = 30.0
     DB_POOL_RECYCLE: int = 1800
     DB_POOL_PRE_PING: bool = True
+    DB_DEPLOYMENT_CONNECTION_BUDGET: int = 100
+    DB_API_REPLICAS: int = 2
+    DB_WORKER_REPLICAS: int = 0
+    DB_ADMIN_HEADROOM: int = 10
 
     # ------------------------------------------------------------------
     # Frontend / CORS
@@ -156,11 +162,11 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379"
 
     # AI Stream Concurrency & Workload Budget
-    # Invariant: Concurrency is single-stream mutex (N=1); lease TTL strictly exceeds hard stream timeout.
     AI_STREAM_CONCURRENCY_LIMIT: int = 1
     AI_STREAM_MAX_DURATION_SECONDS: int = 120
     AI_STREAM_LEASE_TTL_SECONDS: int = 180
     HEARTBEAT_INTERVAL_SECONDS: float = 15.0
+
     # Document Worker Concurrency & Recovery Settings
     DOCUMENT_WORKER_CONCURRENCY: int = 4
     DOCUMENT_JOB_STALE_AFTER_SECONDS: float = 60.0
@@ -168,14 +174,6 @@ class Settings(BaseSettings):
     DOCUMENT_JOB_RECOVERY_BATCH_SIZE: int = 10
     DOCUMENT_JOB_RECOVERY_IDLE_SECONDS: float = 60.0
     DOCUMENT_JOB_READ_COUNT: int = 5
-
-
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=True,
-        extra="ignore",
-    )
 
     # ------------------------------------------------------------------
     # Storage Configuration
@@ -189,6 +187,13 @@ class Settings(BaseSettings):
     R2_SECRET_ACCESS_KEY: Optional[str] = None
     R2_BUCKET_NAME: Optional[str] = None
 
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        extra="ignore",
+    )
+
     @field_validator("STORAGE_BACKEND")
     @classmethod
     def validate_storage_backend(cls, value: str) -> str:
@@ -196,19 +201,6 @@ class Settings(BaseSettings):
         if normalized not in {"local", "r2"}:
             raise ValueError("STORAGE_BACKEND must be either 'local' or 'r2'.")
         return normalized
-
-    # ------------------------------------------------------------------
-    # Provider/model consistency validation
-    # ------------------------------------------------------------------
-
-    @field_validator("DEFAULT_AI_MODEL")
-    @classmethod
-    def validate_default_model(cls, model: AIModel) -> AIModel:
-        return model
-
-    # ------------------------------------------------------------------
-    # Upload Validation
-    # ------------------------------------------------------------------
 
     @field_validator(
         "MAX_UPLOAD_SIZE_BYTES",
@@ -229,15 +221,12 @@ class Settings(BaseSettings):
             raise ValueError("Upload security limits must be positive.")
         return int(value)
 
-    # ------------------------------------------------------------------
-    # Infrastructure Validation
-    # ------------------------------------------------------------------
-
     @field_validator(
         "DB_POOL_SIZE",
         "DB_MAX_OVERFLOW",
         "DB_POOL_TIMEOUT",
         "DB_POOL_RECYCLE",
+        "DB_DEPLOYMENT_CONNECTION_BUDGET",
         "AI_CONNECT_TIMEOUT",
         "AI_READ_TIMEOUT",
         "AI_WRITE_TIMEOUT",
@@ -255,6 +244,38 @@ class Settings(BaseSettings):
         if float(value) <= 0:
             raise ValueError("Infrastructure and timeout settings must be positive.")
         return value
+
+    @model_validator(mode="after")
+    def validate_aggregate_connection_budget(self) -> "Settings":
+        per_instance_max = self.DB_POOL_SIZE + self.DB_MAX_OVERFLOW
+        # If worker runs inside the API lifespan, worker pool demand is absorbed by N_api.
+        # When DB_WORKER_REPLICAS > 0, it models dedicated out-of-process workers.
+        total_aggregate_demand = (
+            (self.DB_API_REPLICAS * per_instance_max)
+            + (self.DB_WORKER_REPLICAS * per_instance_max)
+            + self.DB_ADMIN_HEADROOM
+        )
+        # Demand must remain strictly below deployment connection budget
+        if total_aggregate_demand >= self.DB_DEPLOYMENT_CONNECTION_BUDGET:
+            raise ValueError(
+                f"Deployment aggregate connection demand ({total_aggregate_demand}) exceeds "
+                f"DB_DEPLOYMENT_CONNECTION_BUDGET ({self.DB_DEPLOYMENT_CONNECTION_BUDGET}). "
+                f"Formula: N_api*(P+O) + N_worker*(P+O) + headroom"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_production_hardening(self) -> "Settings":
+        if self.APP_ENV.lower() == "production":
+            if self.SECRET_KEY in {"CHANGE_ME_TO_A_RANDOM_SECRET", "supersecretkey", "secret"}:
+                raise ValueError("Production SECRET_KEY cannot be a placeholder or common default.")
+            if len(self.SECRET_KEY) < 32:
+                raise ValueError("Production SECRET_KEY must be at least 32 characters long.")
+            
+            origins = [o.strip() for o in self.ALLOWED_ORIGINS.split(",") if o.strip()]
+            if not origins or "*" in origins:
+                raise ValueError("Production requires explicit ALLOWED_ORIGINS (wildcard '*' disallowed).")
+        return self
 
 
 settings = Settings()
