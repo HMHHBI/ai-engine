@@ -93,8 +93,36 @@ def test_upload_endpoint_enforces_10_per_minute_rate_limit(
     )
 
 def test_research_run_endpoint_enforces_5_per_minute_rate_limit(
-    client, db_session, enabled_isolated_limiter
+    client, db_session, enabled_isolated_limiter, monkeypatch
 ):
+    async def mock_retrieve(*args, **kwargs):
+        return []
+
+    async def mock_synthesize(*args, **kwargs):
+        return {
+            "answer": "Rate limit verification answer",
+            "citations": [],
+            "evidence": [],
+            "provider": "ollama",
+            "model": "deepseek-r1:8b",
+        }
+
+    def mock_persist(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "app.api.research.retrieve_multi_document_candidates",
+        mock_retrieve,
+    )
+    monkeypatch.setattr(
+        "app.api.research.synthesize_research_answer",
+        mock_synthesize,
+    )
+    monkeypatch.setattr(
+        "app.api.research._persist_document_provenance",
+        mock_persist,
+    )
+
     ts = int(time.time() * 1000)
     user = UserRepository.create(
         db_session,
@@ -113,7 +141,7 @@ def test_research_run_endpoint_enforces_5_per_minute_rate_limit(
     assert ws_res.status_code == status.HTTP_201_CREATED, ws_res.text
     workspace_id = ws_res.json()["id"]
 
-    # First 5 requests: allowed within quota (must not receive 429)
+    # First 5 requests: allowed within quota, must strictly succeed with 201 Created
     for i in range(5):
         res = client.post(
             f"/workspaces/{workspace_id}/research/runs",
@@ -123,8 +151,8 @@ def test_research_run_endpoint_enforces_5_per_minute_rate_limit(
             },
             headers=headers,
         )
-        assert res.status_code != status.HTTP_429_TOO_MANY_REQUESTS, (
-            f"Request {i+1}/5 hit 429 unexpectedly: {res.text}"
+        assert res.status_code == status.HTTP_201_CREATED, (
+            f"Request {i+1}/5 failed with unexpected status {res.status_code}: {res.text}"
         )
 
     # 6th request: must exceed the 5/minute window and return 429
