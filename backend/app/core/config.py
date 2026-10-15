@@ -222,6 +222,27 @@ class Settings(BaseSettings):
         return int(value)
 
     @field_validator(
+        "DB_API_REPLICAS",
+        mode="before",
+    )
+    @classmethod
+    def validate_api_replicas(cls, value: int) -> int:
+        if int(value) < 1:
+            raise ValueError("DB_API_REPLICAS must be at least 1.")
+        return int(value)
+
+    @field_validator(
+        "DB_WORKER_REPLICAS",
+        "DB_ADMIN_HEADROOM",
+        mode="before",
+    )
+    @classmethod
+    def validate_non_negative_counters(cls, value: int) -> int:
+        if int(value) < 0:
+            raise ValueError("Replica and headroom counters must be non-negative.")
+        return int(value)
+
+    @field_validator(
         "DB_POOL_SIZE",
         "DB_MAX_OVERFLOW",
         "DB_POOL_TIMEOUT",

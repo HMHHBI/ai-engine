@@ -1547,6 +1547,7 @@ async def upload_pdf(
     from app.api.documents import upload_document
 
     return await upload_document(
+        request=request,
         chat_id=chat_id,
         file=file,
         current_user=current_user,

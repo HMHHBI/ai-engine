@@ -11,3 +11,4 @@ evaluation-results/*.md
 
 # Prevent accidental duplicate directory inside backend
 backend/evaluation-results/
+docker-compose.override.yml
