@@ -5,7 +5,8 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from jose import JWTError, ExpiredSignatureError, jwt
+import jwt
+from jwt.exceptions import ExpiredSignatureError, PyJWTError
 from passlib.context import CryptContext
 
 from app.core.config import settings
@@ -153,7 +154,7 @@ def decode_token(
     except ExpiredSignatureError:
         return None
 
-    except JWTError:
+    except PyJWTError:
         return None
 
 

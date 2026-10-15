@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from jose import jwt
+import jwt
 
 from app.core.config import settings
 from app.core.security import (
@@ -122,7 +122,7 @@ def test_decode_token_rejects_wrong_secret() -> None:
             "exp": now + timedelta(minutes=30),
             "jti": "test-jti",
         },
-        "completely-wrong-secret",
+        "completely-wrong-secret-that-exceeds-thirty-two-bytes-minimum",
         algorithm=settings.ALGORITHM,
     )
 
