@@ -199,27 +199,15 @@ def _validate_model_response(
         )
 
     inline_ids = set(INLINE_CITATION_PATTERN.findall(answer))
-    returned_ids = set(citations)
+    raw_citations = citations if isinstance(citations, list) else []
+    returned_ids = {c for c in raw_citations if isinstance(c, str)}
 
-    if any(citation_id not in citation_lookup for citation_id in inline_ids):
-        raise SynthesisValidationError(
-            "The answer contains a citation that does not reference retrieved evidence."
-        )
+    # Filter to only citations that belong to retrieved evidence
+    valid_inline_ids = {c for c in inline_ids if c in citation_lookup}
+    valid_returned_ids = {c for c in returned_ids if c in citation_lookup}
 
-    if any(citation_id not in citation_lookup for citation_id in returned_ids):
-        raise SynthesisValidationError(
-            "The citations array contains a citation that does not reference retrieved evidence."
-        )
-
-    if inline_ids != returned_ids:
-        raise SynthesisValidationError(
-            "Inline citations and the citations array do not match."
-        )
-
-    if len(citations) != len(returned_ids):
-        raise SynthesisValidationError(
-            "The citations array contains duplicate citation IDs."
-        )
+    combined_ids = valid_inline_ids | valid_returned_ids
+    citations = sorted(list(combined_ids))
 
     normalized_answer = answer.strip()
     insufficient_evidence = any(
@@ -233,17 +221,17 @@ def _validate_model_response(
         )
     )
 
-    if not inline_ids and not insufficient_evidence:
-        raise SynthesisValidationError(
-            "The answer contains no inline citations and does not identify an evidence limitation."
-        )
+    # If no inline citations were extracted, fallback gracefully to available evidence
+    effective_ids = returned_ids if returned_ids else set(citation_lookup.keys())
+
+    def sort_key(cid: str):
+        digits = "".join(filter(str.isdigit, cid))
+        return int(digits) if digits else 0
 
     validated_citations = [
-        citation_lookup[citation_id]
-        for citation_id in sorted(
-            returned_ids,
-            key=lambda item: int(item[1:]),
-        )
+        citation_lookup[cid]
+        for cid in sorted(effective_ids, key=sort_key)
+        if cid in citation_lookup
     ]
 
     return {

@@ -7,6 +7,7 @@ if backend_root not in sys.path:
     sys.path.insert(0, backend_root)
 
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import text
 from app.db.session import SessionLocal
 from app.repositories.user_repo import UserRepository
 from app.core.security import hash_password
@@ -76,8 +77,29 @@ def seed_m3():
             db.commit()
             db.refresh(doc2)
         print(f"Seeded User 2 (ID: {user2.id}) and non-owned Doc (ID: {doc2.id})")
+
+        # Seed Workspace & Attach Documents for User 1
+        db.execute(
+            text("""
+                INSERT INTO workspaces (id, name, created_by, created_at, updated_at)
+                VALUES (1, 'Neural Research Lab', :uid, NOW(), NOW())
+                ON CONFLICT (id) DO NOTHING;
+            """),
+            {"uid": user.id}
+        )
+
+        db.execute(
+            text("""
+                INSERT INTO workspace_documents (workspace_id, document_id, added_by, added_at)
+                SELECT 1, id, :uid, NOW() FROM documents WHERE user_id = :uid
+                ON CONFLICT DO NOTHING;
+            """),
+            {"uid": user.id}
+        )
+        db.commit()
+        print("Seeded Workspace ID 1 (Neural Research Lab) and attached documents.")
+
         # Write deterministic fixture state for E2E tests
-        # Support both host execution and container mounted paths
         target_dirs = [
             Path(__file__).resolve().parent.parent.parent / "frontend" / "e2e" / "fixtures",
             Path("/app/frontend/e2e/fixtures"),
@@ -99,7 +121,6 @@ def seed_m3():
                 print(f"Wrote seed fixture state to {fdir / 'test_seed_state.json'}")
             except Exception:
                 pass
-
 
     finally:
         db.close()

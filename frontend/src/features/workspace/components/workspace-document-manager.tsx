@@ -25,37 +25,31 @@ export function WorkspaceDocumentManager({
   const isLoading = useWorkspaceStore((state) => state.isLoading);
   const error = useWorkspaceStore((state) => state.error);
 
-  const [prevWorkspaceId, setPrevWorkspaceId] = useState(workspaceId);
   const [allAvailableDocs, setAllAvailableDocs] = useState<ApiDocument[]>([]);
   const [selectedToAttach, setSelectedToAttach] = useState<number[]>([]);
   const [isAttaching, setIsAttaching] = useState(false);
   const [fetchDocsError, setFetchDocsError] = useState<string | null>(null);
   const [retryCounter, setRetryCounter] = useState(0);
-
-  // Active fetch count initialized to 1 for initial mount
   const [activeFetchCount, setActiveFetchCount] = useState(1);
   const isFetchingDocs = activeFetchCount > 0;
-
-  // When workspaceId changes, reset selection AND restart loading indicator during render
-  if (workspaceId !== prevWorkspaceId) {
-    setPrevWorkspaceId(workspaceId);
-    setSelectedToAttach([]);
-    setActiveFetchCount(1);
-    setFetchDocsError(null);
-  }
 
   const latestRequestIdRef = useRef(0);
 
   useEffect(() => {
-    void workspaceActions.loadDocuments(workspaceId);
-
     const requestId = ++latestRequestIdRef.current;
     let isCancelled = false;
 
+    // Sirf tab load karein jab store me pehle se documents na hon
+    const currentWorkspaceDocs = useWorkspaceStore.getState().documentsByWorkspace[workspaceId];
+    if (!currentWorkspaceDocs) {
+      void workspaceActions.loadDocuments(workspaceId);
+    }
+
     apiClient
-      .get<ApiDocument[]>("/documents")
-      .then((docs) => {
+      .get<any>("/documents")
+      .then((res) => {
         if (!isCancelled && requestId === latestRequestIdRef.current) {
+          const docs = Array.isArray(res) ? res : (res?.items ?? []);
           setAllAvailableDocs(docs);
           setFetchDocsError(null);
           setActiveFetchCount(0);
@@ -81,8 +75,10 @@ export function WorkspaceDocumentManager({
     setRetryCounter((c) => c + 1);
   }
 
-  const attachedIds = new Set(attachedDocs.map((d: WorkspaceDocument) => d.document_id));
-  const unattachedDocs = allAvailableDocs.filter((d) => !attachedIds.has(d.id));
+  const safeAttachedDocs = Array.isArray(attachedDocs) ? attachedDocs : [];
+  const safeAllDocs = Array.isArray(allAvailableDocs) ? allAvailableDocs : [];
+  const attachedIds = new Set(safeAttachedDocs.map((d: WorkspaceDocument) => d.document_id));
+  const unattachedDocs = safeAllDocs.filter((d) => d && typeof d.id === "number" && !attachedIds.has(d.id));
 
   function toggleSelectToAttach(id: number) {
     setSelectedToAttach((prev) =>
