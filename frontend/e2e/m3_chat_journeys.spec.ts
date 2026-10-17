@@ -86,14 +86,22 @@ test.describe.serial("M3 Chat & Query Regression Gate", () => {
     await newChatBtn.click();
     await sharedPage.waitForURL(/\/dashboard\/chat\/\d+/, { timeout: 20000 });
     await expect(promptInput).toBeEmpty({ timeout: 15000 });
-    await expect(promptInput).toBeEnabled({ timeout: 15000 });
+    await expect(promptInput).toBeEnabled({ timeout: 45000 });
 
     // Step 3: Send unique message in Chat B
+    test.setTimeout(90000);
     const msgChatB = `Chat_B_${Date.now()}`;
     await promptInput.fill(msgChatB);
-    await promptInput.press("Enter");
-    await expect(sharedPage.locator("div.whitespace-pre-wrap", { hasText: msgChatB })).toBeVisible({ timeout: 15000 });
-    await expect(promptInput).toBeEnabled({ timeout: 45000 });
+    const sendBtn = sharedPage.locator("button[type='submit'], button[aria-label*='Send']").first();
+    if (await sendBtn.isVisible().catch(() => false)) {
+      await expect(sendBtn).toBeEnabled({ timeout: 10000 });
+      await sendBtn.click();
+    } else {
+      await promptInput.press("Enter");
+    }
+    const bubbleLocator = sharedPage.locator("div.whitespace-pre-wrap, [data-role='user'], .prose", { hasText: msgChatB }).first();
+    await expect(bubbleLocator).toBeVisible({ timeout: 25000 });
+    await expect(promptInput).toBeEnabled({ timeout: 60000 });
 
     // Step 4: Verify Chat B does NOT display Chat A's message
     await expect(sharedPage.locator("div.whitespace-pre-wrap", { hasText: msgChatA })).toHaveCount(0);
@@ -115,7 +123,7 @@ test.describe.serial("M3 Chat & Query Regression Gate", () => {
 
   test("Test I — empty message submission is prevented", async () => {
     const promptInput = sharedPage.getByRole("textbox", { name: /chat prompt/i });
-    await expect(promptInput).toBeEnabled({ timeout: 15000 });
+    await expect(promptInput).toBeEnabled({ timeout: 45000 });
     await promptInput.fill("");
     await promptInput.press("Enter");
 

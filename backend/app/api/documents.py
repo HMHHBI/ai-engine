@@ -423,6 +423,18 @@ async def retry_document(
 
 
 @router.get(
+    "",
+    response_model=List[DocumentOut],
+    status_code=status.HTTP_200_OK,
+)
+async def list_user_documents(
+    current_user: User = Depends(get_current_user),
+):
+    """List all documents owned by the authenticated user across chats/workspaces."""
+    return DocumentRepository.list_for_user(user_id=current_user.id)
+
+
+@router.get(
     "/chat/{chat_id}",
     response_model=List[DocumentOut],
     status_code=status.HTTP_200_OK,
