@@ -39,11 +39,11 @@ export function WorkspaceDocumentManager({
     const requestId = ++latestRequestIdRef.current;
     let isCancelled = false;
 
-    // Sirf tab load karein jab store me pehle se documents na hon
-    const currentWorkspaceDocs = useWorkspaceStore.getState().documentsByWorkspace[workspaceId];
-    if (!currentWorkspaceDocs) {
-      void workspaceActions.loadDocuments(workspaceId);
-    }
+    setSelectedToAttach([]);
+    setActiveFetchCount(1);
+    setFetchDocsError(null);
+
+    void workspaceActions.loadDocuments(workspaceId);
 
     apiClient
       .get<any>("/documents")
