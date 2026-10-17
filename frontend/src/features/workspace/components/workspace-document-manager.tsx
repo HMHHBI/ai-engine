@@ -39,6 +39,7 @@ export function WorkspaceDocumentManager({
     const requestId = ++latestRequestIdRef.current;
     let isCancelled = false;
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelectedToAttach([]);
     setActiveFetchCount(1);
     setFetchDocsError(null);
@@ -46,7 +47,7 @@ export function WorkspaceDocumentManager({
     void workspaceActions.loadDocuments(workspaceId);
 
     apiClient
-      .get<any>("/documents")
+      .get<ApiDocument[] | { items?: ApiDocument[] }>("/documents")
       .then((res) => {
         if (!isCancelled && requestId === latestRequestIdRef.current) {
           const docs = Array.isArray(res) ? res : (res?.items ?? []);
