@@ -211,16 +211,20 @@ def _validate_model_response(
         )
 
     normalized_answer = answer.strip()
-    citation_like_pattern = re.compile(r"\[(C[^\]\s]*)\]")
-    inline_raw_matches = citation_like_pattern.findall(normalized_answer)
-    inline_ids = set(inline_raw_matches)
+    # Matches any bracketed expression starting with C, e.g. [C1], [C1, C2], [C0], [C999]
+    any_bracket_citation = re.compile(r"\[(C[^\]]*)\]")
+    raw_brackets = any_bracket_citation.findall(normalized_answer)
 
-    # 1. Any malformed marker (like C0) or unknown ID rejected
-    for marker in inline_raw_matches:
-        if marker not in citation_lookup:
+    # Any multi-ID or malformed bracketed marker like [C1, C2] must fail validation
+    strict_single_id = re.compile(r"^C\d+$")
+    for raw_marker in raw_brackets:
+        marker = raw_marker.strip()
+        if not strict_single_id.match(marker) or marker not in citation_lookup:
             raise SynthesisValidationError(
                 "The answer contains a citation that does not reference retrieved evidence."
             )
+
+    inline_ids = set(raw_brackets)
 
     # 2. Returned citations array must only contain valid citations
     returned_ids = set(citations)

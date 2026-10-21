@@ -144,8 +144,7 @@ def seed_m3():
             )
         db.commit()
         print(f"Seeded workspace {ws_res} ({workspace_name}) for test user {user.id}.")
-        print("Seeded Workspace ID 1 (Neural Research Lab) and attached documents.")
-
+        
         # Write deterministic fixture state for E2E tests
         target_dirs = [
             Path(__file__).resolve().parent.parent.parent / "frontend" / "e2e" / "fixtures",
