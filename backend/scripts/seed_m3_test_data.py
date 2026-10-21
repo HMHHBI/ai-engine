@@ -78,35 +78,72 @@ def seed_m3():
             db.refresh(doc2)
         print(f"Seeded User 2 (ID: {user2.id}) and non-owned Doc (ID: {doc2.id})")
 
-        # Seed Workspace & Attach Documents for User 1
-        ws_res = db.execute(text("""
-            SELECT id FROM workspaces
-            WHERE created_by = :uid AND name = 'Neural Research Lab'
-            ORDER BY id ASC LIMIT 1
-        """), {"uid": user1.id}).scalar_one_or_none()
+        # Seed Workspace & Attach Documents for User
+        workspace_name = "Neural Research Lab"
+        ws_res = db.execute(
+            text("""
+                SELECT id FROM workspaces
+                WHERE created_by = :uid AND name = :name
+                ORDER BY id ASC LIMIT 1
+            """),
+            {"uid": user.id, "name": workspace_name},
+        ).scalar_one_or_none()
 
         if ws_res is None:
-            ws_res = db.execute(text("""
-                INSERT INTO workspaces (name, created_by, created_at, updated_at)
-                VALUES ('Neural Research Lab', :uid, NOW(), NOW())
-                RETURNING id
-            """), {"uid": user1.id}).scalar_one()
+            ws_res = db.execute(
+                text("""
+                    INSERT INTO workspaces (name, created_by, created_at, updated_at)
+                    VALUES (:name, :uid, NOW(), NOW())
+                    RETURNING id
+                """),
+                {"name": workspace_name, "uid": user.id},
+            ).scalar_one()
 
-            # Maintain owner membership
-            db.execute(text("""
-                INSERT INTO workspace_memberships (workspace_id, user_id, role, status, created_at, updated_at)
-                VALUES (:ws_id, :uid, 'owner\, 'active\, NOW(), NOW())
-                ON CONFLICT DO NOTHING
-            """), {"ws_id": ws_res, "uid": user1.id})
+        # Ensure the test user has active owner membership
+        db.execute(
+            text("""
+                INSERT INTO workspace_memberships (
+                    workspace_id, user_id, role, status,
+                    created_at, updated_at
+                )
+                VALUES (
+                    :ws_id, :uid, 'owner', 'active', NOW(), NOW()
+                )
+                ON CONFLICT (workspace_id, user_id)
+                DO UPDATE SET
+                    role = 'owner',
+                    status = 'active',
+                    updated_at = NOW()
+            """),
+            {"ws_id": ws_res, "uid": user.id},
+        )
 
-        # Attach documents safely
-        for doc_obj in [doc1, doc_extra]:
-            db.execute(text("""
-                INSERT INTO workspace_documents (workspace_id, document_id, added_by, created_at)
-                VALUES (:ws_id, :doc_id, :uid, NOW())
-                ON CONFLICT DO NOTHING
-            """), {"ws_id": ws_res, "doc_id": doc_obj.id, "uid": user1.id})
+        # Attach documents owned by the test user
+        user_documents = (
+            db.query(Document)
+            .filter(Document.user_id == user.id)
+            .all()
+        )
+        for doc_obj in user_documents:
+            db.execute(
+                text("""
+                    INSERT INTO workspace_documents (
+                        workspace_id, document_id, added_by, added_at
+                    )
+                    VALUES (
+                        :ws_id, :doc_id, :uid, NOW()
+                    )
+                    ON CONFLICT (workspace_id, document_id)
+                    DO NOTHING
+                """),
+                {
+                    "ws_id": ws_res,
+                    "doc_id": doc_obj.id,
+                    "uid": user.id,
+                },
+            )
         db.commit()
+        print(f"Seeded workspace {ws_res} ({workspace_name}) for test user {user.id}.")
         print("Seeded Workspace ID 1 (Neural Research Lab) and attached documents.")
 
         # Write deterministic fixture state for E2E tests
