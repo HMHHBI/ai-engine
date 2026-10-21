@@ -79,23 +79,33 @@ def seed_m3():
         print(f"Seeded User 2 (ID: {user2.id}) and non-owned Doc (ID: {doc2.id})")
 
         # Seed Workspace & Attach Documents for User 1
-        db.execute(
-            text("""
-                INSERT INTO workspaces (id, name, created_by, created_at, updated_at)
-                VALUES (1, 'Neural Research Lab', :uid, NOW(), NOW())
-                ON CONFLICT (id) DO NOTHING;
-            """),
-            {"uid": user.id}
-        )
+        ws_res = db.execute(text("""
+            SELECT id FROM workspaces
+            WHERE created_by = :uid AND name = 'Neural Research Lab'
+            ORDER BY id ASC LIMIT 1
+        """), {"uid": user1.id}).scalar_one_or_none()
 
-        db.execute(
-            text("""
-                INSERT INTO workspace_documents (workspace_id, document_id, added_by, added_at)
-                SELECT 1, id, :uid, NOW() FROM documents WHERE user_id = :uid
-                ON CONFLICT DO NOTHING;
-            """),
-            {"uid": user.id}
-        )
+        if ws_res is None:
+            ws_res = db.execute(text("""
+                INSERT INTO workspaces (name, created_by, created_at, updated_at)
+                VALUES ('Neural Research Lab', :uid, NOW(), NOW())
+                RETURNING id
+            """), {"uid": user1.id}).scalar_one()
+
+            # Maintain owner membership
+            db.execute(text("""
+                INSERT INTO workspace_memberships (workspace_id, user_id, role, status, created_at, updated_at)
+                VALUES (:ws_id, :uid, 'owner\, 'active\, NOW(), NOW())
+                ON CONFLICT DO NOTHING
+            """), {"ws_id": ws_res, "uid": user1.id})
+
+        # Attach documents safely
+        for doc_obj in [doc1, doc_extra]:
+            db.execute(text("""
+                INSERT INTO workspace_documents (workspace_id, document_id, added_by, created_at)
+                VALUES (:ws_id, :doc_id, :uid, NOW())
+                ON CONFLICT DO NOTHING
+            """), {"ws_id": ws_res, "doc_id": doc_obj.id, "uid": user1.id})
         db.commit()
         print("Seeded Workspace ID 1 (Neural Research Lab) and attached documents.")
 

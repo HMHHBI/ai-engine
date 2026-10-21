@@ -527,9 +527,8 @@ test.describe.serial("M5 PDF Viewer Acceptance Suite (M5.11)", () => {
     ).not.toHaveClass(/ring-4/);
 
     const announcement = sharedPage.locator('[data-testid="pdf-navigation-announcement"]');
-    if (await announcement.isVisible().catch(() => false)) {
-      await expect(announcement).toHaveText("");
-    }
+    await expect(announcement).toBeAttached();
+    await expect(announcement).toHaveText("");
   });
 
   test("M5.11-CIT-03 — invalid citation page is a strict no-op", async () => {
@@ -583,9 +582,8 @@ test.describe.serial("M5 PDF Viewer Acceptance Suite (M5.11)", () => {
     ).not.toHaveClass(/ring-4/);
 
     const announcement = sharedPage.locator('[data-testid="pdf-navigation-announcement"]');
-    if (await announcement.isVisible().catch(() => false)) {
-      await expect(announcement).toHaveText("");
-    }
+    await expect(announcement).toBeAttached();
+    await expect(announcement).toHaveText("");
   });
 
   test("M5.11-CIT-04 — positive out-of-range page clamps to page N", async () => {

@@ -169,6 +169,18 @@ EVIDENCE:
     return prompt, citation_lookup, included_candidates
 
 
+INSUFFICIENT_EVIDENCE_PHRASES = (
+    "insufficient evidence",
+    "the provided documents do not contain",
+    "i cannot find sufficient evidence",
+    "there is not enough evidence",
+    "not enough evidence",
+)
+INSUFFICIENT_EVIDENCE_REGEX = re.compile(
+    r"(?:insufficient evidence|not enough evidence|cannot answer|does not contain)",
+    re.IGNORECASE,
+)
+
 def _validate_model_response(
     raw_response: str,
     citation_lookup: dict[str, dict[str, Any]],
@@ -198,40 +210,63 @@ def _validate_model_response(
             "The synthesis response did not contain a valid citations array."
         )
 
-    inline_ids = set(INLINE_CITATION_PATTERN.findall(answer))
-    raw_citations = citations if isinstance(citations, list) else []
-    returned_ids = {c for c in raw_citations if isinstance(c, str)}
-
-    # Filter to only citations that belong to retrieved evidence
-    valid_inline_ids = {c for c in inline_ids if c in citation_lookup}
-    valid_returned_ids = {c for c in returned_ids if c in citation_lookup}
-
-    combined_ids = valid_inline_ids | valid_returned_ids
-    citations = sorted(list(combined_ids))
-
     normalized_answer = answer.strip()
+    citation_like_pattern = re.compile(r"\[(C[^\]\s]*)\]")
+    inline_raw_matches = citation_like_pattern.findall(normalized_answer)
+    inline_ids = set(inline_raw_matches)
+
+    # 1. Any malformed marker (like C0) or unknown ID rejected
+    for marker in inline_raw_matches:
+        if marker not in citation_lookup:
+            raise SynthesisValidationError(
+                "The answer contains a citation that does not reference retrieved evidence."
+            )
+
+    # 2. Returned citations array must only contain valid citations
+    returned_ids = set(citations)
+    for cid in citations:
+        if cid not in citation_lookup:
+            raise SynthesisValidationError(
+                "The citations array contains a citation that does not reference retrieved evidence."
+            )
+
+    # 3. No duplicates in citations array
+    if len(citations) != len(returned_ids):
+        raise SynthesisValidationError(
+            "The citations array contains duplicate citation IDs."
+        )
+
+    # 4. Inline IDs and returned IDs must strictly match
+    if inline_ids != returned_ids:
+        raise SynthesisValidationError(
+            "Inline citations and the citations array do not match."
+        )
+
+    # 5. Handle insufficient evidence case
     insufficient_evidence = any(
-        phrase in normalized_answer.lower()
-        for phrase in (
-            "insufficient evidence",
-            "evidence is insufficient",
-            "cannot determine from the supplied evidence",
-            "not enough evidence",
-            "no relevant evidence",
+        normalized_answer.lower().startswith(prefix.lower())
+        for prefix in INSUFFICIENT_EVIDENCE_PHRASES
+    ) or (
+        bool(INSUFFICIENT_EVIDENCE_REGEX.search(normalized_answer))
+        and not inline_ids
+        and (
+            len(normalized_answer.split()) <= 40
+            or any(token in normalized_answer.lower() for token in ["insufficient", "not enough", "cannot answer", "does not contain"])
         )
     )
 
-    # If no inline citations were extracted, fallback gracefully to available evidence
-    effective_ids = returned_ids if returned_ids else set(citation_lookup.keys())
+    if not inline_ids and not insufficient_evidence:
+        raise SynthesisValidationError(
+            "The answer contains no inline citations and does not identify an evidence limitation."
+        )
 
-    def sort_key(cid: str):
+    def sort_key(cid: str) -> int:
         digits = "".join(filter(str.isdigit, cid))
         return int(digits) if digits else 0
 
     validated_citations = [
         citation_lookup[cid]
-        for cid in sorted(effective_ids, key=sort_key)
-        if cid in citation_lookup
+        for cid in sorted(returned_ids, key=sort_key)
     ]
 
     return {
