@@ -27,11 +27,14 @@ vi.mock("@/lib/api/user", () => ({
 
 describe("SettingsPage", () => {
   const mockUser: User = {
-    id: "1",
+    id: 1,
     email: "test@example.com",
     name: "Test User",
     full_name: "Test User",
     profile_image: "/default-avatar.png",
+    picture: "/default-avatar.png",
+    is_active: true,
+    created_at: "2026-01-01T00:00:00Z",
   };
 
   beforeEach(() => {
