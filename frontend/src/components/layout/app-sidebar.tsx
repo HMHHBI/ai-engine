@@ -21,7 +21,6 @@ import { ChatHistoryList } from "@/features/chat/components/chat-history-list";
 import { chatSessionActions } from "@/features/chat/actions/chat-session-actions";
 import { authActions } from "@/features/auth/actions/auth-actions";
 import { useAuthStore } from "@/features/auth";
-import { UserProfileModal } from "@/features/auth/components/user-profile-modal";
 import { WorkspaceSwitcher } from "@/features/workspace/components/workspace-switcher";
 import { cn } from "@/lib/utils";
 
@@ -40,10 +39,24 @@ export function AppSidebar({
 }: AppSidebarProps) {
   const router = useRouter();
   const { resolvedTheme, setTheme } = useTheme();
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setUserMenuOpen(false);
+      }
+    }
+    if (userMenuOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [userMenuOpen]);
   const user = useAuthStore((state) => state.user);
   const [isCreatingChat, setIsCreatingChat] = useState(false);
-  const [profileOpen, setProfileOpen] = useState(false);
-  const settingsButtonRef = useRef<HTMLButtonElement>(null);
 
   const sidebarRef = useRef<HTMLElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -224,76 +237,98 @@ export function AppSidebar({
         </nav>
 
         {/* Bottom controls */}
-        <div className="space-y-1 border-t border-border/60 p-3">
-          <button
-            type="button"
-            onClick={() => setTheme(isDark ? "light" : "dark")}
-            className={cn(
-              "flex h-10 w-full items-center rounded-lg",
-              "text-sm text-muted-foreground",
-              "transition-colors hover:bg-secondary hover:text-foreground",
-              collapsed ? "justify-center" : "gap-3 px-3",
-            )}
-          >
-            {isDark ? (
-              <Sun className="size-4 shrink-0" />
-            ) : (
-              <Moon className="size-4 shrink-0" />
-            )}
+        <div className="relative border-t border-border/60 p-3" ref={userMenuRef}>
+          {/* Upward Popover Menu */}
+          {userMenuOpen && (
+            <div
+              role="menu"
+              aria-label="User options"
+              className={cn(
+                "absolute bottom-[calc(100%+0.5rem)] z-50 rounded-xl border border-border bg-popover p-1.5 shadow-xl transition-all animate-in fade-in-0 zoom-in-95",
+                collapsed ? "left-3 w-48" : "left-3 right-3"
+              )}
+            >
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setUserMenuOpen(false);
+                  onCloseMobile();
+                  router.push("/dashboard/settings");
+                }}
+                className="flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-sm text-foreground transition-colors hover:bg-secondary focus-visible:bg-secondary focus-visible:outline-none"
+              >
+                <Settings className="size-4 shrink-0 text-muted-foreground" />
+                <span>Settings</span>
+              </button>
 
-            {!collapsed && <span>{isDark ? "Light mode" : "Dark mode"}</span>}
-          </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => setTheme(isDark ? "light" : "dark")}
+                className="flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-sm text-foreground transition-colors hover:bg-secondary focus-visible:bg-secondary focus-visible:outline-none"
+              >
+                {isDark ? (
+                  <Sun className="size-4 shrink-0 text-muted-foreground" />
+                ) : (
+                  <Moon className="size-4 shrink-0 text-muted-foreground" />
+                )}
+                <span>{isDark ? "Light mode" : "Dark mode"}</span>
+              </button>
 
-          <button
-            type="button"
-            onClick={() => setProfileOpen(true)}
-            aria-label="Open account"
-            className={cn(
-              "flex h-10 w-full items-center rounded-lg",
-              "text-sm text-muted-foreground",
-              "transition-colors hover:bg-secondary hover:text-foreground",
-              collapsed ? "justify-center" : "gap-3 px-3",
-            )}
-          >
-            <Settings className="size-4 shrink-0" />
-            {!collapsed && <span>Settings</span>}
-          </button>
+              <div className="my-1 border-t border-border/60" />
 
-          <button
-            type="button"
-            onClick={() => authActions.logout()}
-            className={cn(
-              "flex h-10 w-full items-center rounded-lg",
-              "text-sm text-destructive",
-              "transition-colors hover:bg-destructive/10 hover:text-destructive",
-              collapsed ? "justify-center" : "gap-3 px-3",
-            )}
-          >
-            <LogOut className="size-4 shrink-0" />
-            {!collapsed && <span>Log out</span>}
-          </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setUserMenuOpen(false);
+                  authActions.logout();
+                }}
+                className="flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-sm text-destructive transition-colors hover:bg-destructive/10 focus-visible:bg-destructive/10 focus-visible:outline-none"
+              >
+                <LogOut className="size-4 shrink-0" />
+                <span>Log out</span>
+              </button>
+            </div>
+          )}
 
-          {/* User */}
+          {/* User Card with Gear Button */}
           <div
             className={cn(
-              "mt-2 flex items-center rounded-lg border border-border p-2",
-              collapsed ? "justify-center" : "gap-2",
+              "flex items-center rounded-lg border border-border bg-background/50 p-2",
+              collapsed ? "justify-center" : "justify-between gap-2"
             )}
           >
-            <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-secondary text-xs font-medium">
-              {user?.name?.charAt(0).toUpperCase() ?? "H"}
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-secondary text-xs font-semibold text-foreground">
+                {user?.name?.charAt(0).toUpperCase() ?? "H"}
+              </div>
+
+              {!collapsed && (
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium leading-none">
+                    {user?.name ?? "User"}
+                  </p>
+                  <p className="mt-1 truncate text-xs text-muted-foreground">
+                    {user?.email ?? ""}
+                  </p>
+                </div>
+              )}
             </div>
 
-            {!collapsed && (
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium">
-                  {user?.name ?? "User"}
-                </p>
-                <p className="truncate text-xs text-muted-foreground">
-                  {user?.email ?? ""}
-                </p>
-              </div>
-            )}
+            <button
+              type="button"
+              onClick={() => setUserMenuOpen((prev) => !prev)}
+              aria-label="User settings and options"
+              aria-expanded={userMenuOpen}
+              className={cn(
+                "flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                userMenuOpen && "bg-secondary text-foreground"
+              )}
+            >
+              <Settings className="size-4" />
+            </button>
           </div>
 
           {/* Desktop collapse */}
@@ -320,15 +355,7 @@ export function AppSidebar({
           </div>
         </div>
       </aside>
-      {profileOpen && (
-        <UserProfileModal
-          open={true}
-          onClose={() => {
-            setProfileOpen(false);
-            settingsButtonRef.current?.focus();
-          }}
-        />
-      )}
+
     </>
   );
 }
