@@ -24,38 +24,32 @@ interface WorkspaceResearchSynthesisPanelProps {
   className?: string;
 }
 
+const EMPTY_DOCS: WorkspaceDocument[] = [];
+const EMPTY_RUNS: ResearchRun[] = [];
+
 export function WorkspaceResearchSynthesisPanel({
   workspaceId,
   className,
 }: WorkspaceResearchSynthesisPanelProps) {
   const documents = useWorkspaceStore(
-    (state) => state.documentsByWorkspace?.[workspaceId] ?? [],
+    (state) => state.documentsByWorkspace?.[workspaceId] ?? EMPTY_DOCS,
   );
   const runs = useWorkspaceStore(
-    (state) => state.researchRunsByWorkspace?.[workspaceId] ?? [],
+    (state) => state.researchRunsByWorkspace?.[workspaceId] ?? EMPTY_RUNS,
   );
   const isLoading = useWorkspaceStore((state) => state.isLoading);
   const error = useWorkspaceStore((state) => state.error);
 
-  const [prevWorkspaceId, setPrevWorkspaceId] = useState(workspaceId);
   const [query, setQuery] = useState("");
   const [rawSelectedDocIds, setRawSelectedDocIds] = useState<number[]>([]);
   const [latestRun, setLatestRun] = useState<ResearchRun | null>(null);
   const [exportingFormat, setExportingFormat] = useState<"markdown" | "json" | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
-  // If workspaceId changed, reset local workflow state during render
-  if (workspaceId !== prevWorkspaceId) {
-    setPrevWorkspaceId(workspaceId);
-    setQuery("");
-    setRawSelectedDocIds([]);
-    setLatestRun(null);
-    setExportError(null);
-  }
-
-  // Finding 2 Fix: Reconcile selectedDocIds strictly against current workspace documents
-  const validDocIdSet = new Set(documents.map((d: WorkspaceDocument) => d.document_id));
-  const selectedDocIds = rawSelectedDocIds.filter((id) => validDocIdSet.has(id));
+  // Defensive reconcile strictly against current workspace documents
+  const safeDocs = Array.isArray(documents) ? documents : [];
+  const validDocIdSet = new Set(safeDocs.map((d: WorkspaceDocument) => d.document_id));
+  const selectedDocIds = (Array.isArray(rawSelectedDocIds) ? rawSelectedDocIds : []).filter((id) => validDocIdSet.has(id));
 
   // Derive active run safely: prioritize freshly triggered run if belonging to current workspace, else latest from store
   const activeRun: ResearchRun | null =

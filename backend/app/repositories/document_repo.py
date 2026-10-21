@@ -181,6 +181,18 @@ class DocumentRepository:
             ).scalar_one_or_none()
 
     @staticmethod
+    def list_for_user(user_id: int) -> list[Document]:
+        DocumentRepository._validate_ids(user_id=user_id)
+        with session_scope() as db:
+            return list(
+                db.execute(
+                    select(Document)
+                    .where(Document.user_id == user_id)
+                    .order_by(Document.id.desc())
+                ).scalars()
+            )
+
+    @staticmethod
     def list_for_chat(
         chat_id: int,
         user_id: int,

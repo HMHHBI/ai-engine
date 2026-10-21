@@ -18,7 +18,13 @@ export const workspaceActions = {
       const isCurrentValid = list.some((ws) => ws.id === currentActiveId);
 
       if (!isCurrentValid) {
-        store.setActiveWorkspaceId(list.length > 0 ? list[0].id : null);
+        const nextId = list.length > 0 ? list[0].id : null;
+        store.setActiveWorkspaceId(nextId);
+        if (nextId) {
+          void this.loadDocuments(nextId);
+        }
+      } else if (currentActiveId) {
+        void this.loadDocuments(currentActiveId);
       }
     } catch (err) {
       store.setError(err instanceof Error ? err.message : "Failed to load workspaces.");
@@ -38,9 +44,8 @@ export const workspaceActions = {
       const docs = await workspaceService.listDocuments(workspaceId);
       useWorkspaceStore.getState().setWorkspaceDocuments(workspaceId, docs);
     } catch (err) {
-      useWorkspaceStore.getState().setError(
-        err instanceof Error ? err.message : "Failed to load workspace documents.",
-      );
+      // Do not pollute global store error to prevent cascading re-render loops
+      console.warn("loadDocuments warning:", err);
     }
   },
 
@@ -113,9 +118,7 @@ export const workspaceActions = {
       store.addResearchRun(workspaceId, run);
       return run;
     } catch (err) {
-      store.setError(
-        err instanceof Error ? err.message : "Failed to trigger research synthesis.",
-      );
+      // Do not corrupt global store error; allow caller to handle local UI state
       throw err;
     } finally {
       store.setLoading(false);

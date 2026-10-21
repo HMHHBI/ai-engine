@@ -169,6 +169,18 @@ EVIDENCE:
     return prompt, citation_lookup, included_candidates
 
 
+INSUFFICIENT_EVIDENCE_PHRASES = (
+    "insufficient evidence",
+    "the provided documents do not contain",
+    "i cannot find sufficient evidence",
+    "there is not enough evidence",
+    "not enough evidence",
+)
+INSUFFICIENT_EVIDENCE_REGEX = re.compile(
+    r"(?:insufficient evidence|not enough evidence|cannot answer|does not contain)",
+    re.IGNORECASE,
+)
+
 def _validate_model_response(
     raw_response: str,
     citation_lookup: dict[str, dict[str, Any]],
@@ -198,38 +210,52 @@ def _validate_model_response(
             "The synthesis response did not contain a valid citations array."
         )
 
-    inline_ids = set(INLINE_CITATION_PATTERN.findall(answer))
+    normalized_answer = answer.strip()
+    # Matches any bracketed expression starting with C (including leading whitespace), e.g. [C1], [ C1 ], [C1, C2]
+    any_bracket_citation = re.compile(r"\[(\s*C[^\]]*)\]")
+    raw_brackets = any_bracket_citation.findall(normalized_answer)
+
+    # Any malformed marker (leading/trailing whitespace, multi-ID, C0, unknown) must fail validation
+    strict_single_id = re.compile(r"^C[1-9]\d*$")
+    for raw_marker in raw_brackets:
+        # If there were spaces inside brackets (e.g. [ C1 ] or [C1 ]), or multi-ids, reject
+        if not strict_single_id.match(raw_marker) or raw_marker not in citation_lookup:
+            raise SynthesisValidationError(
+                "The answer contains a citation that does not reference retrieved evidence."
+            )
+
+    inline_ids = set(raw_brackets)
+
+    # 2. Returned citations array must only contain valid citations
     returned_ids = set(citations)
+    for cid in citations:
+        if cid not in citation_lookup:
+            raise SynthesisValidationError(
+                "The citations array contains a citation that does not reference retrieved evidence."
+            )
 
-    if any(citation_id not in citation_lookup for citation_id in inline_ids):
-        raise SynthesisValidationError(
-            "The answer contains a citation that does not reference retrieved evidence."
-        )
-
-    if any(citation_id not in citation_lookup for citation_id in returned_ids):
-        raise SynthesisValidationError(
-            "The citations array contains a citation that does not reference retrieved evidence."
-        )
-
-    if inline_ids != returned_ids:
-        raise SynthesisValidationError(
-            "Inline citations and the citations array do not match."
-        )
-
+    # 3. No duplicates in citations array
     if len(citations) != len(returned_ids):
         raise SynthesisValidationError(
             "The citations array contains duplicate citation IDs."
         )
 
-    normalized_answer = answer.strip()
+    # 4. Inline IDs and returned IDs must strictly match
+    if inline_ids != returned_ids:
+        raise SynthesisValidationError(
+            "Inline citations and the citations array do not match."
+        )
+
+    # 5. Handle insufficient evidence case
     insufficient_evidence = any(
-        phrase in normalized_answer.lower()
-        for phrase in (
-            "insufficient evidence",
-            "evidence is insufficient",
-            "cannot determine from the supplied evidence",
-            "not enough evidence",
-            "no relevant evidence",
+        normalized_answer.lower().startswith(prefix.lower())
+        for prefix in INSUFFICIENT_EVIDENCE_PHRASES
+    ) or (
+        bool(INSUFFICIENT_EVIDENCE_REGEX.search(normalized_answer))
+        and not inline_ids
+        and (
+            len(normalized_answer.split()) <= 40
+            or any(token in normalized_answer.lower() for token in ["insufficient", "not enough", "cannot answer", "does not contain"])
         )
     )
 
@@ -238,12 +264,13 @@ def _validate_model_response(
             "The answer contains no inline citations and does not identify an evidence limitation."
         )
 
+    def sort_key(cid: str) -> int:
+        digits = "".join(filter(str.isdigit, cid))
+        return int(digits) if digits else 0
+
     validated_citations = [
-        citation_lookup[citation_id]
-        for citation_id in sorted(
-            returned_ids,
-            key=lambda item: int(item[1:]),
-        )
+        citation_lookup[cid]
+        for cid in sorted(returned_ids, key=sort_key)
     ]
 
     return {

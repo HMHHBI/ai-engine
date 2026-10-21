@@ -7,6 +7,7 @@ if backend_root not in sys.path:
     sys.path.insert(0, backend_root)
 
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import text
 from app.db.session import SessionLocal
 from app.repositories.user_repo import UserRepository
 from app.core.security import hash_password
@@ -76,8 +77,75 @@ def seed_m3():
             db.commit()
             db.refresh(doc2)
         print(f"Seeded User 2 (ID: {user2.id}) and non-owned Doc (ID: {doc2.id})")
+
+        # Seed Workspace & Attach Documents for User
+        workspace_name = "Neural Research Lab"
+        ws_res = db.execute(
+            text("""
+                SELECT id FROM workspaces
+                WHERE created_by = :uid AND name = :name
+                ORDER BY id ASC LIMIT 1
+            """),
+            {"uid": user.id, "name": workspace_name},
+        ).scalar_one_or_none()
+
+        if ws_res is None:
+            ws_res = db.execute(
+                text("""
+                    INSERT INTO workspaces (name, created_by, created_at, updated_at)
+                    VALUES (:name, :uid, NOW(), NOW())
+                    RETURNING id
+                """),
+                {"name": workspace_name, "uid": user.id},
+            ).scalar_one()
+
+        # Ensure the test user has active owner membership
+        db.execute(
+            text("""
+                INSERT INTO workspace_memberships (
+                    workspace_id, user_id, role, status,
+                    created_at, updated_at
+                )
+                VALUES (
+                    :ws_id, :uid, 'owner', 'active', NOW(), NOW()
+                )
+                ON CONFLICT (workspace_id, user_id)
+                DO UPDATE SET
+                    role = 'owner',
+                    status = 'active',
+                    updated_at = NOW()
+            """),
+            {"ws_id": ws_res, "uid": user.id},
+        )
+
+        # Attach documents owned by the test user
+        user_documents = (
+            db.query(Document)
+            .filter(Document.user_id == user.id)
+            .all()
+        )
+        for doc_obj in user_documents:
+            db.execute(
+                text("""
+                    INSERT INTO workspace_documents (
+                        workspace_id, document_id, added_by, added_at
+                    )
+                    VALUES (
+                        :ws_id, :doc_id, :uid, NOW()
+                    )
+                    ON CONFLICT (workspace_id, document_id)
+                    DO NOTHING
+                """),
+                {
+                    "ws_id": ws_res,
+                    "doc_id": doc_obj.id,
+                    "uid": user.id,
+                },
+            )
+        db.commit()
+        print(f"Seeded workspace {ws_res} ({workspace_name}) for test user {user.id}.")
+        
         # Write deterministic fixture state for E2E tests
-        # Support both host execution and container mounted paths
         target_dirs = [
             Path(__file__).resolve().parent.parent.parent / "frontend" / "e2e" / "fixtures",
             Path("/app/frontend/e2e/fixtures"),
@@ -99,7 +167,6 @@ def seed_m3():
                 print(f"Wrote seed fixture state to {fdir / 'test_seed_state.json'}")
             except Exception:
                 pass
-
 
     finally:
         db.close()

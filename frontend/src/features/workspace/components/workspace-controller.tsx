@@ -71,7 +71,7 @@ export function WorkspaceController() {
   if (isResearchView) {
     if (!activeWorkspaceId) {
       return (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center" data-testid="workspace-synthesis-empty">
+        <div className="flex h-full flex-1 flex-col items-center justify-center gap-3 p-6 text-center" data-testid="workspace-synthesis-empty">
           <Sparkles className="size-8 text-muted-foreground" />
           <h3 className="text-sm font-semibold text-foreground">No Workspace Selected</h3>
           <p className="max-w-md text-xs text-muted-foreground">
