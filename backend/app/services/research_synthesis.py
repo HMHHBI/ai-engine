@@ -211,15 +211,15 @@ def _validate_model_response(
         )
 
     normalized_answer = answer.strip()
-    # Matches any bracketed expression starting with C, e.g. [C1], [C1, C2], [C0], [C999]
-    any_bracket_citation = re.compile(r"\[(C[^\]]*)\]")
+    # Matches any bracketed expression starting with C (including leading whitespace), e.g. [C1], [ C1 ], [C1, C2]
+    any_bracket_citation = re.compile(r"\[(\s*C[^\]]*)\]")
     raw_brackets = any_bracket_citation.findall(normalized_answer)
 
-    # Any multi-ID or malformed bracketed marker like [C1, C2] must fail validation
-    strict_single_id = re.compile(r"^C\d+$")
+    # Any malformed marker (leading/trailing whitespace, multi-ID, C0, unknown) must fail validation
+    strict_single_id = re.compile(r"^C[1-9]\d*$")
     for raw_marker in raw_brackets:
-        marker = raw_marker.strip()
-        if not strict_single_id.match(marker) or marker not in citation_lookup:
+        # If there were spaces inside brackets (e.g. [ C1 ] or [C1 ]), or multi-ids, reject
+        if not strict_single_id.match(raw_marker) or raw_marker not in citation_lookup:
             raise SynthesisValidationError(
                 "The answer contains a citation that does not reference retrieved evidence."
             )

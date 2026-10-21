@@ -49,6 +49,8 @@ def test_accepts_matching_citations(citation_lookup):
         ("Claim supported by [C1].", ["C1", "C1"]),
         ("Claim supported by [C0].", ["C0"]),
         ("Claim supported by [C1] and [C1, C2].", ["C1"]),
+        ("Claim [C1] and malformed [ C1 ].", ["C1"]),
+        ("Claim [ C1 ].", ["C1"]),
         ("Claim supported by [C1, C2].", ["C1", "C2"]),
     ],
 )
