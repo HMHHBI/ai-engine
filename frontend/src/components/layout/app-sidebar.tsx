@@ -42,17 +42,29 @@ export function AppSidebar({
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
+  const gearButtonRef = useRef<HTMLButtonElement>(null);
+
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
         setUserMenuOpen(false);
       }
     }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setUserMenuOpen(false);
+        gearButtonRef.current?.focus();
+      }
+    }
+
     if (userMenuOpen) {
       document.addEventListener("mousedown", handleClickOutside);
+      document.addEventListener("keydown", handleKeyDown);
     }
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
     };
   }, [userMenuOpen]);
   const user = useAuthStore((state) => state.user);
@@ -318,6 +330,7 @@ export function AppSidebar({
             </div>
 
             <button
+              ref={gearButtonRef}
               type="button"
               onClick={() => setUserMenuOpen((prev) => !prev)}
               aria-label="User settings and options"
