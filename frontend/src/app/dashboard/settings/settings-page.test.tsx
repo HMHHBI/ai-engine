@@ -58,10 +58,11 @@ describe("SettingsPage", () => {
 
   it("updates display name and submits form with FormData", async () => {
     vi.mocked(userApi.updateProfile).mockResolvedValueOnce({
-      ...mockUser,
-      name: "Updated Name",
+      id: 1,
+      email: "test@example.com",
       full_name: "Updated Name",
-    });
+      profile_image: "/default-avatar.png",
+    } as any);
 
     render(<SettingsPage />);
 
