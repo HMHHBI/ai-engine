@@ -114,6 +114,27 @@ class RetrievedSourceOut(BaseModel):
     distance: float
     snippet: Optional[str] = Field(default=None, max_length=800)
 
+    # Normalized fields for citation navigation
+    chunk_id: Optional[int] = None
+    document_title: Optional[str] = None
+    excerpt: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_fields(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        if normalized.get("id") is None and normalized.get("chunk_id") is not None:
+            normalized["id"] = normalized["chunk_id"]
+        if normalized.get("chunk_id") is None and normalized.get("id") is not None:
+            normalized["chunk_id"] = normalized["id"]
+        if normalized.get("snippet") is None and normalized.get("excerpt") is not None:
+            normalized["snippet"] = normalized["excerpt"]
+        if normalized.get("excerpt") is None and normalized.get("snippet") is not None:
+            normalized["excerpt"] = normalized["snippet"]
+        return normalized
+
 
 class MessageOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)

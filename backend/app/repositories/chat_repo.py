@@ -71,16 +71,24 @@ def _normalize_sources(raw_sources: Any) -> Optional[list[dict[str, Any]]]:
                 float(item["distance"]) if item.get("distance") is not None else 0.0
             )
 
-            normalized.append(
-                {
-                    "id": source_id,
-                    "document_id": doc_id,
-                    "page_number": page_num,
-                    "chunk_index": chunk_idx,
-                    "distance": round(distance, 6),
-                    "snippet": normalize_source_snippet(item.get("snippet")),
-                }
+            snippet = normalize_source_snippet(
+                item.get("snippet", item.get("excerpt"))
             )
+            entry: dict[str, Any] = {
+                "id": source_id,
+                "document_id": doc_id,
+                "page_number": page_num,
+                "chunk_index": chunk_idx,
+                "distance": round(distance, 6),
+                "snippet": snippet,
+            }
+            if item.get("chunk_id") is not None:
+                entry["chunk_id"] = int(item["chunk_id"])
+            if item.get("document_title") is not None:
+                entry["document_title"] = str(item["document_title"]).strip() or None
+            if item.get("excerpt") is not None:
+                entry["excerpt"] = snippet
+            normalized.append(entry)
         except (KeyError, TypeError, ValueError):
             continue
 

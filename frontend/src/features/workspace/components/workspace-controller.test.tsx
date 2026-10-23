@@ -1,12 +1,14 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { WorkspaceController } from "./workspace-controller";
 import { useWorkspaceStore } from "../store/workspace-store";
+import type { RetrievedSource } from "@/types/api";
 
 const mockSearchParams = new Map<string, string>();
+const mockRouterPush = vi.fn();
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: mockRouterPush }),
   usePathname: () => "/dashboard",
   useSearchParams: () => ({
     get: (key: string) => mockSearchParams.get(key) ?? null,
@@ -31,7 +33,33 @@ vi.mock("./workspace-document-manager", () => ({
 }));
 
 vi.mock("@/features/chat/components/chat-area", () => ({
-  ChatArea: () => <div data-testid="chat-area-mock">Chat Area</div>,
+  ChatArea: ({
+    onCitationClick,
+  }: {
+    onCitationClick?: (source: RetrievedSource) => void;
+  }) => (
+    <div data-testid="chat-area-mock">
+      Chat Area
+      {onCitationClick && (
+        <button
+          data-testid="trigger-citation-click"
+          type="button"
+          onClick={() =>
+            onCitationClick({
+              id: 101,
+              document_id: 12,
+              page_number: 5,
+              chunk_index: 2,
+              distance: 0.15,
+              snippet: "Test snippet content",
+            })
+          }
+        >
+          Click Citation
+        </button>
+      )}
+    </div>
+  ),
 }));
 
 describe("WorkspaceController Integration", () => {
@@ -44,6 +72,17 @@ describe("WorkspaceController Integration", () => {
   it("renders ChatArea by default", () => {
     render(<WorkspaceController />);
     expect(screen.getByTestId("chat-area-mock")).toBeDefined();
+  });
+
+  it("navigates to document viewer when citation is clicked in default chat view", () => {
+    render(<WorkspaceController />);
+    const citationBtn = screen.getByTestId("trigger-citation-click");
+    expect(citationBtn).toBeDefined();
+
+    fireEvent.click(citationBtn);
+
+    expect(mockRouterPush).toHaveBeenCalledTimes(1);
+    expect(mockRouterPush).toHaveBeenCalledWith("/dashboard?docId=12");
   });
 
   it("mounts and renders synthesis workbench when view=research is active", () => {

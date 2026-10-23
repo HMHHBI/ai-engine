@@ -1,7 +1,9 @@
 "use client";
 
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
+import { createPdfNavigationTarget } from "@/features/pdf/utils/pdf-navigation-utils";
+import type { RetrievedSource } from "@/types/api";
 import { Sparkles, ArrowLeft } from "lucide-react";
 
 import { ChatArea } from "@/features/chat/components/chat-area";
@@ -30,6 +32,7 @@ export function WorkspaceController() {
 
   const [pendingNavigationTarget, setPendingNavigationTarget] =
     useState<PdfNavigationTarget | null>(null);
+  const navigationRequestIdRef = useRef<number>(0);
 
   const handleCloseDocument = useCallback(() => {
     const currentChatId = useChatStore.getState().activeChatId;
@@ -58,6 +61,21 @@ export function WorkspaceController() {
       router.push(query ? `${pathname}?${query}` : pathname);
     },
     [router, pathname, searchParams],
+  );
+
+  const handleCitationClick = useCallback(
+    (source: RetrievedSource) => {
+      navigationRequestIdRef.current += 1;
+      const target = createPdfNavigationTarget(
+        source,
+        navigationRequestIdRef.current,
+      );
+      if (!target) {
+        return;
+      }
+      handleDocumentNavigation(target);
+    },
+    [handleDocumentNavigation],
   );
 
   const handleExitResearchView = useCallback(() => {
@@ -127,5 +145,5 @@ export function WorkspaceController() {
   }
 
   // View 3: Default Chat Workspace
-  return <ChatArea />;
+  return <ChatArea onCitationClick={handleCitationClick} />;
 }

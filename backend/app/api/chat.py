@@ -425,6 +425,44 @@ def _sse_event(event: str, data: Any) -> str:
     return f"event: {event}\ndata: {json.dumps(data, separators=(',', ':'))}\n\n"
 
 
+def _build_source_payload(
+    chunks: list[dict[str, Any]],
+    *,
+    document_title: str | None,
+) -> list[dict[str, Any]]:
+    """Build backward-compatible source metadata for SSE and persistence."""
+    sources: list[dict[str, Any]] = []
+    for chunk in chunks:
+        chunk_id = int(chunk["id"])
+        snippet = normalize_source_snippet(chunk.get("content"))
+        entry: dict[str, Any] = {
+            "id": chunk_id,
+            "document_id": (
+                int(chunk["document_id"])
+                if chunk.get("document_id") is not None
+                else None
+            ),
+            "page_number": (
+                int(chunk["page_number"])
+                if chunk.get("page_number") is not None
+                else None
+            ),
+            "chunk_index": (
+                int(chunk["chunk_index"])
+                if chunk.get("chunk_index") is not None
+                else None
+            ),
+            "distance": float(chunk.get("distance", 0.0)),
+            "snippet": snippet,
+        }
+        if document_title is not None:
+            entry["chunk_id"] = chunk_id
+            entry["document_title"] = document_title
+            entry["excerpt"] = snippet
+        sources.append(entry)
+    return sources
+
+
 # ============================================================
 # 1. Create New Chat
 # ============================================================
@@ -1112,29 +1150,15 @@ async def _execute_ai_stream(
         )
 
         # 2. Structured RAG provenance
-        sources = [
-            {
-                "id": int(chunk["id"]),
-                "document_id": (
-                    int(chunk["document_id"])
-                    if chunk.get("document_id") is not None
-                    else None
-                ),
-                "page_number": (
-                    int(chunk["page_number"])
-                    if chunk.get("page_number") is not None
-                    else None
-                ),
-                "chunk_index": (
-                    int(chunk["chunk_index"])
-                    if chunk.get("chunk_index") is not None
-                    else None
-                ),
-                "distance": float(chunk.get("distance", 0.0)),
-                "snippet": normalize_source_snippet(chunk.get("content")),
-            }
-            for chunk in context_chunks
-        ]
+        document_title = (
+            str(getattr(active_document, "filename", "")).strip() or None
+            if active_document is not None
+            else None
+        )
+        sources = _build_source_payload(
+            context_chunks,
+            document_title=document_title,
+        )
 
         yield _sse_event(
             "sources",
