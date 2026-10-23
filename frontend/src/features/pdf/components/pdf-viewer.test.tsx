@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { PdfViewer } from "./pdf-viewer";
@@ -94,6 +94,42 @@ describe("PdfViewer", () => {
     ).toHaveTextContent("Citation navigated to page 5.");
   });
 
+  it("shows visible inline warning and clamps when citation page is out of bounds", async () => {
+    const { rerender } = render(
+      <PdfViewer
+        documentId={42}
+        navigationTarget={null}
+      />,
+    );
+
+    await screen.findByTestId("pdf-page-container");
+    expect(screen.getByText("Page 1")).toBeInTheDocument();
+
+    // Target requesting page 50 on a 10-page document
+    rerender(
+      <PdfViewer
+        documentId={42}
+        navigationTarget={{
+          documentId: 42,
+          pageNumber: 50,
+          requestId: 2,
+        }}
+      />,
+    );
+
+    await screen.findByTestId("pdf-page-container");
+    expect(screen.getByText("Page 10")).toBeInTheDocument();
+
+    const warning = screen.getByTestId("pdf-navigation-warning");
+    expect(warning).toBeInTheDocument();
+    expect(warning).toHaveTextContent("Cited page 50 is out of bounds (document has 10 pages). Showing page 10.");
+
+    // Dismiss warning
+    const dismissBtn = screen.getByLabelText("Dismiss page warning");
+    fireEvent.click(dismissBtn);
+    expect(screen.queryByTestId("pdf-navigation-warning")).toBeNull();
+  });
+
   it("ignores navigation target meant for another document", async () => {
     const { rerender } = render(
       <PdfViewer
@@ -112,7 +148,7 @@ describe("PdfViewer", () => {
         navigationTarget={{
           documentId: 99,
           pageNumber: 8,
-          requestId: 2,
+          requestId: 3,
         }}
       />,
     );

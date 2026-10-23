@@ -2,22 +2,60 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { WorkspaceController } from "./workspace-controller";
 import { useWorkspaceStore } from "../store/workspace-store";
-import type { RetrievedSource } from "@/types/api";
+import type { RetrievedSource, Document } from "@/types/api";
 
 const mockSearchParams = new Map<string, string>();
 const mockRouterPush = vi.fn();
+
+let mockResolutionState: {
+  status: "idle" | "loading" | "resolved" | "not_found" | "error";
+  document: Document | null;
+  error: string | null;
+} = { status: "idle", document: null, error: null };
+
+vi.mock("../hooks/use-resolved-workspace-document", () => ({
+  useResolvedWorkspaceDocument: () => mockResolutionState,
+}));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockRouterPush }),
   usePathname: () => "/dashboard",
   useSearchParams: () => ({
     get: (key: string) => mockSearchParams.get(key) ?? null,
-    toString: () => "",
+    toString: () => {
+      const entries = Array.from(mockSearchParams.entries());
+      return entries.map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+    },
   }),
 }));
 
 vi.mock("./research-workspace", () => ({
-  ResearchWorkspace: () => <div data-testid="research-workspace-mock">Research Workspace</div>,
+  ResearchWorkspace: ({
+    document,
+    onDocumentNavigation,
+  }: {
+    document: Document;
+    onDocumentNavigation?: (target: unknown) => void;
+  }) => (
+    <div data-testid="research-workspace-mock">
+      <span>Research Workspace for Doc {document.id}</span>
+      {onDocumentNavigation && (
+        <button
+          data-testid="cross-doc-nav-btn"
+          type="button"
+          onClick={() =>
+            onDocumentNavigation({
+              documentId: 88,
+              pageNumber: 3,
+              requestId: 99,
+            })
+          }
+        >
+          Switch to Doc 88
+        </button>
+      )}
+    </div>
+  ),
 }));
 
 vi.mock("./workspace-research-synthesis-panel", () => ({
@@ -66,6 +104,7 @@ describe("WorkspaceController Integration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSearchParams.clear();
+    mockResolutionState = { status: "idle", document: null, error: null };
     useWorkspaceStore.getState().reset();
   });
 
@@ -83,6 +122,52 @@ describe("WorkspaceController Integration", () => {
 
     expect(mockRouterPush).toHaveBeenCalledTimes(1);
     expect(mockRouterPush).toHaveBeenCalledWith("/dashboard?docId=12");
+  });
+
+  it("handles cross-document switching from active document viewer", () => {
+    mockSearchParams.set("docId", "12");
+    mockResolutionState = {
+      status: "resolved",
+      document: {
+        id: 12,
+        chat_id: 1,
+        filename: "doc-a.pdf",
+        status: "ready",
+        page_count: 5,
+        created_at: "2026-01-01T00:00:00Z",
+      },
+      error: null,
+    };
+
+    render(<WorkspaceController />);
+    expect(screen.getByText("Research Workspace for Doc 12")).toBeDefined();
+
+    // Trigger cross-doc switch to Document 88
+    const switchBtn = screen.getByTestId("cross-doc-nav-btn");
+    fireEvent.click(switchBtn);
+
+    expect(mockRouterPush).toHaveBeenCalledWith("/dashboard?docId=88");
+  });
+
+  it("displays visible error banner when candidate document fails to resolve and dismisses cleanly", () => {
+    mockSearchParams.set("docId", "999");
+    mockResolutionState = {
+      status: "not_found",
+      document: null,
+      error: "Document not found in the active research session.",
+    };
+
+    render(<WorkspaceController />);
+
+    const errorBanner = screen.getByTestId("workspace-document-error");
+    expect(errorBanner).toBeDefined();
+    expect(errorBanner).toHaveTextContent("Unable to load document #999.");
+
+    // Dismiss button returns to clean chat
+    const dismissBtn = screen.getByText("Dismiss & Return to Chat");
+    fireEvent.click(dismissBtn);
+
+    expect(mockRouterPush).toHaveBeenCalledWith("/dashboard");
   });
 
   it("mounts and renders synthesis workbench when view=research is active", () => {

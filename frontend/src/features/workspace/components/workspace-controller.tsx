@@ -4,7 +4,7 @@ import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useCallback, useRef, useState } from "react";
 import { createPdfNavigationTarget } from "@/features/pdf/utils/pdf-navigation-utils";
 import type { RetrievedSource } from "@/types/api";
-import { Sparkles, ArrowLeft } from "lucide-react";
+import { Sparkles, ArrowLeft, AlertTriangle } from "lucide-react";
 
 import { ChatArea } from "@/features/chat/components/chat-area";
 import { ResearchWorkspace } from "./research-workspace";
@@ -144,6 +144,36 @@ export function WorkspaceController() {
     );
   }
 
-  // View 3: Default Chat Workspace
+  // View 3: Document Resolution Failure State (candidateDocId specified but not found/error)
+  if (candidateDocId !== null && (status === "not_found" || status === "error")) {
+    return (
+      <div className="flex h-full flex-1 flex-col">
+        <div
+          data-testid="workspace-document-error"
+          role="alert"
+          className="flex items-center justify-between border-b border-destructive/20 bg-destructive/10 px-4 py-2.5 text-xs text-destructive"
+        >
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="size-4 shrink-0" />
+            <span>
+              Unable to load document #{candidateDocId}. It may have been removed or is inaccessible.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleCloseDocument}
+            className="rounded px-2 py-1 font-medium hover:bg-destructive/20 transition-colors"
+          >
+            Dismiss & Return to Chat
+          </button>
+        </div>
+        <div className="flex-1">
+          <ChatArea onCitationClick={handleCitationClick} />
+        </div>
+      </div>
+    );
+  }
+
+  // View 4: Default Chat Workspace
   return <ChatArea onCitationClick={handleCitationClick} />;
 }

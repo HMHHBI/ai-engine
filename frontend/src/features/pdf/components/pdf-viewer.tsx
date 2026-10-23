@@ -6,6 +6,7 @@ import { PdfErrorState } from "@/features/pdf/components/pdf-error-state";
 import { PdfLoadingState } from "@/features/pdf/components/pdf-loading-state";
 import { PdfPage } from "@/features/pdf/components/pdf-page";
 import { PdfToolbar } from "@/features/pdf/components/pdf-toolbar";
+import { AlertCircle, X } from "lucide-react";
 import { usePdfDocument } from "@/features/pdf/hooks/use-pdf-document";
 import {
   calculateFitHeightScale,
@@ -39,6 +40,7 @@ function PdfViewerLoaded({
   const [numPages, setNumPages] = useState(0);
   const [scale, setScale] = useState(1);
   const [isPageFocused, setIsPageFocused] = useState(false);
+  const [navigationWarning, setNavigationWarning] = useState<string | null>(null);
   const [pageDimensions, setPageDimensions] = useState<{
     width: number;
     height: number;
@@ -67,7 +69,17 @@ function PdfViewerLoaded({
 
     lastNavigationRequestIdRef.current = navigationTarget.requestId;
 
-    setCurrentPage(clampPage(navigationTarget.pageNumber, numPages));
+    const targetPage = navigationTarget.pageNumber;
+    const clamped = clampPage(targetPage, numPages);
+    if (targetPage < 1 || targetPage > numPages) {
+      setNavigationWarning(
+        `Cited page ${targetPage} is out of bounds (document has ${numPages} ${numPages === 1 ? "page" : "pages"}). Showing page ${clamped}.`,
+      );
+    } else {
+      setNavigationWarning(null);
+    }
+
+    setCurrentPage(clamped);
     setIsPageFocused(true);
   }, [navigationTarget, documentId, numPages]);
 
@@ -146,6 +158,27 @@ function PdfViewerLoaded({
         onFitWidth={handleFitWidth}
         onFitHeight={handleFitHeight}
       />
+
+      {navigationWarning && (
+        <div
+          data-testid="pdf-navigation-warning"
+          role="alert"
+          className="flex items-center justify-between gap-2 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2 text-xs text-amber-700 dark:text-amber-400"
+        >
+          <div className="flex items-center gap-2">
+            <AlertCircle className="size-4 shrink-0" />
+            <span>{navigationWarning}</span>
+          </div>
+          <button
+            type="button"
+            aria-label="Dismiss page warning"
+            onClick={() => setNavigationWarning(null)}
+            className="rounded p-0.5 hover:bg-amber-500/20"
+          >
+            <X className="size-3.5" />
+          </button>
+        </div>
+      )}
 
       <div
         ref={viewerContainerRef}
