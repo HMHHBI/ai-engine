@@ -62,7 +62,7 @@ describe("SettingsPage", () => {
       email: "test@example.com",
       full_name: "Updated Name",
       profile_image: "/default-avatar.png",
-    } as any);
+    } as unknown as Awaited<ReturnType<typeof userApi.updateProfile>>);
 
     render(<SettingsPage />);
 
