@@ -32,21 +32,29 @@ export function useResolvedWorkspaceDocument(
       : state.documentsByChat[activeChatId] ?? EMPTY_DOCS,
   );
 
-  const [asyncResolvedDoc, setAsyncResolvedDoc] = useState<Document | null>(null);
   const [fetchState, setFetchState] = useState<{
     docId: number | null;
+    chatId: number | null;
     status: DocumentResolutionStatus;
+    document: Document | null;
     error: string | null;
   }>({
     docId: null,
+    chatId: null,
     status: "idle",
+    document: null,
     error: null,
   });
 
   useEffect(() => {
     if (candidateDocId === null || activeChatId === null) {
-      setAsyncResolvedDoc(null);
-      setFetchState({ docId: null, status: "idle", error: null });
+      setFetchState({
+        docId: null,
+        chatId: null,
+        status: "idle",
+        document: null,
+        error: null,
+      });
       return;
     }
 
@@ -59,8 +67,13 @@ export function useResolvedWorkspaceDocument(
     );
 
     if (inMemoryDoc) {
-      setAsyncResolvedDoc(inMemoryDoc);
-      setFetchState({ docId: candidateDocId, status: "resolved", error: null });
+      setFetchState({
+        docId: candidateDocId,
+        chatId: activeChatId,
+        status: "resolved",
+        document: inMemoryDoc,
+        error: null,
+      });
       return;
     }
 
@@ -68,7 +81,13 @@ export function useResolvedWorkspaceDocument(
     let isCancelled = false;
     const controller = new AbortController();
 
-    setFetchState({ docId: candidateDocId, status: "loading", error: null });
+    setFetchState({
+      docId: candidateDocId,
+      chatId: activeChatId,
+      status: "loading",
+      document: null,
+      error: null,
+    });
 
     documentApi
       .get(candidateDocId, { signal: controller.signal })
@@ -77,20 +96,22 @@ export function useResolvedWorkspaceDocument(
 
         // Verify document belongs to active chat session and is ready
         if (doc.chat_id !== activeChatId) {
-          setAsyncResolvedDoc(null);
           setFetchState({
             docId: candidateDocId,
+            chatId: activeChatId,
             status: "not_found",
+            document: null,
             error: "Document does not belong to active chat session.",
           });
           return;
         }
 
         if (doc.status !== "ready") {
-          setAsyncResolvedDoc(null);
           setFetchState({
             docId: candidateDocId,
+            chatId: activeChatId,
             status: "error",
+            document: null,
             error: `Document is not ready for viewing (status: ${doc.status}).`,
           });
           return;
@@ -103,8 +124,13 @@ export function useResolvedWorkspaceDocument(
           store.setDocuments(activeChatId, [...existingDocs, doc]);
         }
 
-        setAsyncResolvedDoc(doc);
-        setFetchState({ docId: candidateDocId, status: "resolved", error: null });
+        setFetchState({
+          docId: candidateDocId,
+          chatId: activeChatId,
+          status: "resolved",
+          document: doc,
+          error: null,
+        });
       })
       .catch((err: unknown) => {
         if (isCancelled) return;
@@ -114,10 +140,11 @@ export function useResolvedWorkspaceDocument(
           errorMsg.toLowerCase().includes("not found") ||
           (err && typeof err === "object" && "status" in err && err.status === 404);
 
-        setAsyncResolvedDoc(null);
         setFetchState({
           docId: candidateDocId,
+          chatId: activeChatId,
           status: isNotFound ? "not_found" : "error",
+          document: null,
           error: errorMsg,
         });
       });
@@ -136,7 +163,7 @@ export function useResolvedWorkspaceDocument(
     };
   }
 
-  // Fast path: cached in memory
+  // Fast path: cached in memory for current active chat
   const cached = documents.find(
     (item) =>
       item.id === candidateDocId &&
@@ -152,11 +179,14 @@ export function useResolvedWorkspaceDocument(
     };
   }
 
-  // Async path matching current candidate
-  if (fetchState.docId === candidateDocId) {
+  // Chat-scoped match check: ensures no stale doc from another chat is ever leaked
+  if (
+    fetchState.docId === candidateDocId &&
+    fetchState.chatId === activeChatId
+  ) {
     return {
       status: fetchState.status,
-      document: asyncResolvedDoc,
+      document: fetchState.document,
       error: fetchState.error,
     };
   }

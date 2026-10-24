@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { renderHook, waitFor, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { useResolvedWorkspaceDocument } from "./use-resolved-workspace-document";
 import { useChatStore } from "@/features/chat/store/chat-store";
@@ -55,7 +55,7 @@ describe("useResolvedWorkspaceDocument", () => {
   it("fetches uncached document from API and resolves when valid and ready", async () => {
     useChatStore.setState({ activeChatId: 1 });
     const uncachedDoc = createDoc(88, 1, "ready");
-    vi.mocked(documentApi.get).mockResolvedValueOnce(uncachedDoc);
+    vi.mocked(documentApi.get).mockResolvedValue(uncachedDoc);
 
     const { result } = renderHook(() => useResolvedWorkspaceDocument(88));
 
@@ -65,14 +65,13 @@ describe("useResolvedWorkspaceDocument", () => {
 
     expect(result.current.document?.id).toBe(88);
     expect(documentApi.get).toHaveBeenCalledWith(88, expect.any(Object));
-    // Verify document was cached in documentStore
     expect(useDocumentStore.getState().documentsByChat[1]).toContainEqual(uncachedDoc);
   });
 
   it("returns not_found when fetched document belongs to another chat session", async () => {
     useChatStore.setState({ activeChatId: 1 });
-    const foreignDoc = createDoc(99, 2, "ready"); // belongs to chat 2
-    vi.mocked(documentApi.get).mockResolvedValueOnce(foreignDoc);
+    const foreignDoc = createDoc(99, 2, "ready");
+    vi.mocked(documentApi.get).mockResolvedValue(foreignDoc);
 
     const { result } = renderHook(() => useResolvedWorkspaceDocument(99));
 
@@ -82,9 +81,35 @@ describe("useResolvedWorkspaceDocument", () => {
     expect(result.current.document).toBeNull();
   });
 
+  it("does not leak resolved document from previous chat when switching active chats", async () => {
+    // Chat 1 with document 50
+    useChatStore.setState({ activeChatId: 1 });
+    const doc1 = createDoc(50, 1, "ready");
+    vi.mocked(documentApi.get).mockImplementation(async (id: number) => {
+      if (id === 50) return doc1;
+      throw new Error("Not found");
+    });
+
+    const { result, rerender } = renderHook(() => useResolvedWorkspaceDocument(50));
+
+    await waitFor(() => {
+      expect(result.current.status).toBe("resolved");
+      expect(result.current.document?.id).toBe(50);
+    });
+
+    // Switch to Chat 2 while candidateDocId stays 50
+    act(() => {
+      useChatStore.setState({ activeChatId: 2 });
+    });
+    rerender();
+
+    // Must immediately not expose Chat 1's document
+    expect(result.current.document).toBeNull();
+  });
+
   it("returns error status when API fetch fails", async () => {
     useChatStore.setState({ activeChatId: 1 });
-    vi.mocked(documentApi.get).mockRejectedValueOnce(new Error("Server error"));
+    vi.mocked(documentApi.get).mockRejectedValue(new Error("Server error"));
 
     const { result } = renderHook(() => useResolvedWorkspaceDocument(44));
 

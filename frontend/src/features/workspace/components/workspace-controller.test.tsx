@@ -3,9 +3,34 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { WorkspaceController } from "./workspace-controller";
 import { useWorkspaceStore } from "../store/workspace-store";
 import type { RetrievedSource, Document } from "@/types/api";
+import type { PdfNavigationTarget } from "@/features/pdf/types/navigation";
 
 const mockSearchParams = new Map<string, string>();
-const mockRouterPush = vi.fn();
+const mockRouterPush = vi.fn((url: string) => {
+  const queryPart = url.split("?")[1];
+  mockSearchParams.clear();
+  if (queryPart) {
+    const params = new URLSearchParams(queryPart);
+    params.forEach((value, key) => {
+      mockSearchParams.set(key, value);
+    });
+  }
+});
+
+const createMockDocument = (id: number): Document => ({
+  id,
+  user_id: 1,
+  chat_id: 1,
+  filename: `doc-${id}.pdf`,
+  status: "ready",
+  page_count: 20,
+  mime_type: "application/pdf",
+  file_size: 10240,
+  storage_url: `https://example.com/doc-${id}.pdf`,
+  error_message: null,
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-01T00:00:00Z",
+});
 
 let mockResolutionState: {
   status: "idle" | "loading" | "resolved" | "not_found" | "error";
@@ -13,8 +38,19 @@ let mockResolutionState: {
   error: string | null;
 } = { status: "idle", document: null, error: null };
 
+const mockDocumentMap = new Map<number, Document>();
+
 vi.mock("../hooks/use-resolved-workspace-document", () => ({
-  useResolvedWorkspaceDocument: () => mockResolutionState,
+  useResolvedWorkspaceDocument: (candidateDocId: number | null) => {
+    if (candidateDocId !== null && mockDocumentMap.has(candidateDocId)) {
+      return {
+        status: "resolved" as const,
+        document: mockDocumentMap.get(candidateDocId)!,
+        error: null,
+      };
+    }
+    return mockResolutionState;
+  },
 }));
 
 vi.mock("next/navigation", () => ({
@@ -32,13 +68,20 @@ vi.mock("next/navigation", () => ({
 vi.mock("./research-workspace", () => ({
   ResearchWorkspace: ({
     document,
+    navigationTarget,
     onDocumentNavigation,
   }: {
     document: Document;
-    onDocumentNavigation?: (target: unknown) => void;
+    navigationTarget?: PdfNavigationTarget | null;
+    onDocumentNavigation?: (target: PdfNavigationTarget) => void;
   }) => (
     <div data-testid="research-workspace-mock">
-      <span>Research Workspace for Doc {document.id}</span>
+      <span data-testid="active-doc-indicator">Research Workspace for Doc {document.id}</span>
+      {navigationTarget && (
+        <span data-testid="viewer-navigation-target">
+          Navigated to Doc {navigationTarget.documentId} Page {navigationTarget.pageNumber}
+        </span>
+      )}
       {onDocumentNavigation && (
         <button
           data-testid="cross-doc-nav-btn"
@@ -100,25 +143,11 @@ vi.mock("@/features/chat/components/chat-area", () => ({
   ),
 }));
 
-const createMockDocument = (id: number): Document => ({
-  id,
-  user_id: 1,
-  chat_id: 1,
-  filename: `doc-${id}.pdf`,
-  status: "ready",
-  page_count: 5,
-  mime_type: "application/pdf",
-  file_size: 10240,
-  storage_url: `https://example.com/doc-${id}.pdf`,
-  error_message: null,
-  created_at: "2026-01-01T00:00:00Z",
-  updated_at: "2026-01-01T00:00:00Z",
-});
-
 describe("WorkspaceController Integration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSearchParams.clear();
+    mockDocumentMap.clear();
     mockResolutionState = { status: "idle", document: null, error: null };
     useWorkspaceStore.getState().reset();
   });
@@ -139,22 +168,32 @@ describe("WorkspaceController Integration", () => {
     expect(mockRouterPush).toHaveBeenCalledWith("/dashboard?docId=12");
   });
 
-  it("handles cross-document switching from active document viewer", () => {
+  it("completes full cross-document navigation: updates URL, resolves Document B, mounts it, and navigates to target page", () => {
     mockSearchParams.set("docId", "12");
-    mockResolutionState = {
-      status: "resolved",
-      document: createMockDocument(12),
-      error: null,
-    };
+    mockDocumentMap.set(12, createMockDocument(12));
+    mockDocumentMap.set(88, createMockDocument(88));
 
-    render(<WorkspaceController />);
+    const { rerender } = render(<WorkspaceController />);
     expect(screen.getByText("Research Workspace for Doc 12")).toBeDefined();
 
-    // Trigger cross-doc switch to Document 88
+    // 1. Click citation for Document 88 (Page 3)
     const switchBtn = screen.getByTestId("cross-doc-nav-btn");
     fireEvent.click(switchBtn);
 
+    // Verify router was updated with docId=88
     expect(mockRouterPush).toHaveBeenCalledWith("/dashboard?docId=88");
+
+    // 2. Simulate URL update to docId=88
+    mockSearchParams.set("docId", "88");
+    rerender(<WorkspaceController />);
+
+    // 3. Verify Document 88 mounts in workspace
+    expect(screen.getByText("Research Workspace for Doc 88")).toBeDefined();
+
+    // 4. Verify viewer receives navigation target for Doc 88, Page 3
+    const targetElement = screen.getByTestId("viewer-navigation-target");
+    expect(targetElement).toBeDefined();
+    expect(targetElement).toHaveTextContent("Navigated to Doc 88 Page 3");
   });
 
   it("displays visible error banner when candidate document fails to resolve (not_found) and dismisses cleanly", () => {
