@@ -612,3 +612,63 @@ def test_viewer_can_read_run_but_cannot_start_research(
         },
     )
     assert viewer_create.status_code == 403
+
+
+def test_research_runs_list_pagination_offset(
+    client: TestClient,
+    db_session: Session,
+):
+    user = create_user(db_session, email="pagination_test_user@example.com")
+    workspace_id = create_workspace(client, user, name="Pagination Workspace")
+    doc = create_ready_document(db_session, user=user, filename="paper_page.pdf")
+
+    assoc = WorkspaceDocument(workspace_id=workspace_id, document_id=doc.id, added_by=user.id)
+    db_session.add(assoc)
+    db_session.flush()
+
+    from datetime import datetime, timezone
+
+    for i in range(3):
+        r = ResearchRun(
+            workspace_id=workspace_id,
+            requester_id=user.id,
+            query=f"Pagination query {i}",
+            status="completed",
+            answer={"facets": {}, "markdown": f"Answer {i}"},
+            run_metadata={"selected_document_ids": [doc.id]},
+            created_at=datetime.now(timezone.utc),
+            completed_at=datetime.now(timezone.utc),
+        )
+        db_session.add(r)
+        db_session.flush()
+        rd = ResearchRunDocument(
+            research_run_id=r.id,
+            document_id=doc.id,
+            provenance={},
+        )
+        db_session.add(rd)
+    db_session.commit()
+
+    headers = auth_headers(user)
+    first_page = client.get(
+        f"/workspaces/{workspace_id}/research/runs?offset=0&limit=2",
+        headers=headers,
+    )
+    second_page = client.get(
+        f"/workspaces/{workspace_id}/research/runs?offset=2&limit=2",
+        headers=headers,
+    )
+
+    assert first_page.status_code == 200, first_page.text
+    assert second_page.status_code == 200, second_page.text
+
+    first_data = first_page.json()
+    second_data = second_page.json()
+
+    first_ids = {run["id"] for run in first_data["items"]}
+    second_ids = {run["id"] for run in second_data["items"]}
+
+    assert len(first_ids) == 2
+    assert len(second_ids) >= 1
+    assert first_ids.isdisjoint(second_ids)
+    assert first_data["total"] == second_data["total"]

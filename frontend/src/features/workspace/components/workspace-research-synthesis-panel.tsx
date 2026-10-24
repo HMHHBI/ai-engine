@@ -98,6 +98,8 @@ export function WorkspaceResearchSynthesisPanel({
     setPrevWorkspaceId(workspaceId);
     setLatestRun(null);
     setSelectedRunId(null);
+    setRawSelectedDocIds([]);
+    setQuery("");
   }
 
   // Load runs on mount or workspace switch
@@ -107,12 +109,22 @@ export function WorkspaceResearchSynthesisPanel({
     }
   }, [workspaceId]);
 
-  // Defensive reconcile strictly against current workspace documents
+  // Only ready documents can be selected for synthesis
   const safeDocs = Array.isArray(documents) ? documents : [];
-  const validDocIdSet = new Set(safeDocs.map((d: WorkspaceDocument) => d.document_id));
-  const selectedDocIds = (Array.isArray(rawSelectedDocIds) ? rawSelectedDocIds : []).filter((id) =>
-    validDocIdSet.has(id),
-  );
+  const readyDocs = safeDocs.filter((doc) => doc.status === "ready");
+  const readyDocIdSet = new Set(readyDocs.map((doc) => doc.document_id));
+
+  // Keep active selection valid and enforce 20-paper maximum
+  const selectedDocIds = (
+    Array.isArray(rawSelectedDocIds) ? rawSelectedDocIds : []
+  )
+    .filter((id) => readyDocIdSet.has(id))
+    .slice(0, 20);
+
+  const isFormValid =
+    query.trim().length > 0 &&
+    selectedDocIds.length >= 2 &&
+    selectedDocIds.length <= 20;
 
   // Derive active run safely: selected history run > newly triggered run > store head
   const activeRun: ResearchRun | null =
@@ -120,19 +132,30 @@ export function WorkspaceResearchSynthesisPanel({
     (latestRun && latestRun.workspace_id === workspaceId ? latestRun : null) ??
     (runs[0] ?? null);
 
-  const isFormValid = query.trim().length > 0 && selectedDocIds.length >= 2;
-
   function toggleDocSelection(docId: number) {
+    if (!readyDocIdSet.has(docId)) return;
+
     setRawSelectedDocIds((prev) => {
-      const currentFiltered = prev.filter((id) => validDocIdSet.has(id));
-      return currentFiltered.includes(docId)
-        ? currentFiltered.filter((item) => item !== docId)
-        : [...currentFiltered, docId];
+      const current = prev
+        .filter((id) => readyDocIdSet.has(id))
+        .slice(0, 20);
+
+      if (current.includes(docId)) {
+        return current.filter((id) => id !== docId);
+      }
+
+      if (current.length >= 20) {
+        return current;
+      }
+
+      return [...current, docId];
     });
   }
 
   function selectAllDocs() {
-    setRawSelectedDocIds(documents.map((d: WorkspaceDocument) => d.document_id));
+    setRawSelectedDocIds(
+      readyDocs.slice(0, 20).map((doc) => doc.document_id),
+    );
   }
 
   function clearDocSelection() {
@@ -216,7 +239,7 @@ export function WorkspaceResearchSynthesisPanel({
             <h2 className="text-lg font-semibold text-foreground">Cross-Document Research Synthesis</h2>
           </div>
           <p className="text-xs text-muted-foreground">
-            Select 2 or more documents to generate a structured 5-facet comparative synthesis with verified citations.
+            Select 2 to 20 ready documents to generate a structured 5-facet comparative synthesis with verified citations.
           </p>
         </div>
 
@@ -254,6 +277,18 @@ export function WorkspaceResearchSynthesisPanel({
                 type="button"
                 onClick={() => {
                   setSelectedRunId(run.id);
+                  setQuery(run.query);
+
+                  const savedIds = run.run_metadata?.selected_document_ids;
+                  setRawSelectedDocIds(
+                    Array.isArray(savedIds)
+                      ? savedIds.filter(
+                          (id): id is number =>
+                            typeof id === "number" && Number.isInteger(id),
+                        )
+                      : [],
+                  );
+
                   setShowHistory(false);
                 }}
                 className={cn(
@@ -291,13 +326,13 @@ export function WorkspaceResearchSynthesisPanel({
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Workspace Documents ({selectedDocIds.length} / {documents.length} selected)
+              Workspace Documents ({selectedDocIds.length} / {readyDocs.length} ready papers selected)
             </span>
             <div className="flex gap-2">
               <button
                 type="button"
                 onClick={selectAllDocs}
-                disabled={documents.length === 0}
+                disabled={readyDocs.length === 0}
                 className="text-[11px] text-primary hover:underline disabled:opacity-50"
               >
                 Select all
@@ -313,13 +348,13 @@ export function WorkspaceResearchSynthesisPanel({
             </div>
           </div>
 
-          {documents.length === 0 ? (
+          {readyDocs.length === 0 ? (
             <div className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
-              No documents associated with this workspace yet. Attach documents in the manager to begin synthesis.
+              No ready documents are available. Wait for document processing to finish.
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-1">
-              {documents.map((doc: WorkspaceDocument) => {
+              {readyDocs.map((doc: WorkspaceDocument) => {
                 const checked = selectedDocIds.includes(doc.document_id);
                 return (
                   <label
@@ -348,6 +383,12 @@ export function WorkspaceResearchSynthesisPanel({
           {selectedDocIds.length > 0 && selectedDocIds.length < 2 && (
             <span className="text-[11px] text-amber-500 font-medium">
               * Minimum 2 documents required for synthesis.
+            </span>
+          )}
+
+          {selectedDocIds.length === 20 && readyDocs.length > 20 && (
+            <span className="text-[11px] text-amber-500 font-medium">
+              Maximum 20 papers per synthesis. Clear a selection to choose different papers.
             </span>
           )}
         </div>

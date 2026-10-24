@@ -275,8 +275,92 @@ describe("WorkspaceResearchSynthesisPanel", () => {
 
     rerender(<WorkspaceResearchSynthesisPanel workspaceId={10} />);
 
-    expect(screen.getByText(/1 \/ 1 selected/i)).toBeDefined();
+    expect(screen.getByText(/1 \/ 1 ready papers selected/i)).toBeDefined();
     expect(screen.getByText(/Minimum 2 documents required/i)).toBeDefined();
     expect(submitBtn).toBeDisabled();
+  });
+
+  it("restores the query and selected document IDs when reopening a historical run", () => {
+    useWorkspaceStore.setState({
+      documentsByWorkspace: { 10: mockDocs },
+      researchRunsByWorkspace: {
+        10: [
+          {
+            id: 123,
+            workspace_id: 10,
+            requester_id: 1,
+            query: "Compare the three papers",
+            status: "completed",
+            answer: "Historical synthesis answer",
+            citations: [],
+            run_metadata: {
+              selected_document_ids: [1, 3],
+            },
+            created_at: new Date().toISOString(),
+            completed_at: new Date().toISOString(),
+          },
+        ],
+      },
+    });
+
+    render(<WorkspaceResearchSynthesisPanel workspaceId={10} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Past Runs/i }));
+    fireEvent.click(screen.getByRole("button", { name: /#123: Compare the three papers/i }));
+
+    expect(
+      screen.getByLabelText(/Synthesis Query/i),
+    ).toHaveValue("Compare the three papers");
+
+    expect(screen.getByLabelText(/Paper1\.pdf/i)).toBeChecked();
+    expect(screen.getByLabelText(/Paper2\.pdf/i)).not.toBeChecked();
+    expect(screen.getByLabelText(/Paper3\.pdf/i)).toBeChecked();
+
+    expect(screen.getByText("Historical synthesis answer")).toBeDefined();
+  });
+
+  it("limits Select all to 20 ready documents", () => {
+    const manyDocs = Array.from({ length: 22 }, (_, index) => ({
+      document_id: index + 1,
+      filename: `Paper${index + 1}.pdf`,
+      chat_id: null,
+      mime_type: "pdf",
+      status: "ready",
+      added_by: 1,
+      added_at: "",
+    }));
+
+    useWorkspaceStore.setState({
+      documentsByWorkspace: { 10: manyDocs },
+      researchRunsByWorkspace: { 10: [] },
+    });
+
+    render(<WorkspaceResearchSynthesisPanel workspaceId={10} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Select all/i }));
+
+    expect(screen.getByText(/20 \/ 22 ready papers selected/i)).toBeDefined();
+    expect(screen.getByLabelText(/Paper20\.pdf/i)).toBeChecked();
+    expect(screen.getByLabelText(/Paper21\.pdf/i)).not.toBeChecked();
+    expect(screen.getByLabelText(/Paper22\.pdf/i)).not.toBeChecked();
+    expect(screen.getByText(/Maximum 20 papers per synthesis/i)).toBeDefined();
+  });
+
+  it("filters unready documents from the selectable list", () => {
+    const mixedDocs = [
+      { document_id: 1, filename: "PaperReady.pdf", chat_id: null, mime_type: "pdf", status: "ready", added_by: 1, added_at: "" },
+      { document_id: 2, filename: "PaperProcessing.pdf", chat_id: null, mime_type: "pdf", status: "processing", added_by: 1, added_at: "" },
+    ];
+
+    useWorkspaceStore.setState({
+      documentsByWorkspace: { 10: mixedDocs },
+      researchRunsByWorkspace: { 10: [] },
+    });
+
+    render(<WorkspaceResearchSynthesisPanel workspaceId={10} />);
+
+    expect(screen.getByText(/0 \/ 1 ready papers selected/i)).toBeDefined();
+    expect(screen.getByLabelText(/PaperReady\.pdf/i)).toBeDefined();
+    expect(screen.queryByLabelText(/PaperProcessing\.pdf/i)).toBeNull();
   });
 });

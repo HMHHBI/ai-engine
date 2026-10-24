@@ -94,11 +94,11 @@ export const workspaceService = {
 
   async listResearchRuns(
     workspaceId: number,
-    skip: number = 0,
+    offset: number = 0,
     limit: number = 50,
   ): Promise<{ items: ResearchRun[]; total: number }> {
     return apiClient.get<{ items: ResearchRun[]; total: number }>(
-      `/workspaces/${workspaceId}/research/runs?skip=${skip}&limit=${limit}`,
+      `/workspaces/${workspaceId}/research/runs?offset=${offset}&limit=${limit}`,
     );
   },
 

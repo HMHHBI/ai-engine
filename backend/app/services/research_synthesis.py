@@ -205,53 +205,49 @@ def _validate_model_response(
             "The synthesis response did not contain a valid citations array."
         )
 
-    # Validate facets if present or fall back to answer
+    # Structured facets are required for every model response.
+    # The no-candidate case is handled before the model is called.
     facets_data = parsed.get("facets")
-    answer_text = parsed.get("answer")
-
-    has_facets = isinstance(facets_data, dict)
-    has_answer = isinstance(answer_text, str) and bool(answer_text.strip())
-
-    if not has_facets and not has_answer:
+    if not isinstance(facets_data, dict):
         raise SynthesisValidationError(
-            "The synthesis response must contain either 'facets' or 'answer'."
+            "The synthesis response must contain all required facets."
         )
 
-    validated_facets: dict[str, str] | None = None
+    missing_facets = [
+        facet for facet in REQUIRED_FACETS if facet not in facets_data
+    ]
+    if missing_facets:
+        raise SynthesisValidationError(
+            f"Missing required facet(s): {', '.join(missing_facets)}"
+        )
+
+    validated_facets: dict[str, str] = {}
     all_text_for_citations: list[str] = []
-
-    if has_facets:
-        assert isinstance(facets_data, dict)
-        missing_facets = [f for f in REQUIRED_FACETS if f not in facets_data]
-        if missing_facets:
+    for facet_name in REQUIRED_FACETS:
+        value = facets_data[facet_name]
+        if not isinstance(value, str) or not value.strip():
             raise SynthesisValidationError(
-                f"Missing required facet(s): {', '.join(missing_facets)}"
+                f"Facet '{facet_name}' must be a non-empty string."
             )
+        normalized_value = value.strip()
+        validated_facets[facet_name] = normalized_value
+        all_text_for_citations.append(normalized_value)
 
-        validated_facets = {}
-        for facet_name in REQUIRED_FACETS:
-            val = facets_data[facet_name]
-            if not isinstance(val, str) or not val.strip():
-                raise SynthesisValidationError(
-                    f"Facet '{facet_name}' must be a non-empty string."
-                )
-            validated_facets[facet_name] = val.strip()
-            all_text_for_citations.append(val.strip())
-
-        # Construct composite answer markdown for backwards compatibility
-        if not has_answer:
-            answer_text = "\n\n".join(
-                [
-                    f"## {facet_name.capitalize()}\n{validated_facets[facet_name]}"
-                    for facet_name in REQUIRED_FACETS
-                ]
-            )
-    else:
-        assert isinstance(answer_text, str)
-        all_text_for_citations.append(answer_text.strip())
-
-    assert answer_text is not None
-    normalized_answer = answer_text.strip()
+    # Always derive the backward-compatible Markdown answer from the
+    # validated facets. Never trust a separate model-supplied answer.
+    facet_titles = {
+        "methodology": "Methodology",
+        "datasets": "Datasets",
+        "metrics": "Metrics",
+        "findings": "Key Findings",
+        "limitations": "Limitations",
+    }
+    normalized_answer = "\n\n".join(
+        [
+            f"## {facet_titles[facet]}\n{validated_facets[facet]}"
+            for facet in REQUIRED_FACETS
+        ]
+    )
 
     # Find all inline citation markers across all text
     combined_content = " ".join(all_text_for_citations)
@@ -323,9 +319,8 @@ def _validate_model_response(
     result: dict[str, Any] = {
         "answer": normalized_answer,
         "citations": validated_citations,
+        "facets": validated_facets,
     }
-    if validated_facets is not None:
-        result["facets"] = validated_facets
 
     return result
 
