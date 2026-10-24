@@ -1,7 +1,10 @@
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { WorkspaceController } from "./workspace-controller";
 import { useWorkspaceStore } from "../store/workspace-store";
+import { useChatStore } from "@/features/chat/store/chat-store";
+import { useDocumentStore } from "@/features/documents/document-store";
+import { documentApi } from "@/lib/api/documents";
 import type { RetrievedSource, Document } from "@/types/api";
 import type { PdfNavigationTarget } from "@/features/pdf/types/navigation";
 
@@ -17,10 +20,10 @@ const mockRouterPush = vi.fn((url: string) => {
   }
 });
 
-const createMockDocument = (id: number): Document => ({
+const createMockDocument = (id: number, chatId = 1): Document => ({
   id,
   user_id: 1,
-  chat_id: 1,
+  chat_id: chatId,
   filename: `doc-${id}.pdf`,
   status: "ready",
   page_count: 20,
@@ -31,34 +34,6 @@ const createMockDocument = (id: number): Document => ({
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
 });
-
-let mockResolutionState: {
-  status: "idle" | "loading" | "resolved" | "not_found" | "error";
-  document: Document | null;
-  error: string | null;
-} = { status: "idle", document: null, error: null };
-
-const mockDocumentMap = new Map<number, Document>();
-
-vi.mock("../hooks/use-resolved-workspace-document", () => ({
-  useResolvedWorkspaceDocument: (candidateDocId: number | null) => {
-    if (mockResolutionState.status === "loading" && candidateDocId !== null) {
-      return {
-        status: "loading" as const,
-        document: null,
-        error: null,
-      };
-    }
-    if (candidateDocId !== null && mockDocumentMap.has(candidateDocId)) {
-      return {
-        status: "resolved" as const,
-        document: mockDocumentMap.get(candidateDocId)!,
-        error: null,
-      };
-    }
-    return mockResolutionState;
-  },
-}));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockRouterPush }),
@@ -158,9 +133,9 @@ describe("WorkspaceController Integration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSearchParams.clear();
-    mockDocumentMap.clear();
-    mockResolutionState = { status: "idle", document: null, error: null };
     useWorkspaceStore.getState().reset();
+    useChatStore.setState({ activeChatId: 1 });
+    useDocumentStore.setState({ documentsByChat: {} });
   });
 
   it("renders ChatArea by default", () => {
@@ -179,60 +154,69 @@ describe("WorkspaceController Integration", () => {
     expect(mockRouterPush).toHaveBeenCalledWith("/dashboard?docId=12");
   });
 
-  it("completes full cross-document navigation: updates URL, resolves Document B asynchronously through loading state, mounts it, and navigates to target page", async () => {
-    // 1. Initial State: Only Document 12 is loaded and resolved
+  it("exercises real resolver hook: resolves uncached Document B via documentApi.get() fallback, shows skeleton, and navigates viewer to page 3", async () => {
+    // 1. Initial State: Chat session 1 has only Document 12 in memory
+    const doc12 = createMockDocument(12, 1);
+    const doc88 = createMockDocument(88, 1);
+
+    useDocumentStore.getState().setDocuments(1, [doc12]);
     mockSearchParams.set("docId", "12");
-    mockDocumentMap.set(12, createMockDocument(12));
-    // Notice: Document 88 is NOT in mockDocumentMap initially (it is uncached)
+
+    // Deferred promise to explicitly control when documentApi.get resolves
+    let resolveDoc88Fetch!: (doc: Document) => void;
+    const pendingFetchPromise = new Promise<Document>((resolve) => {
+      resolveDoc88Fetch = resolve;
+    });
+
+    const getSpy = vi
+      .spyOn(documentApi, "get")
+      .mockImplementation((id: number) => {
+        if (id === 88) return pendingFetchPromise;
+        return Promise.resolve(createMockDocument(id, 1));
+      });
 
     const { rerender } = render(<WorkspaceController />);
     expect(screen.getByText("Research Workspace for Doc 12")).toBeDefined();
 
-    // 2. Click citation for uncached Document 88 (Page 3)
+    // 2. User clicks citation targeting uncached Document 88 (Page 3)
     const switchBtn = screen.getByTestId("cross-doc-nav-btn");
     act(() => {
       fireEvent.click(switchBtn);
     });
 
-    // Router updates URL to docId=88
     expect(mockRouterPush).toHaveBeenCalledWith("/dashboard?docId=88");
 
-    // 3. Step: URL reflects docId=88, resolver enters async "loading" state
+    // 3. Next.js router reflects updated query param docId=88
     mockSearchParams.set("docId", "88");
-    mockResolutionState = { status: "loading", document: null, error: null };
-
     rerender(<WorkspaceController />);
 
-    // Verify loading skeleton is visible while resolving uncached doc
+    // 4. Verify real hook initiated API fetch for doc 88 and Controller renders WorkspaceSkeleton
+    expect(getSpy).toHaveBeenCalledWith(88, expect.any(Object));
     expect(screen.getByTestId("workspace-skeleton-mock")).toBeDefined();
     expect(screen.queryByTestId("research-workspace-mock")).toBeNull();
 
-    // 4. Step: Async API resolution completes for Document 88
-    mockResolutionState = { status: "idle", document: null, error: null };
-    mockDocumentMap.set(88, createMockDocument(88));
+    // 5. Complete asynchronous API fetch for Document 88
+    await act(async () => {
+      resolveDoc88Fetch(doc88);
+    });
 
-    rerender(<WorkspaceController />);
+    // 6. Verify Workspace mounts Document 88 and viewer receives navigation target
+    await waitFor(() => {
+      expect(screen.getByText("Research Workspace for Doc 88")).toBeDefined();
+    });
 
-    // 5. Verify Document 88 mounts in workspace
-    expect(screen.getByText("Research Workspace for Doc 88")).toBeDefined();
-
-    // 6. Verify viewer receives navigation target for Doc 88, Page 3
     const targetElement = screen.getByTestId("viewer-navigation-target");
     expect(targetElement).toBeDefined();
     expect(targetElement).toHaveTextContent("Navigated to Doc 88 Page 3");
   });
 
-  it("displays visible error banner when candidate document fails to resolve (not_found) and dismisses cleanly", () => {
+  it("displays visible error banner when candidate document fails to resolve (not_found) and dismisses cleanly", async () => {
     mockSearchParams.set("docId", "999");
-    mockResolutionState = {
-      status: "not_found",
-      document: null,
-      error: "Document not found in the active research session.",
-    };
+    vi.spyOn(documentApi, "get").mockRejectedValue(new Error("Document not found"));
 
     render(<WorkspaceController />);
 
-    const errorBanner = screen.getByTestId("workspace-document-error");
+    const errorBanner = await screen.findByTestId("workspace-document-error");
     expect(errorBanner).toBeDefined();
     expect(errorBanner).toHaveTextContent("Unable to load document #999.");
 
@@ -243,17 +227,13 @@ describe("WorkspaceController Integration", () => {
     expect(mockRouterPush).toHaveBeenCalledWith("/dashboard");
   });
 
-  it("displays visible error banner when candidate document is in error state", () => {
+  it("displays visible error banner when candidate document is in error state", async () => {
     mockSearchParams.set("docId", "555");
-    mockResolutionState = {
-      status: "error",
-      document: null,
-      error: "Network failure while retrieving document.",
-    };
+    vi.spyOn(documentApi, "get").mockRejectedValue(new Error("Network failure"));
 
     render(<WorkspaceController />);
 
-    const errorBanner = screen.getByTestId("workspace-document-error");
+    const errorBanner = await screen.findByTestId("workspace-document-error");
     expect(errorBanner).toBeDefined();
     expect(errorBanner).toHaveTextContent("Unable to load document #555.");
   });
