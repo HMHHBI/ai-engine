@@ -94,7 +94,7 @@ describe("PdfViewer", () => {
     ).toHaveTextContent("Citation navigated to page 5.");
   });
 
-  it("shows visible inline warning and clamps when citation page is out of bounds", async () => {
+  it("shows visible inline warning and clamps when citation page is out of bounds (> numPages)", async () => {
     const { rerender } = render(
       <PdfViewer
         documentId={42}
@@ -130,6 +130,37 @@ describe("PdfViewer", () => {
     expect(screen.queryByTestId("pdf-navigation-warning")).toBeNull();
   });
 
+  it("shows visible inline warning and clamps when citation page is below 1", async () => {
+    const { rerender } = render(
+      <PdfViewer
+        documentId={42}
+        navigationTarget={null}
+      />,
+    );
+
+    await screen.findByTestId("pdf-page-container");
+    expect(screen.getByText("Page 1")).toBeInTheDocument();
+
+    // Target requesting page 0
+    rerender(
+      <PdfViewer
+        documentId={42}
+        navigationTarget={{
+          documentId: 42,
+          pageNumber: 0,
+          requestId: 3,
+        }}
+      />,
+    );
+
+    await screen.findByTestId("pdf-page-container");
+    expect(screen.getByText("Page 1")).toBeInTheDocument();
+
+    const warning = screen.getByTestId("pdf-navigation-warning");
+    expect(warning).toBeInTheDocument();
+    expect(warning).toHaveTextContent("Cited page 0 is out of bounds (document has 10 pages). Showing page 1.");
+  });
+
   it("ignores navigation target meant for another document", async () => {
     const { rerender } = render(
       <PdfViewer
@@ -148,7 +179,7 @@ describe("PdfViewer", () => {
         navigationTarget={{
           documentId: 99,
           pageNumber: 8,
-          requestId: 3,
+          requestId: 4,
         }}
       />,
     );

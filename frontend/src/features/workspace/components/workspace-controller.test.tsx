@@ -100,6 +100,21 @@ vi.mock("@/features/chat/components/chat-area", () => ({
   ),
 }));
 
+const createMockDocument = (id: number): Document => ({
+  id,
+  user_id: 1,
+  chat_id: 1,
+  filename: `doc-${id}.pdf`,
+  status: "ready",
+  page_count: 5,
+  mime_type: "application/pdf",
+  file_size: 10240,
+  storage_url: `https://example.com/doc-${id}.pdf`,
+  error_message: null,
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-01T00:00:00Z",
+});
+
 describe("WorkspaceController Integration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -128,14 +143,7 @@ describe("WorkspaceController Integration", () => {
     mockSearchParams.set("docId", "12");
     mockResolutionState = {
       status: "resolved",
-      document: {
-        id: 12,
-        chat_id: 1,
-        filename: "doc-a.pdf",
-        status: "ready",
-        page_count: 5,
-        created_at: "2026-01-01T00:00:00Z",
-      },
+      document: createMockDocument(12),
       error: null,
     };
 
@@ -149,7 +157,7 @@ describe("WorkspaceController Integration", () => {
     expect(mockRouterPush).toHaveBeenCalledWith("/dashboard?docId=88");
   });
 
-  it("displays visible error banner when candidate document fails to resolve and dismisses cleanly", () => {
+  it("displays visible error banner when candidate document fails to resolve (not_found) and dismisses cleanly", () => {
     mockSearchParams.set("docId", "999");
     mockResolutionState = {
       status: "not_found",
@@ -168,6 +176,21 @@ describe("WorkspaceController Integration", () => {
     fireEvent.click(dismissBtn);
 
     expect(mockRouterPush).toHaveBeenCalledWith("/dashboard");
+  });
+
+  it("displays visible error banner when candidate document is in error state", () => {
+    mockSearchParams.set("docId", "555");
+    mockResolutionState = {
+      status: "error",
+      document: null,
+      error: "Network failure while retrieving document.",
+    };
+
+    render(<WorkspaceController />);
+
+    const errorBanner = screen.getByTestId("workspace-document-error");
+    expect(errorBanner).toBeDefined();
+    expect(errorBanner).toHaveTextContent("Unable to load document #555.");
   });
 
   it("mounts and renders synthesis workbench when view=research is active", () => {
