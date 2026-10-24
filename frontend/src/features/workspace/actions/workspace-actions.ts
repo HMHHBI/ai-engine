@@ -111,7 +111,7 @@ export const workspaceActions = {
     try {
       const response = await workspaceService.listResearchRuns(workspaceId);
       store.setResearchRuns(workspaceId, response.items || []);
-    } catch (err) {
+    } catch {
       // Do not crash UI on history fetch error
     }
   },

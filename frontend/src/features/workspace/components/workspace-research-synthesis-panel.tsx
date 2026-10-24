@@ -84,6 +84,7 @@ export function WorkspaceResearchSynthesisPanel({
   const isLoading = useWorkspaceStore((state) => state.isLoading);
   const error = useWorkspaceStore((state) => state.error);
 
+  const [prevWorkspaceId, setPrevWorkspaceId] = useState(workspaceId);
   const [query, setQuery] = useState("");
   const [rawSelectedDocIds, setRawSelectedDocIds] = useState<number[]>([]);
   const [latestRun, setLatestRun] = useState<ResearchRun | null>(null);
@@ -92,13 +93,18 @@ export function WorkspaceResearchSynthesisPanel({
   const [exportingFormat, setExportingFormat] = useState<"markdown" | "json" | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
+  // Synchronously reset run selections when switching workspaces
+  if (prevWorkspaceId !== workspaceId) {
+    setPrevWorkspaceId(workspaceId);
+    setLatestRun(null);
+    setSelectedRunId(null);
+  }
+
   // Load runs on mount or workspace switch
   useEffect(() => {
     if (workspaceId > 0) {
       void workspaceActions.loadResearchRuns(workspaceId);
     }
-    setLatestRun(null);
-    setSelectedRunId(null);
   }, [workspaceId]);
 
   // Defensive reconcile strictly against current workspace documents
