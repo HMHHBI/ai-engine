@@ -9,6 +9,14 @@ export interface ResearchCitation {
   excerpt: string;
 }
 
+export interface ResearchFacets {
+  methodology: string;
+  datasets: string;
+  metrics: string;
+  findings: string;
+  limitations: string;
+}
+
 export interface ResearchRun {
   id: number;
   workspace_id: number;
@@ -16,6 +24,7 @@ export interface ResearchRun {
   query: string;
   status: ResearchStatus;
   answer: string | null;
+  facets?: ResearchFacets | null;
   citations: ResearchCitation[];
   run_metadata: Record<string, unknown>;
   created_at: string;
@@ -26,4 +35,9 @@ export interface ResearchRun {
 export interface CreateResearchRunInput {
   query: string;
   document_ids: number[];
+}
+
+export interface ResearchRunListResponse {
+  items: ResearchRun[];
+  total: number;
 }

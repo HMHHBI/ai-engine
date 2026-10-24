@@ -86,6 +86,9 @@ def build_research_export_bundle(run: Any) -> dict[str, Any]:
     if not isinstance(raw_citations, list):
         raise ValueError("The research run contains invalid citation data.")
 
+    facets_data = stored_answer.get("facets")
+    facets = facets_data if isinstance(facets_data, dict) else None
+
     associations = sorted(
         list(run.document_associations or []),
         key=lambda association: (
@@ -228,7 +231,7 @@ def build_research_export_bundle(run: Any) -> dict[str, Any]:
 
     bibliography.sort(key=_citation_sort_key)
 
-    return {
+    bundle: dict[str, Any] = {
         "export_schema_version": EXPORT_SCHEMA_VERSION,
         "workspace": {
             "id": int(workspace.id),
@@ -252,6 +255,11 @@ def build_research_export_bundle(run: Any) -> dict[str, Any]:
         "source_documents": source_documents,
     }
 
+    if facets is not None:
+        bundle["facets"] = facets
+
+    return bundle
+
 
 def render_research_markdown(bundle: dict[str, Any]) -> str:
     workspace = bundle["workspace"]
@@ -274,13 +282,25 @@ def render_research_markdown(bundle: dict[str, Any]) -> str:
         "",
         run["query"],
         "",
-        "## Synthesized Answer",
-        "",
-        bundle["answer"],
-        "",
+    ]
+
+    facets = bundle.get("facets")
+    if facets and isinstance(facets, dict):
+        lines.extend(["## Comparative Facets", ""])
+        for facet_name, facet_content in facets.items():
+            lines.extend([f"### {facet_name.capitalize()}", "", str(facet_content).strip(), ""])
+    else:
+        lines.extend([
+            "## Synthesized Answer",
+            "",
+            bundle["answer"],
+            "",
+        ])
+
+    lines.extend([
         "## Bibliography",
         "",
-    ]
+    ])
 
     bibliography = bundle["bibliography"]
 

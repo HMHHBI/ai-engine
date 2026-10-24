@@ -1,16 +1,14 @@
 from __future__ import annotations
-from fastapi import Request
-from app.core.rate_limiter import limiter
-from app.services.audit_log import record_audit_event
 
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import get_current_user
+from app.core.rate_limiter import limiter
 from app.db.models import (
     Document,
     ResearchRun,
@@ -21,9 +19,12 @@ from app.db.models import (
 from app.db.session import get_db
 from app.schemas.research_schema import (
     ResearchCitationOut,
+    ResearchFacetsOut,
     ResearchRunCreate,
+    ResearchRunListOut,
     ResearchRunOut,
 )
+from app.services.audit_log import record_audit_event
 from app.services.multi_doc_retrieval import (
     DocumentSelectionError,
     retrieve_multi_document_candidates,
@@ -47,10 +48,18 @@ def _run_response(run: ResearchRun) -> ResearchRunOut:
     stored_answer = run.answer or {}
     answer_text = stored_answer.get("answer")
     citations_data = stored_answer.get("citations") or []
+    facets_data = stored_answer.get("facets")
 
     citations = [
         ResearchCitationOut.model_validate(citation) for citation in citations_data
     ]
+
+    facets = None
+    if isinstance(facets_data, dict):
+        try:
+            facets = ResearchFacetsOut.model_validate(facets_data)
+        except Exception:
+            facets = None
 
     return ResearchRunOut(
         id=run.id,
@@ -59,6 +68,7 @@ def _run_response(run: ResearchRun) -> ResearchRunOut:
         query=run.query,
         status=run.status,
         answer=answer_text,
+        facets=facets,
         citations=citations,
         run_metadata=run.run_metadata or {},
         created_at=run.created_at,
@@ -191,6 +201,7 @@ async def create_research_run(
         run.answer = {
             "answer": result["answer"],
             "citations": citation_payloads,
+            "facets": result.get("facets"),
         }
         run.run_metadata = {
             **(run.run_metadata or {}),
@@ -276,6 +287,31 @@ async def create_research_run(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Research synthesis failed.",
         ) from exc
+
+
+@router.get(
+    "/workspaces/{workspace_id}/research/runs",
+    response_model=ResearchRunListOut,
+)
+def list_research_runs(
+    workspace_id: int,
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    access=Depends(require_workspace_role("viewer")),
+    db: Session = Depends(get_db),
+):
+    query = (
+        db.query(ResearchRun)
+        .filter(ResearchRun.workspace_id == workspace_id)
+        .order_by(ResearchRun.created_at.desc())
+    )
+    total = query.count()
+    runs = query.offset(offset).limit(limit).all()
+
+    return ResearchRunListOut(
+        items=[_run_response(r) for r in runs],
+        total=total,
+    )
 
 
 @router.get(

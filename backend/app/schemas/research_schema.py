@@ -43,6 +43,16 @@ class ResearchCitationOut(BaseModel):
     excerpt: str = Field(min_length=1, max_length=1200)
 
 
+class ResearchFacetsOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    methodology: str = Field(min_length=1)
+    datasets: str = Field(min_length=1)
+    metrics: str = Field(min_length=1)
+    findings: str = Field(min_length=1)
+    limitations: str = Field(min_length=1)
+
+
 class ResearchRunCreateOut(BaseModel):
     id: int
     workspace_id: int
@@ -50,6 +60,7 @@ class ResearchRunCreateOut(BaseModel):
     query: str
     status: ResearchStatus
     answer: str | None = None
+    facets: ResearchFacetsOut | None = None
     citations: list[ResearchCitationOut] = Field(default_factory=list)
     run_metadata: dict = Field(default_factory=dict)
     created_at: datetime
@@ -58,3 +69,8 @@ class ResearchRunCreateOut(BaseModel):
 
 class ResearchRunOut(ResearchRunCreateOut):
     error_message: str | None = None
+
+
+class ResearchRunListOut(BaseModel):
+    items: list[ResearchRunOut]
+    total: int
