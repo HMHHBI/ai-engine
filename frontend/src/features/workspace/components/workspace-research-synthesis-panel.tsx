@@ -23,11 +23,14 @@ import { workspaceActions } from "../actions/workspace-actions";
 import { workspaceService } from "../services/workspace-service";
 import type { ResearchRun, ResearchStatus, ResearchFacets } from "@/types/research";
 import type { WorkspaceDocument } from "@/types/workspace";
+import type { PdfNavigationTarget } from "@/features/pdf/types/navigation";
+import { ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface WorkspaceResearchSynthesisPanelProps {
   workspaceId: number;
   className?: string;
+  onCitationNavigate?: (target: PdfNavigationTarget) => void;
 }
 
 const EMPTY_DOCS: WorkspaceDocument[] = [];
@@ -74,6 +77,7 @@ const FACET_CONFIG: Array<{
 export function WorkspaceResearchSynthesisPanel({
   workspaceId,
   className,
+  onCitationNavigate,
 }: WorkspaceResearchSynthesisPanelProps) {
   const documents = useWorkspaceStore(
     (state) => state.documentsByWorkspace?.[workspaceId] ?? EMPTY_DOCS,
@@ -127,9 +131,10 @@ export function WorkspaceResearchSynthesisPanel({
     selectedDocIds.length <= 20;
 
   // Derive active run safely: selected history run > newly triggered run > store head
+  console.log("DEBUG_RUN_FACETS:", JSON.stringify(latestRun?.facets ?? runs[0]?.facets));
   const activeRun: ResearchRun | null =
+    (latestRun && latestRun.workspace_id === workspaceId && (selectedRunId === null || selectedRunId === latestRun.id) ? latestRun : null) ??
     (selectedRunId !== null ? runs.find((r) => r.id === selectedRunId) : null) ??
-    (latestRun && latestRun.workspace_id === workspaceId ? latestRun : null) ??
     (runs[0] ?? null);
 
   function toggleDocSelection(docId: number) {
@@ -494,10 +499,13 @@ export function WorkspaceResearchSynthesisPanel({
             <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
               {activeRun.error_message || "Synthesis run encountered an error and could not be completed."}
             </div>
-          ) : activeRun.facets ? (
+          ) : (
             <div className="flex flex-col gap-3" data-testid="structured-facets-container">
               {FACET_CONFIG.map(({ key, label, icon: Icon, accentClass }) => {
-                const content = activeRun.facets?.[key];
+                const rawFacets = typeof activeRun.facets === "string"
+                  ? (() => { try { return JSON.parse(activeRun.facets); } catch { return null; } })()
+                  : activeRun.facets;
+                const content = rawFacets?.[key] || (key === "methodology" ? activeRun.answer : null);
                 if (!content) return null;
                 return (
                   <div
@@ -518,10 +526,6 @@ export function WorkspaceResearchSynthesisPanel({
                 );
               })}
             </div>
-          ) : (
-            <div className="prose prose-sm dark:prose-invert max-w-none text-xs leading-relaxed text-foreground whitespace-pre-wrap">
-              {activeRun.answer || "No synthesized answer generated."}
-            </div>
           )}
 
           {/* Citations List */}
@@ -535,12 +539,44 @@ export function WorkspaceResearchSynthesisPanel({
                 {activeRun.citations.map((cite) => (
                   <div
                     key={cite.citation_id}
-                    className="flex flex-col gap-1 rounded-lg border border-border/60 bg-muted/20 p-2.5 text-xs"
+                    className={cn(
+                      "flex flex-col gap-1 rounded-lg border border-border/60 bg-muted/20 p-2.5 text-xs transition-colors",
+                      onCitationNavigate && "hover:border-primary/50 hover:bg-muted/40 cursor-pointer"
+                    )}
+                    onClick={() => {
+                      if (onCitationNavigate && cite.document_id) {
+                        onCitationNavigate({
+                          documentId: cite.document_id,
+                          pageNumber: cite.page_number ?? 1,
+                          requestId: Date.now(),
+                        });
+                      }
+                    }}
+                    data-testid={`citation-item-${cite.citation_id}`}
                   >
                     <div className="flex items-center justify-between text-[11px] font-medium text-foreground">
-                      <span className="truncate">[{cite.citation_id}] {cite.filename}</span>
+                      <span className="truncate flex items-center gap-1.5">
+                        [{cite.citation_id}] {cite.filename}
+                        {onCitationNavigate && (
+                          <button
+                            type="button"
+                            className="inline-flex items-center text-primary hover:underline text-[10px]"
+                            data-testid="citation-navigate-button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onCitationNavigate({
+                                documentId: cite.document_id,
+                                pageNumber: cite.page_number ?? 1,
+                                requestId: Date.now(),
+                              });
+                            }}
+                          >
+                            <ExternalLink className="size-3 ml-0.5" />
+                          </button>
+                        )}
+                      </span>
                       {cite.page_number && (
-                        <span className="text-muted-foreground">Page {cite.page_number}</span>
+                        <span className="text-muted-foreground font-mono">Page {cite.page_number}</span>
                       )}
                     </div>
                     <blockquote className="border-l-2 border-primary/60 pl-2 text-muted-foreground italic text-[11px]">
