@@ -1,5 +1,7 @@
 "use client";
 
+const EMPTY_DOCS: WorkspaceDocument[] = [];
+
 import { useEffect, useState, useRef } from "react";
 import { FileText, Plus, Trash2, Loader2, AlertCircle, RefreshCw } from "lucide-react";
 
@@ -9,6 +11,7 @@ import { apiClient } from "@/lib/api/client";
 import type { Document as ApiDocument } from "@/types/api";
 import type { WorkspaceDocument } from "@/types/workspace";
 import { cn } from "@/lib/utils";
+
 
 interface WorkspaceDocumentManagerProps {
   workspaceId: number;
@@ -20,7 +23,7 @@ export function WorkspaceDocumentManager({
   className,
 }: WorkspaceDocumentManagerProps) {
   const attachedDocs = useWorkspaceStore(
-    (state) => state.documentsByWorkspace?.[workspaceId] ?? [],
+    (state) => state.documentsByWorkspace?.[workspaceId] ?? EMPTY_DOCS,
   );
   const isLoading = useWorkspaceStore((state) => state.isLoading);
   const error = useWorkspaceStore((state) => state.error);

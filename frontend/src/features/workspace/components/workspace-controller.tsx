@@ -123,7 +123,7 @@ export function WorkspaceController() {
         </div>
         <div className="flex flex-1 flex-col lg:flex-row overflow-y-auto divide-y lg:divide-y-0 lg:divide-x divide-border/60">
           <div className="flex-1 overflow-y-auto">
-            <WorkspaceResearchSynthesisPanel workspaceId={activeWorkspaceId} />
+            <WorkspaceResearchSynthesisPanel workspaceId={activeWorkspaceId} onCitationNavigate={handleDocumentNavigation} />
           </div>
           <div className="w-full lg:w-80 shrink-0 bg-card/20 overflow-y-auto">
             <WorkspaceDocumentManager workspaceId={activeWorkspaceId} />

@@ -11,7 +11,7 @@ export default defineConfig({
     baseURL: process.env.PLAYWRIGHT_BASE_URL || "http://localhost:3000",
     trace: "on-first-retry",
     screenshot: "only-on-failure",
-    channel: "chrome", // Installed system chrome use karega
+    // channel: "chrome", // Installed system chrome use karega
   },
   projects: [
     {
