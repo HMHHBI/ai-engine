@@ -12,6 +12,7 @@ from app.db.models import (
     Chat,
     Document,
     DocumentChunk,
+    ResearchRun,
     ResearchRunDocument,
     User,
     WorkspaceDocument,
@@ -29,16 +30,28 @@ class FakeResearchProvider:
         temperature: float = 0.1,
         **kwargs,
     ) -> str:
-        return json.dumps(
-            {
-                "answer": (
-                    "Both selected reports discuss solar revenue. "
-                    "The first report records growth [C1], while the "
-                    "second report also discusses the same topic [C2]."
-                ),
-                "citations": ["C1", "C2"],
-            }
-        )
+        # If 3 citations are in the prompt
+        if "[C3]" in prompt:
+            return json.dumps({
+                "facets": {
+                    "methodology": "Methodology comparison across papers [C1].",
+                    "datasets": "Dataset benchmarks evaluated [C2].",
+                    "metrics": "Metrics and evaluation criteria [C3].",
+                    "findings": "Combined findings and consensus [C1] [C2].",
+                    "limitations": "Identified limitations across studies [C3].",
+                },
+                "citations": ["C1", "C2", "C3"],
+            })
+        return json.dumps({
+            "facets": {
+                "methodology": "Solar revenue growth methodology [C1].",
+                "datasets": "Production datasets [C2].",
+                "metrics": "Revenue percentages [C1].",
+                "findings": "Consistent positive trends [C1] [C2].",
+                "limitations": "Limited duration [C2].",
+            },
+            "citations": ["C1", "C2"],
+        })
 
     async def generate_stream(self, *args, **kwargs):
         if False:
@@ -219,6 +232,9 @@ def test_synthesis_retrieves_evidence_from_two_documents(
     result = response.json()
 
     assert result["status"] == "completed"
+    assert result["facets"] is not None
+    assert "methodology" in result["facets"]
+    assert "limitations" in result["facets"]
     assert "[C1]" in result["answer"]
     assert "[C2]" in result["answer"]
 
@@ -239,6 +255,108 @@ def test_synthesis_retrieves_evidence_from_two_documents(
         document_a.id,
         document_b.id,
     }
+
+
+def test_three_paper_synthesis_and_evidence_isolation(
+    client: TestClient,
+    db_session: Session,
+    fake_research_providers,
+):
+    user = create_user(
+        db_session,
+        email="research-three-papers@example.test",
+    )
+    workspace_id = create_workspace(
+        client,
+        user,
+        name="Three-paper synthesis workspace",
+    )
+
+    doc1 = create_ready_document(
+        db_session,
+        user=user,
+        filename="paper1.pdf",
+        content="Optimization benchmarks for transformer attention mechanisms.",
+    )
+    doc2 = create_ready_document(
+        db_session,
+        user=user,
+        filename="paper2.pdf",
+        content="Optimization benchmarks across vision reasoning datasets.",
+    )
+    doc3 = create_ready_document(
+        db_session,
+        user=user,
+        filename="paper3.pdf",
+        content="Optimization benchmarks under edge device latency constraints.",
+    )
+    unselected_doc = create_ready_document(
+        db_session,
+        user=user,
+        filename="unselected.pdf",
+        content="Optimization benchmarks in an unselected document.",
+    )
+
+    for d in [doc1, doc2, doc3, unselected_doc]:
+        associate_document(
+            db_session,
+            workspace_id=workspace_id,
+            document_id=d.id,
+            added_by=user.id,
+        )
+
+    response = client.post(
+        f"/workspaces/{workspace_id}/research/runs",
+        headers=auth_headers(user),
+        json={
+            "query": "optimization benchmarks",
+            "document_ids": [doc1.id, doc2.id, doc3.id],
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    result = response.json()
+    run_id = result["id"]
+
+    # Verify all 5 facets exist
+    facets = result["facets"]
+    assert facets is not None
+    for facet_key in ["methodology", "datasets", "metrics", "findings", "limitations"]:
+        assert facet_key in facets
+        assert len(facets[facet_key]) > 0
+
+    # Verify 3 papers are cited
+    cited_doc_ids = {c["document_id"] for c in result["citations"]}
+    assert cited_doc_ids == {doc1.id, doc2.id, doc3.id}
+
+    # Verify unselected document is isolated (never present)
+    assert unselected_doc.id not in cited_doc_ids
+    for c in result["citations"]:
+        assert c["document_id"] != unselected_doc.id
+        assert c["filename"] != "unselected.pdf"
+
+    # Test GET list runs endpoint for workspace
+    list_response = client.get(
+        f"/workspaces/{workspace_id}/research/runs",
+        headers=auth_headers(user),
+    )
+    assert list_response.status_code == 200, list_response.text
+    list_data = list_response.json()
+    assert list_data["total"] >= 1
+    run_item = next(r for r in list_data["items"] if r["id"] == run_id)
+    assert run_item["facets"] is not None
+    assert run_item["query"] == "optimization benchmarks"
+    assert run_item["run_metadata"]["selected_document_ids"] == [doc1.id, doc2.id, doc3.id]
+
+    # Verify export includes facets
+    export_resp = client.get(
+        f"/workspaces/{workspace_id}/research/runs/{run_id}/export?format=json",
+        headers=auth_headers(user),
+    )
+    assert export_resp.status_code == 200
+    export_json = export_resp.json()
+    assert "facets" in export_json
+    assert export_json["facets"]["methodology"] == facets["methodology"]
 
 
 def test_document_id_from_another_workspace_is_rejected(

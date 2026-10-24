@@ -8,6 +8,7 @@ import { workspaceService } from "../services/workspace-service";
 vi.mock("../actions/workspace-actions", () => ({
   workspaceActions: {
     triggerResearchSynthesis: vi.fn(),
+    loadResearchRuns: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -82,8 +83,8 @@ describe("WorkspaceResearchSynthesisPanel", () => {
         },
       ],
       run_metadata: {},
-      created_at: "",
-      completed_at: "",
+      created_at: new Date().toISOString(),
+      completed_at: new Date().toISOString(),
     });
 
     render(<WorkspaceResearchSynthesisPanel workspaceId={10} />);
@@ -106,6 +107,45 @@ describe("WorkspaceResearchSynthesisPanel", () => {
     expect(screen.getByText(/Page 4/i)).toBeDefined();
   });
 
+  it("renders structured 5 facets when facets object is present", () => {
+    useWorkspaceStore.setState({
+      documentsByWorkspace: { 10: mockDocs },
+      researchRunsByWorkspace: {
+        10: [
+          {
+            id: 99,
+            workspace_id: 10,
+            requester_id: 1,
+            query: "5-facet comparative query",
+            status: "completed",
+            answer: "Legacy markdown answer",
+            facets: {
+              methodology: "Attention-based comparative methodology",
+              datasets: "GLUE and SQuAD 2.0 evaluation sets",
+              metrics: "Accuracy and latency metrics recorded",
+              findings: "Transformer models scaled reliably",
+              limitations: "Quadratic memory complexity remains",
+            },
+            citations: [],
+            run_metadata: {},
+            created_at: new Date().toISOString(),
+            completed_at: new Date().toISOString(),
+          },
+        ],
+      },
+    });
+
+    render(<WorkspaceResearchSynthesisPanel workspaceId={10} />);
+
+    expect(screen.getByTestId("structured-facets-container")).toBeDefined();
+    expect(screen.getByTestId("facet-card-methodology")).toBeDefined();
+    expect(screen.getByText("Attention-based comparative methodology")).toBeDefined();
+    expect(screen.getByText("GLUE and SQuAD 2.0 evaluation sets")).toBeDefined();
+    expect(screen.getByText("Accuracy and latency metrics recorded")).toBeDefined();
+    expect(screen.getByText("Transformer models scaled reliably")).toBeDefined();
+    expect(screen.getByText("Quadratic memory complexity remains")).toBeDefined();
+  });
+
   it("handles markdown and json export actions", async () => {
     vi.mocked(workspaceService.downloadResearchExport).mockResolvedValue(undefined);
 
@@ -122,8 +162,8 @@ describe("WorkspaceResearchSynthesisPanel", () => {
             answer: "Answer text",
             citations: [],
             run_metadata: {},
-            created_at: "",
-            completed_at: "",
+            created_at: new Date().toISOString(),
+            completed_at: new Date().toISOString(),
           },
         ],
       },
@@ -143,7 +183,6 @@ describe("WorkspaceResearchSynthesisPanel", () => {
 
     expect(workspaceService.downloadResearchExport).toHaveBeenCalledWith(10, 88, "json");
   });
-});
 
   it("reconciles state and resets selections when switching workspaces without unmounting", () => {
     const ws1Docs = [
@@ -168,8 +207,8 @@ describe("WorkspaceResearchSynthesisPanel", () => {
             answer: "Workspace 1 Answer",
             citations: [],
             run_metadata: {},
-            created_at: "",
-            completed_at: "",
+            created_at: new Date().toISOString(),
+            completed_at: new Date().toISOString(),
           },
         ],
         2: [
@@ -182,8 +221,8 @@ describe("WorkspaceResearchSynthesisPanel", () => {
             answer: "Workspace 2 Answer",
             citations: [],
             run_metadata: {},
-            created_at: "",
-            completed_at: "",
+            created_at: new Date().toISOString(),
+            completed_at: new Date().toISOString(),
           },
         ],
       },
@@ -191,22 +230,17 @@ describe("WorkspaceResearchSynthesisPanel", () => {
 
     const { rerender } = render(<WorkspaceResearchSynthesisPanel workspaceId={1} />);
 
-    // Verified ws 1 answer
     expect(screen.getByText("Workspace 1 Answer")).toBeDefined();
     expect(screen.getByText("Run #101 Output")).toBeDefined();
 
-    // Select doc in ws 1
     fireEvent.click(screen.getByLabelText(/Paper1.pdf/i));
 
-    // Switch workspace to 2 without unmounting
     rerender(<WorkspaceResearchSynthesisPanel workspaceId={2} />);
 
-    // Old workspace run must not persist
     expect(screen.queryByText("Workspace 1 Answer")).toBeNull();
     expect(screen.getByText("Workspace 2 Answer")).toBeDefined();
     expect(screen.getByText("Run #202 Output")).toBeDefined();
 
-    // Selections must be reset
     const checkWs2 = screen.getByLabelText(/Paper10.pdf/i) as HTMLInputElement;
     expect(checkWs2.checked).toBe(false);
   });
@@ -224,7 +258,6 @@ describe("WorkspaceResearchSynthesisPanel", () => {
 
     const { rerender } = render(<WorkspaceResearchSynthesisPanel workspaceId={10} />);
 
-    // Select both docs
     fireEvent.click(screen.getByLabelText(/Paper1.pdf/i));
     fireEvent.click(screen.getByLabelText(/Paper2.pdf/i));
     fireEvent.change(screen.getByPlaceholderText(/Compare the methodologies/i), {
@@ -234,7 +267,6 @@ describe("WorkspaceResearchSynthesisPanel", () => {
     const submitBtn = screen.getByRole("button", { name: /Run Synthesis/i });
     expect(submitBtn).not.toBeDisabled();
 
-    // Now document 2 is detached from workspace in store
     useWorkspaceStore.setState({
       documentsByWorkspace: {
         10: [initialDocs[0]],
@@ -243,8 +275,8 @@ describe("WorkspaceResearchSynthesisPanel", () => {
 
     rerender(<WorkspaceResearchSynthesisPanel workspaceId={10} />);
 
-    // Active selection count should now only be 1, disabling submission
     expect(screen.getByText(/1 \/ 1 selected/i)).toBeDefined();
     expect(screen.getByText(/Minimum 2 documents required/i)).toBeDefined();
     expect(submitBtn).toBeDisabled();
   });
+});

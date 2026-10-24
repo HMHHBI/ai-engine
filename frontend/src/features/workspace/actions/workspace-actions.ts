@@ -106,6 +106,16 @@ export const workspaceActions = {
     }
   },
 
+  async loadResearchRuns(workspaceId: number): Promise<void> {
+    const store = useWorkspaceStore.getState();
+    try {
+      const response = await workspaceService.listResearchRuns(workspaceId);
+      store.setResearchRuns(workspaceId, response.items || []);
+    } catch (err) {
+      // Do not crash UI on history fetch error
+    }
+  },
+
   async triggerResearchSynthesis(
     workspaceId: number,
     input: CreateResearchRunInput,
