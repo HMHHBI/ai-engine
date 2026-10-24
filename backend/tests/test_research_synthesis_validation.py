@@ -145,6 +145,8 @@ def test_rejects_facet_citation_unknown(citation_lookup):
         ("Claim supported by [C-1].", ["C-1"]),
         ("Claim supported by [C1a].", ["C1a"]),
         ("Claim supported by [ C1 ].", ["C1"]),
+        ("Claim supported by [c1].", ["C1"]),
+        ("Claim supported by [ c1 ].", ["C1"]),
         ("Claim supported by [C1, C2].", ["C1", "C2"]),
     ],
 )

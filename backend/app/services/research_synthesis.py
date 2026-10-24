@@ -251,7 +251,7 @@ def _validate_model_response(
 
     # Find all inline citation markers across all text
     combined_content = " ".join(all_text_for_citations)
-    any_bracket_citation = re.compile(r"\[(\s*C[^\]]*)\]")
+    any_bracket_citation = re.compile(r"\[(\s*[cC][^\]]*)\]")
     raw_brackets = any_bracket_citation.findall(combined_content)
 
     strict_single_id = re.compile(r"^C[1-9]\d*$")
