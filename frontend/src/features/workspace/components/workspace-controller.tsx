@@ -8,6 +8,7 @@ import { Sparkles, ArrowLeft, AlertTriangle } from "lucide-react";
 
 import { ChatArea } from "@/features/chat/components/chat-area";
 import { ResearchWorkspace } from "./research-workspace";
+import { WorkspaceSkeleton } from "./workspace-skeleton";
 import { WorkspaceResearchSynthesisPanel } from "./workspace-research-synthesis-panel";
 import { WorkspaceDocumentManager } from "./workspace-document-manager";
 import { useWorkspaceStore } from "../store/workspace-store";
@@ -144,7 +145,12 @@ export function WorkspaceController() {
     );
   }
 
-  // View 3: Document Resolution Failure State (candidateDocId specified but not found/error)
+  // View 3: Document Loading State (resolving candidate document)
+  if (candidateDocId !== null && status === "loading") {
+    return <WorkspaceSkeleton />;
+  }
+
+  // View 4: Document Resolution Failure State (candidateDocId specified but not found/error)
   if (candidateDocId !== null && (status === "not_found" || status === "error")) {
     return (
       <div className="flex h-full flex-1 flex-col">
@@ -174,6 +180,6 @@ export function WorkspaceController() {
     );
   }
 
-  // View 4: Default Chat Workspace
+  // View 5: Default Chat Workspace
   return <ChatArea onCitationClick={handleCitationClick} />;
 }

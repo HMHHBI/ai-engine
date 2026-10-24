@@ -72,6 +72,7 @@ function PdfViewerLoaded({
     const targetPage = navigationTarget.pageNumber;
     const clamped = clampPage(targetPage, numPages);
     if (targetPage < 1 || targetPage > numPages) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setNavigationWarning(
         `Cited page ${targetPage} is out of bounds (document has ${numPages} ${numPages === 1 ? "page" : "pages"}). Showing page ${clamped}.`,
       );

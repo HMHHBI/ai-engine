@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { WorkspaceController } from "./workspace-controller";
 import { useWorkspaceStore } from "../store/workspace-store";
@@ -42,6 +42,13 @@ const mockDocumentMap = new Map<number, Document>();
 
 vi.mock("../hooks/use-resolved-workspace-document", () => ({
   useResolvedWorkspaceDocument: (candidateDocId: number | null) => {
+    if (mockResolutionState.status === "loading" && candidateDocId !== null) {
+      return {
+        status: "loading" as const,
+        document: null,
+        error: null,
+      };
+    }
     if (candidateDocId !== null && mockDocumentMap.has(candidateDocId)) {
       return {
         status: "resolved" as const,
@@ -99,6 +106,10 @@ vi.mock("./research-workspace", () => ({
       )}
     </div>
   ),
+}));
+
+vi.mock("./workspace-skeleton", () => ({
+  WorkspaceSkeleton: () => <div data-testid="workspace-skeleton-mock">Loading Workspace...</div>,
 }));
 
 vi.mock("./workspace-research-synthesis-panel", () => ({
@@ -168,29 +179,44 @@ describe("WorkspaceController Integration", () => {
     expect(mockRouterPush).toHaveBeenCalledWith("/dashboard?docId=12");
   });
 
-  it("completes full cross-document navigation: updates URL, resolves Document B, mounts it, and navigates to target page", () => {
+  it("completes full cross-document navigation: updates URL, resolves Document B asynchronously through loading state, mounts it, and navigates to target page", async () => {
+    // 1. Initial State: Only Document 12 is loaded and resolved
     mockSearchParams.set("docId", "12");
     mockDocumentMap.set(12, createMockDocument(12));
-    mockDocumentMap.set(88, createMockDocument(88));
+    // Notice: Document 88 is NOT in mockDocumentMap initially (it is uncached)
 
     const { rerender } = render(<WorkspaceController />);
     expect(screen.getByText("Research Workspace for Doc 12")).toBeDefined();
 
-    // 1. Click citation for Document 88 (Page 3)
+    // 2. Click citation for uncached Document 88 (Page 3)
     const switchBtn = screen.getByTestId("cross-doc-nav-btn");
-    fireEvent.click(switchBtn);
+    act(() => {
+      fireEvent.click(switchBtn);
+    });
 
-    // Verify router was updated with docId=88
+    // Router updates URL to docId=88
     expect(mockRouterPush).toHaveBeenCalledWith("/dashboard?docId=88");
 
-    // 2. Simulate URL update to docId=88
+    // 3. Step: URL reflects docId=88, resolver enters async "loading" state
     mockSearchParams.set("docId", "88");
+    mockResolutionState = { status: "loading", document: null, error: null };
+
     rerender(<WorkspaceController />);
 
-    // 3. Verify Document 88 mounts in workspace
+    // Verify loading skeleton is visible while resolving uncached doc
+    expect(screen.getByTestId("workspace-skeleton-mock")).toBeDefined();
+    expect(screen.queryByTestId("research-workspace-mock")).toBeNull();
+
+    // 4. Step: Async API resolution completes for Document 88
+    mockResolutionState = { status: "idle", document: null, error: null };
+    mockDocumentMap.set(88, createMockDocument(88));
+
+    rerender(<WorkspaceController />);
+
+    // 5. Verify Document 88 mounts in workspace
     expect(screen.getByText("Research Workspace for Doc 88")).toBeDefined();
 
-    // 4. Verify viewer receives navigation target for Doc 88, Page 3
+    // 6. Verify viewer receives navigation target for Doc 88, Page 3
     const targetElement = screen.getByTestId("viewer-navigation-target");
     expect(targetElement).toBeDefined();
     expect(targetElement).toHaveTextContent("Navigated to Doc 88 Page 3");

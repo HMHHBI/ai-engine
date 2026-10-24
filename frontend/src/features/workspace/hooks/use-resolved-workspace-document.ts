@@ -48,6 +48,7 @@ export function useResolvedWorkspaceDocument(
 
   useEffect(() => {
     if (candidateDocId === null || activeChatId === null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setFetchState({
         docId: null,
         chatId: null,
@@ -80,7 +81,6 @@ export function useResolvedWorkspaceDocument(
     // 2. Fetch uncached document from API
     let isCancelled = false;
     const controller = new AbortController();
-
     setFetchState({
       docId: candidateDocId,
       chatId: activeChatId,
