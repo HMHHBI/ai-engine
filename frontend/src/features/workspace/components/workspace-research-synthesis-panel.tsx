@@ -131,7 +131,6 @@ export function WorkspaceResearchSynthesisPanel({
     selectedDocIds.length <= 20;
 
   // Derive active run safely: selected history run > newly triggered run > store head
-  console.log("DEBUG_RUN_FACETS:", JSON.stringify(latestRun?.facets ?? runs[0]?.facets));
   const activeRun: ResearchRun | null =
     (latestRun && latestRun.workspace_id === workspaceId && (selectedRunId === null || selectedRunId === latestRun.id) ? latestRun : null) ??
     (selectedRunId !== null ? runs.find((r) => r.id === selectedRunId) : null) ??
@@ -373,6 +372,7 @@ export function WorkspaceResearchSynthesisPanel({
                   >
                     <input
                       type="checkbox"
+                      data-testid={`doc-select-checkbox-${doc.document_id}`}
                       checked={checked}
                       onChange={() => toggleDocSelection(doc.document_id)}
                       className="size-3.5 rounded border-border text-primary focus:ring-primary"
@@ -536,54 +536,47 @@ export function WorkspaceResearchSynthesisPanel({
                 Citations & Evidence ({activeRun.citations.length})
               </span>
               <div className="flex flex-col gap-2">
-                {activeRun.citations.map((cite) => (
-                  <div
-                    key={cite.citation_id}
-                    className={cn(
-                      "flex flex-col gap-1 rounded-lg border border-border/60 bg-muted/20 p-2.5 text-xs transition-colors",
-                      onCitationNavigate && "hover:border-primary/50 hover:bg-muted/40 cursor-pointer"
-                    )}
-                    onClick={() => {
-                      if (onCitationNavigate && cite.document_id) {
-                        onCitationNavigate({
-                          documentId: cite.document_id,
-                          pageNumber: cite.page_number ?? 1,
-                          requestId: Date.now(),
-                        });
-                      }
-                    }}
-                    data-testid={`citation-item-${cite.citation_id}`}
-                  >
-                    <div className="flex items-center justify-between text-[11px] font-medium text-foreground">
-                      <span className="truncate flex items-center gap-1.5">
-                        [{cite.citation_id}] {cite.filename}
-                        {onCitationNavigate && (
-                          <button
-                            type="button"
-                            className="inline-flex items-center text-primary hover:underline text-[10px]"
-                            data-testid="citation-navigate-button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onCitationNavigate({
-                                documentId: cite.document_id,
-                                pageNumber: cite.page_number ?? 1,
-                                requestId: Date.now(),
-                              });
-                            }}
-                          >
-                            <ExternalLink className="size-3 ml-0.5" />
-                          </button>
-                        )}
-                      </span>
-                      {cite.page_number && (
-                        <span className="text-muted-foreground font-mono">Page {cite.page_number}</span>
+                {activeRun.citations.map((cite) => {
+                  const targetPage = cite.page_number ?? 1;
+                  const canNavigate = Boolean(onCitationNavigate && cite.document_id);
+                  const handleNav = () => {
+                    if (canNavigate && cite.document_id) {
+                      onCitationNavigate?.({
+                        documentId: cite.document_id,
+                        pageNumber: targetPage,
+                        requestId: Date.now(),
+                      });
+                    }
+                  };
+
+                  return (
+                    <button
+                      key={cite.citation_id}
+                      type="button"
+                      disabled={!canNavigate}
+                      onClick={handleNav}
+                      aria-label={`Open ${cite.filename} at page ${targetPage}`}
+                      data-testid={`citation-item-${cite.citation_id}`}
+                      className={cn(
+                        "flex flex-col gap-1 rounded-lg border border-border/60 bg-muted/20 p-2.5 text-left text-xs transition-colors w-full",
+                        canNavigate && "hover:border-primary/50 hover:bg-muted/40 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
                       )}
-                    </div>
-                    <blockquote className="border-l-2 border-primary/60 pl-2 text-muted-foreground italic text-[11px]">
-                      &ldquo;{cite.excerpt}&rdquo;
-                    </blockquote>
-                  </div>
-                ))}
+                    >
+                      <div className="flex items-center justify-between text-[11px] font-medium text-foreground w-full">
+                        <span className="truncate flex items-center gap-1.5">
+                          [{cite.citation_id}] {cite.filename}
+                          {canNavigate && <ExternalLink className="size-3 text-primary shrink-0" aria-hidden="true" />}
+                        </span>
+                        {cite.page_number && (
+                          <span className="text-muted-foreground font-mono shrink-0">Page {cite.page_number}</span>
+                        )}
+                      </div>
+                      <blockquote className="border-l-2 border-primary/60 pl-2 text-muted-foreground italic text-[11px] text-left">
+                        &ldquo;{cite.excerpt}&rdquo;
+                      </blockquote>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}

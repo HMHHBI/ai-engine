@@ -32,6 +32,16 @@ export function useResolvedWorkspaceDocument(
       : state.documentsByChat[activeChatId] ?? EMPTY_DOCS,
   );
 
+  const cachedDoc =
+    candidateDocId !== null && activeChatId !== null
+      ? (documents.find(
+          (item) =>
+            item.id === candidateDocId &&
+            item.chat_id === activeChatId &&
+            item.status === "ready",
+        ) ?? null)
+      : null;
+
   const [fetchState, setFetchState] = useState<{
     docId: number | null;
     chatId: number | null;
@@ -47,55 +57,26 @@ export function useResolvedWorkspaceDocument(
   });
 
   useEffect(() => {
-    if (candidateDocId === null || activeChatId === null) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setFetchState({
-        docId: null,
-        chatId: null,
-        status: "idle",
-        document: null,
-        error: null,
-      });
+    if (candidateDocId === null || cachedDoc !== null) {
       return;
     }
 
-    // 1. Check in-memory store first
-    const inMemoryDoc = documents.find(
-      (item) =>
-        item.id === candidateDocId &&
-        item.chat_id === activeChatId &&
-        item.status === "ready",
-    );
-
-    if (inMemoryDoc) {
-      setFetchState({
-        docId: candidateDocId,
-        chatId: activeChatId,
-        status: "resolved",
-        document: inMemoryDoc,
-        error: null,
-      });
-      return;
-    }
-
-    // 2. Fetch uncached document from API
     let isCancelled = false;
     const controller = new AbortController();
-    setFetchState({
-      docId: candidateDocId,
-      chatId: activeChatId,
-      status: "loading",
-      document: null,
-      error: null,
-    });
 
+    // Fetch uncached document from API
     documentApi
       .get(candidateDocId, { signal: controller.signal })
       .then((doc) => {
         if (isCancelled) return;
 
-        // Verify document belongs to active chat session and is ready
-        if (doc.chat_id !== activeChatId) {
+        // If activeChatId is set and doc has a chat_id, verify session match
+        if (
+          activeChatId !== null &&
+          doc.chat_id !== null &&
+          doc.chat_id !== undefined &&
+          doc.chat_id !== activeChatId
+        ) {
           setFetchState({
             docId: candidateDocId,
             chatId: activeChatId,
@@ -117,11 +98,13 @@ export function useResolvedWorkspaceDocument(
           return;
         }
 
-        // Cache document into document store via setDocuments
-        const store = useDocumentStore.getState();
-        const existingDocs = store.documentsByChat[activeChatId] ?? [];
-        if (!existingDocs.some((d) => d.id === doc.id)) {
-          store.setDocuments(activeChatId, [...existingDocs, doc]);
+        // Cache document into document store if activeChatId is present
+        if (activeChatId !== null) {
+          const store = useDocumentStore.getState();
+          const existingDocs = store.documentsByChat[activeChatId] ?? [];
+          if (!existingDocs.some((d) => d.id === doc.id)) {
+            store.setDocuments(activeChatId, [...existingDocs, doc]);
+          }
         }
 
         setFetchState({
@@ -153,9 +136,9 @@ export function useResolvedWorkspaceDocument(
       isCancelled = true;
       controller.abort();
     };
-  }, [candidateDocId, activeChatId, documents]);
+  }, [candidateDocId, activeChatId, cachedDoc]);
 
-  if (activeChatId === null || candidateDocId === null) {
+  if (candidateDocId === null) {
     return {
       status: "idle",
       document: null,
@@ -164,25 +147,18 @@ export function useResolvedWorkspaceDocument(
   }
 
   // Fast path: cached in memory for current active chat
-  const cached = documents.find(
-    (item) =>
-      item.id === candidateDocId &&
-      item.chat_id === activeChatId &&
-      item.status === "ready",
-  );
-
-  if (cached) {
+  if (cachedDoc) {
     return {
       status: "resolved",
-      document: cached,
+      document: cachedDoc,
       error: null,
     };
   }
 
-  // Chat-scoped match check: ensures no stale doc from another chat is ever leaked
+  // Document match check from async fetch
   if (
     fetchState.docId === candidateDocId &&
-    fetchState.chatId === activeChatId
+    (fetchState.chatId === activeChatId || activeChatId === null)
   ) {
     return {
       status: fetchState.status,

@@ -57,6 +57,7 @@ export function WorkspaceController() {
 
       const params = new URLSearchParams(searchParams?.toString() ?? "");
       params.set("docId", String(target.documentId));
+      params.delete("view");
 
       const query = params.toString();
       router.push(query ? `${pathname}?${query}` : pathname);
