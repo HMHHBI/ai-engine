@@ -211,20 +211,7 @@ describe("WorkspaceResearchSynthesisPanel", () => {
             completed_at: new Date().toISOString(),
           },
         ],
-        2: [
-          {
-            id: 202,
-            workspace_id: 2,
-            requester_id: 1,
-            query: "Q2",
-            status: "completed",
-            answer: "Workspace 2 Answer",
-            citations: [],
-            run_metadata: {},
-            created_at: new Date().toISOString(),
-            completed_at: new Date().toISOString(),
-          },
-        ],
+        2: [],
       },
     });
 
@@ -233,13 +220,18 @@ describe("WorkspaceResearchSynthesisPanel", () => {
     expect(screen.getByText("Workspace 1 Answer")).toBeDefined();
     expect(screen.getByText("Run #101 Output")).toBeDefined();
 
+    // Type query and select doc on workspace 1
+    const queryInput1 = screen.getByPlaceholderText(/Compare the methodologies/i) as HTMLTextAreaElement;
+    fireEvent.change(queryInput1, { target: { value: "Dirty uncommitted query in ws1" } });
     fireEvent.click(screen.getByLabelText(/Paper1.pdf/i));
+    expect(queryInput1.value).toBe("Dirty uncommitted query in ws1");
 
+    // Rerender same mounted component with workspace 2
     rerender(<WorkspaceResearchSynthesisPanel workspaceId={2} />);
 
     expect(screen.queryByText("Workspace 1 Answer")).toBeNull();
-    expect(screen.getByText("Workspace 2 Answer")).toBeDefined();
-    expect(screen.getByText("Run #202 Output")).toBeDefined();
+    const queryInput2 = screen.getByPlaceholderText(/Compare the methodologies/i) as HTMLTextAreaElement;
+    expect(queryInput2.value).toBe("");
 
     const checkWs2 = screen.getByLabelText(/Paper10.pdf/i) as HTMLInputElement;
     expect(checkWs2.checked).toBe(false);
@@ -344,6 +336,55 @@ describe("WorkspaceResearchSynthesisPanel", () => {
     expect(screen.getByLabelText(/Paper21\.pdf/i)).not.toBeChecked();
     expect(screen.getByLabelText(/Paper22\.pdf/i)).not.toBeChecked();
     expect(screen.getByText(/Maximum 20 papers per synthesis/i)).toBeDefined();
+  });
+
+  it("clears invalid persisted run ID when runs load as empty array", async () => {
+    sessionStorage.setItem("active_research_run_10", "9999");
+    useWorkspaceStore.setState({
+      documentsByWorkspace: { 10: mockDocs },
+      researchRunsByWorkspace: { 10: [] },
+    });
+
+    render(<WorkspaceResearchSynthesisPanel workspaceId={10} />);
+
+    await vi.waitFor(() => {
+      expect(sessionStorage.getItem("active_research_run_10")).toBeNull();
+    });
+  });
+
+  it("does not leak persisted run across workspaces", () => {
+    sessionStorage.setItem("active_research_run_1", "101");
+    sessionStorage.removeItem("active_research_run_2");
+
+    useWorkspaceStore.setState({
+      documentsByWorkspace: { 1: mockDocs, 2: mockDocs },
+      researchRunsByWorkspace: {
+        1: [
+          {
+            id: 101,
+            workspace_id: 1,
+            requester_id: 1,
+            query: "Run 101 Query",
+            status: "completed",
+            answer: "Answer 101",
+            citations: [],
+            run_metadata: { selected_document_ids: [1, 2] },
+            created_at: new Date().toISOString(),
+            completed_at: new Date().toISOString(),
+          },
+        ],
+        2: [],
+      },
+    });
+
+    const { unmount } = render(<WorkspaceResearchSynthesisPanel key={1} workspaceId={1} />);
+    expect(screen.getByText("Answer 101")).toBeDefined();
+    unmount();
+
+    render(<WorkspaceResearchSynthesisPanel key={2} workspaceId={2} />);
+    expect(screen.queryByText("Answer 101")).toBeNull();
+    const queryInput = screen.getByPlaceholderText(/Compare the methodologies/i) as HTMLTextAreaElement;
+    expect(queryInput.value).toBe("");
   });
 
   it("filters unready documents from the selectable list", () => {

@@ -47,6 +47,13 @@ export function ResearchWorkspace({
   const [isNarrow, setIsNarrow] = useState<boolean>(false);
   const [internalTarget, setInternalTarget] =
     useState<PdfNavigationTarget | null>(null);
+
+  // Automatically expand document pane when viewing a document or receiving a navigation target
+  useEffect(() => {
+    if (activeDoc?.id) {
+      setCollapsed(false);
+    }
+  }, [activeDoc?.id, navigationTarget, setCollapsed]);
   const navigationRequestIdRef = useRef(0);
 
   // Compute effective target: prefer recent internal target, fallback to passed target

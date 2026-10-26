@@ -31,6 +31,7 @@ export function WorkspaceController() {
   const { status, document: resolvedDocument } =
     useResolvedWorkspaceDocument(candidateDocId);
 
+
   const [pendingNavigationTarget, setPendingNavigationTarget] =
     useState<PdfNavigationTarget | null>(null);
   const navigationRequestIdRef = useRef<number>(0);
@@ -57,6 +58,7 @@ export function WorkspaceController() {
 
       const params = new URLSearchParams(searchParams?.toString() ?? "");
       params.set("docId", String(target.documentId));
+      params.delete("view");
 
       const query = params.toString();
       router.push(query ? `${pathname}?${query}` : pathname);
@@ -123,7 +125,7 @@ export function WorkspaceController() {
         </div>
         <div className="flex flex-1 flex-col lg:flex-row overflow-y-auto divide-y lg:divide-y-0 lg:divide-x divide-border/60">
           <div className="flex-1 overflow-y-auto">
-            <WorkspaceResearchSynthesisPanel workspaceId={activeWorkspaceId} />
+            <WorkspaceResearchSynthesisPanel key={activeWorkspaceId} workspaceId={activeWorkspaceId} onCitationNavigate={handleDocumentNavigation} />
           </div>
           <div className="w-full lg:w-80 shrink-0 bg-card/20 overflow-y-auto">
             <WorkspaceDocumentManager workspaceId={activeWorkspaceId} />

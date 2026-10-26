@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useRef,  useEffect, useState } from "react";
 import {
   Sparkles,
   Download,
@@ -23,11 +23,14 @@ import { workspaceActions } from "../actions/workspace-actions";
 import { workspaceService } from "../services/workspace-service";
 import type { ResearchRun, ResearchStatus, ResearchFacets } from "@/types/research";
 import type { WorkspaceDocument } from "@/types/workspace";
+import type { PdfNavigationTarget } from "@/features/pdf/types/navigation";
+import { ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface WorkspaceResearchSynthesisPanelProps {
   workspaceId: number;
   className?: string;
+  onCitationNavigate?: (target: PdfNavigationTarget) => void;
 }
 
 const EMPTY_DOCS: WorkspaceDocument[] = [];
@@ -71,36 +74,73 @@ const FACET_CONFIG: Array<{
   },
 ];
 
+
+function getPersistedRunId(workspaceId: number): number | null {
+  if (typeof window === "undefined" || !workspaceId || workspaceId <= 0) return null;
+  try {
+    const raw =
+      window.sessionStorage.getItem(`active_research_run_${workspaceId}`) ||
+      window.localStorage.getItem(`active_research_run_${workspaceId}`);
+    if (!raw) return null;
+    const parsed = parseInt(raw, 10);
+    return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistRunId(workspaceId: number, runId: number | null) {
+  if (typeof window === "undefined" || !workspaceId || workspaceId <= 0) return;
+  try {
+    if (runId !== null) {
+      window.sessionStorage.setItem(`active_research_run_${workspaceId}`, String(runId));
+      window.localStorage.setItem(`active_research_run_${workspaceId}`, String(runId));
+    } else {
+      window.sessionStorage.removeItem(`active_research_run_${workspaceId}`);
+      window.localStorage.removeItem(`active_research_run_${workspaceId}`);
+    }
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 export function WorkspaceResearchSynthesisPanel({
   workspaceId,
   className,
+  onCitationNavigate,
 }: WorkspaceResearchSynthesisPanelProps) {
   const documents = useWorkspaceStore(
     (state) => state.documentsByWorkspace?.[workspaceId] ?? EMPTY_DOCS,
   );
-  const runs = useWorkspaceStore(
-    (state) => state.researchRunsByWorkspace?.[workspaceId] ?? EMPTY_RUNS,
+  const runsForWorkspace = useWorkspaceStore(
+    (state) => state.researchRunsByWorkspace?.[workspaceId],
   );
+  const runsLoaded = runsForWorkspace !== undefined;
+  const runs = runsForWorkspace ?? EMPTY_RUNS;
   const isLoading = useWorkspaceStore((state) => state.isLoading);
   const error = useWorkspaceStore((state) => state.error);
 
-  const [prevWorkspaceId, setPrevWorkspaceId] = useState(workspaceId);
   const [query, setQuery] = useState("");
   const [rawSelectedDocIds, setRawSelectedDocIds] = useState<number[]>([]);
   const [latestRun, setLatestRun] = useState<ResearchRun | null>(null);
-  const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
+  const [selectedRunId, setSelectedRunId] = useState<number | null>(() => getPersistedRunId(workspaceId));
   const [showHistory, setShowHistory] = useState(false);
   const [exportingFormat, setExportingFormat] = useState<"markdown" | "json" | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [syncedRunId, setSyncedRunId] = useState<number | null>(null);
+  const prevWorkspaceIdRef = useRef(workspaceId);
 
-  // Synchronously reset run selections when switching workspaces
-  if (prevWorkspaceId !== workspaceId) {
-    setPrevWorkspaceId(workspaceId);
-    setLatestRun(null);
-    setSelectedRunId(null);
-    setRawSelectedDocIds([]);
-    setQuery("");
-  }
+  // Reset form inputs and local state when workspaceId prop changes on the same instance
+  useEffect(() => {
+    if (prevWorkspaceIdRef.current !== workspaceId) {
+      prevWorkspaceIdRef.current = workspaceId;
+      setQuery("");
+      setRawSelectedDocIds([]);
+      setLatestRun(null);
+      setSyncedRunId(null);
+      setSelectedRunId(getPersistedRunId(workspaceId));
+    }
+  }, [workspaceId]);
 
   // Load runs on mount or workspace switch
   useEffect(() => {
@@ -108,6 +148,30 @@ export function WorkspaceResearchSynthesisPanel({
       void workspaceActions.loadResearchRuns(workspaceId);
     }
   }, [workspaceId]);
+
+  // Validate persisted run once runs are fetched; clear invalid run ID from storage and state
+  useEffect(() => {
+    if (!runsLoaded || selectedRunId === null) return;
+    const exists = runs.some((r) => r.id === selectedRunId);
+    if (!exists) {
+      persistRunId(workspaceId, null);
+      queueMicrotask(() => {
+        setSelectedRunId((prev) => (prev === selectedRunId ? null : prev));
+      });
+    }
+  }, [runsLoaded, runs, selectedRunId, workspaceId]);
+
+  // Persist selectedRunId only when it matches an authentic run of this workspace, or clear when null
+  useEffect(() => {
+    if (workspaceId <= 0 || !runsLoaded) return;
+    if (selectedRunId !== null) {
+      if (runs.some((r) => r.id === selectedRunId)) {
+        persistRunId(workspaceId, selectedRunId);
+      }
+    } else {
+      persistRunId(workspaceId, null);
+    }
+  }, [selectedRunId, workspaceId, runsLoaded, runs]);
 
   // Only ready documents can be selected for synthesis
   const safeDocs = Array.isArray(documents) ? documents : [];
@@ -126,11 +190,31 @@ export function WorkspaceResearchSynthesisPanel({
     selectedDocIds.length >= 2 &&
     selectedDocIds.length <= 20;
 
-  // Derive active run safely: selected history run > newly triggered run > store head
+  // Derive active run safely: selected history run > newly triggered run > fallback to head
   const activeRun: ResearchRun | null =
+    (latestRun && latestRun.workspace_id === workspaceId && (selectedRunId === null || selectedRunId === latestRun.id) ? latestRun : null) ??
     (selectedRunId !== null ? runs.find((r) => r.id === selectedRunId) : null) ??
-    (latestRun && latestRun.workspace_id === workspaceId ? latestRun : null) ??
     (runs[0] ?? null);
+
+  // Sync form inputs when an explicit valid run is active
+  useEffect(() => {
+    if (selectedRunId === null) return;
+    const matchingRun = runs.find((r) => r.id === selectedRunId);
+    if (!matchingRun || matchingRun.id === syncedRunId) return;
+
+    queueMicrotask(() => {
+      setSyncedRunId(matchingRun.id);
+      setQuery(matchingRun.query);
+      const savedIds = matchingRun.run_metadata?.selected_document_ids;
+      if (Array.isArray(savedIds)) {
+        setRawSelectedDocIds(
+          savedIds.filter(
+            (id): id is number => typeof id === "number" && Number.isInteger(id)
+          )
+        );
+      }
+    });
+  }, [selectedRunId, runs, syncedRunId]);
 
   function toggleDocSelection(docId: number) {
     if (!readyDocIdSet.has(docId)) return;
@@ -277,6 +361,7 @@ export function WorkspaceResearchSynthesisPanel({
                 type="button"
                 onClick={() => {
                   setSelectedRunId(run.id);
+                  persistRunId(workspaceId, run.id);
                   setQuery(run.query);
 
                   const savedIds = run.run_metadata?.selected_document_ids;
@@ -368,6 +453,7 @@ export function WorkspaceResearchSynthesisPanel({
                   >
                     <input
                       type="checkbox"
+                      data-testid={`doc-select-checkbox-${doc.document_id}`}
                       checked={checked}
                       onChange={() => toggleDocSelection(doc.document_id)}
                       className="size-3.5 rounded border-border text-primary focus:ring-primary"
@@ -494,10 +580,13 @@ export function WorkspaceResearchSynthesisPanel({
             <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
               {activeRun.error_message || "Synthesis run encountered an error and could not be completed."}
             </div>
-          ) : activeRun.facets ? (
+          ) : (
             <div className="flex flex-col gap-3" data-testid="structured-facets-container">
               {FACET_CONFIG.map(({ key, label, icon: Icon, accentClass }) => {
-                const content = activeRun.facets?.[key];
+                const rawFacets = typeof activeRun.facets === "string"
+                  ? (() => { try { return JSON.parse(activeRun.facets); } catch { return null; } })()
+                  : activeRun.facets;
+                const content = rawFacets?.[key] || (key === "methodology" ? activeRun.answer : null);
                 if (!content) return null;
                 return (
                   <div
@@ -518,10 +607,6 @@ export function WorkspaceResearchSynthesisPanel({
                 );
               })}
             </div>
-          ) : (
-            <div className="prose prose-sm dark:prose-invert max-w-none text-xs leading-relaxed text-foreground whitespace-pre-wrap">
-              {activeRun.answer || "No synthesized answer generated."}
-            </div>
           )}
 
           {/* Citations List */}
@@ -532,22 +617,47 @@ export function WorkspaceResearchSynthesisPanel({
                 Citations & Evidence ({activeRun.citations.length})
               </span>
               <div className="flex flex-col gap-2">
-                {activeRun.citations.map((cite) => (
-                  <div
-                    key={cite.citation_id}
-                    className="flex flex-col gap-1 rounded-lg border border-border/60 bg-muted/20 p-2.5 text-xs"
-                  >
-                    <div className="flex items-center justify-between text-[11px] font-medium text-foreground">
-                      <span className="truncate">[{cite.citation_id}] {cite.filename}</span>
-                      {cite.page_number && (
-                        <span className="text-muted-foreground">Page {cite.page_number}</span>
+                {activeRun.citations.map((cite) => {
+                  const targetPage = cite.page_number ?? 1;
+                  const canNavigate = Boolean(onCitationNavigate && cite.document_id);
+                  const handleNav = () => {
+                    if (canNavigate && cite.document_id) {
+                      onCitationNavigate?.({
+                        documentId: cite.document_id,
+                        pageNumber: targetPage,
+                        requestId: Date.now(),
+                      });
+                    }
+                  };
+
+                  return (
+                    <button
+                      key={cite.citation_id}
+                      type="button"
+                      disabled={!canNavigate}
+                      onClick={handleNav}
+                      aria-label={`Open ${cite.filename} at page ${targetPage}`}
+                      data-testid={`citation-item-${cite.citation_id}`}
+                      className={cn(
+                        "flex flex-col gap-1 rounded-lg border border-border/60 bg-muted/20 p-2.5 text-left text-xs transition-colors w-full",
+                        canNavigate && "hover:border-primary/50 hover:bg-muted/40 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
                       )}
-                    </div>
-                    <blockquote className="border-l-2 border-primary/60 pl-2 text-muted-foreground italic text-[11px]">
-                      &ldquo;{cite.excerpt}&rdquo;
-                    </blockquote>
-                  </div>
-                ))}
+                    >
+                      <div className="flex items-center justify-between text-[11px] font-medium text-foreground w-full">
+                        <span className="truncate flex items-center gap-1.5">
+                          [{cite.citation_id}] {cite.filename}
+                          {canNavigate && <ExternalLink className="size-3 text-primary shrink-0" aria-hidden="true" />}
+                        </span>
+                        {cite.page_number && (
+                          <span className="text-muted-foreground font-mono shrink-0">Page {cite.page_number}</span>
+                        )}
+                      </div>
+                      <blockquote className="border-l-2 border-primary/60 pl-2 text-muted-foreground italic text-[11px] text-left">
+                        &ldquo;{cite.excerpt}&rdquo;
+                      </blockquote>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
