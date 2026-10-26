@@ -346,6 +346,55 @@ describe("WorkspaceResearchSynthesisPanel", () => {
     expect(screen.getByText(/Maximum 20 papers per synthesis/i)).toBeDefined();
   });
 
+  it("clears invalid persisted run ID when runs load as empty array", async () => {
+    sessionStorage.setItem("active_research_run_10", "9999");
+    useWorkspaceStore.setState({
+      documentsByWorkspace: { 10: mockDocs },
+      researchRunsByWorkspace: { 10: [] },
+    });
+
+    render(<WorkspaceResearchSynthesisPanel workspaceId={10} />);
+
+    await vi.waitFor(() => {
+      expect(sessionStorage.getItem("active_research_run_10")).toBeNull();
+    });
+  });
+
+  it("does not leak persisted run across workspaces", () => {
+    sessionStorage.setItem("active_research_run_1", "101");
+    sessionStorage.removeItem("active_research_run_2");
+
+    useWorkspaceStore.setState({
+      documentsByWorkspace: { 1: mockDocs, 2: mockDocs },
+      researchRunsByWorkspace: {
+        1: [
+          {
+            id: 101,
+            workspace_id: 1,
+            requester_id: 1,
+            query: "Run 101 Query",
+            status: "completed",
+            answer: "Answer 101",
+            citations: [],
+            run_metadata: { selected_document_ids: [1, 2] },
+            created_at: new Date().toISOString(),
+            completed_at: new Date().toISOString(),
+          },
+        ],
+        2: [],
+      },
+    });
+
+    const { unmount } = render(<WorkspaceResearchSynthesisPanel key={1} workspaceId={1} />);
+    expect(screen.getByText("Answer 101")).toBeDefined();
+    unmount();
+
+    render(<WorkspaceResearchSynthesisPanel key={2} workspaceId={2} />);
+    expect(screen.queryByText("Answer 101")).toBeNull();
+    const queryInput = screen.getByPlaceholderText(/Compare the methodologies/i) as HTMLTextAreaElement;
+    expect(queryInput.value).toBe("");
+  });
+
   it("filters unready documents from the selectable list", () => {
     const mixedDocs = [
       { document_id: 1, filename: "PaperReady.pdf", chat_id: null, mime_type: "pdf", status: "ready", added_by: 1, added_at: "" },

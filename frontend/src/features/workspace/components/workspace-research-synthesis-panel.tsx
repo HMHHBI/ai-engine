@@ -112,9 +112,11 @@ export function WorkspaceResearchSynthesisPanel({
   const documents = useWorkspaceStore(
     (state) => state.documentsByWorkspace?.[workspaceId] ?? EMPTY_DOCS,
   );
-  const runs = useWorkspaceStore(
-    (state) => state.researchRunsByWorkspace?.[workspaceId] ?? EMPTY_RUNS,
+  const runsForWorkspace = useWorkspaceStore(
+    (state) => state.researchRunsByWorkspace?.[workspaceId],
   );
+  const runsLoaded = runsForWorkspace !== undefined;
+  const runs = runsForWorkspace ?? EMPTY_RUNS;
   const isLoading = useWorkspaceStore((state) => state.isLoading);
   const error = useWorkspaceStore((state) => state.error);
 
@@ -136,23 +138,27 @@ export function WorkspaceResearchSynthesisPanel({
 
   // Validate persisted run once runs are fetched; clear invalid run ID from storage and state
   useEffect(() => {
-    if (selectedRunId === null || runs.length === 0) return;
+    if (!runsLoaded || selectedRunId === null) return;
     const exists = runs.some((r) => r.id === selectedRunId);
     if (!exists) {
       persistRunId(workspaceId, null);
-      // Schedule state reset outside the current render pass
       queueMicrotask(() => {
         setSelectedRunId((prev) => (prev === selectedRunId ? null : prev));
       });
     }
-  }, [runs, selectedRunId, workspaceId]);
+  }, [runsLoaded, runs, selectedRunId, workspaceId]);
 
-  // Persist selectedRunId whenever it changes
+  // Persist selectedRunId only when it matches an authentic run of this workspace, or clear when null
   useEffect(() => {
-    if (workspaceId > 0) {
-      persistRunId(workspaceId, selectedRunId);
+    if (workspaceId <= 0 || !runsLoaded) return;
+    if (selectedRunId !== null) {
+      if (runs.some((r) => r.id === selectedRunId)) {
+        persistRunId(workspaceId, selectedRunId);
+      }
+    } else {
+      persistRunId(workspaceId, null);
     }
-  }, [selectedRunId, workspaceId]);
+  }, [selectedRunId, workspaceId, runsLoaded, runs]);
 
   // Only ready documents can be selected for synthesis
   const safeDocs = Array.isArray(documents) ? documents : [];
@@ -177,27 +183,25 @@ export function WorkspaceResearchSynthesisPanel({
     (selectedRunId !== null ? runs.find((r) => r.id === selectedRunId) : null) ??
     (runs[0] ?? null);
 
-  // If a run is persisted or explicitly selected, ensure selectedRunId tracks it
-  const persistedId = getPersistedRunId(workspaceId);
-  const effectiveRunId = selectedRunId ?? persistedId;
+  // Sync form inputs when an explicit valid run is active
+  useEffect(() => {
+    if (selectedRunId === null) return;
+    const matchingRun = runs.find((r) => r.id === selectedRunId);
+    if (!matchingRun || matchingRun.id === syncedRunId) return;
 
-  // Sync form inputs only when an explicit run matches current workspace's runs
-  const targetRunToSync = effectiveRunId !== null ? (runs.find((r) => r.id === effectiveRunId) ?? null) : null;
-  if (targetRunToSync && targetRunToSync.id !== syncedRunId) {
-    setSyncedRunId(targetRunToSync.id);
-    if (selectedRunId !== targetRunToSync.id) {
-      setSelectedRunId(targetRunToSync.id);
-    }
-    setQuery(targetRunToSync.query);
-    const savedIds = targetRunToSync.run_metadata?.selected_document_ids;
-    if (Array.isArray(savedIds)) {
-      setRawSelectedDocIds(
-        savedIds.filter(
-          (id): id is number => typeof id === "number" && Number.isInteger(id)
-        )
-      );
-    }
-  }
+    queueMicrotask(() => {
+      setSyncedRunId(matchingRun.id);
+      setQuery(matchingRun.query);
+      const savedIds = matchingRun.run_metadata?.selected_document_ids;
+      if (Array.isArray(savedIds)) {
+        setRawSelectedDocIds(
+          savedIds.filter(
+            (id): id is number => typeof id === "number" && Number.isInteger(id)
+          )
+        );
+      }
+    });
+  }, [selectedRunId, runs, syncedRunId]);
 
   function toggleDocSelection(docId: number) {
     if (!readyDocIdSet.has(docId)) return;
