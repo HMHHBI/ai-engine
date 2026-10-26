@@ -117,12 +117,8 @@ export function useResolvedWorkspaceDocument(
             return;
           }
         } else if (activeChatId !== null) {
-          // Pure chat mode check (no workspace active)
-          if (
-            doc.chat_id !== null &&
-            doc.chat_id !== undefined &&
-            doc.chat_id !== activeChatId
-          ) {
+          // Pure chat mode check: document must explicitly belong to the active chat
+          if (doc.chat_id !== activeChatId) {
             setFetchState({
               docId: candidateDocId,
               chatId: activeChatId,

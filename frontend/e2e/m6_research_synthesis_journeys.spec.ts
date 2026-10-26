@@ -14,17 +14,6 @@ test.describe.serial("M6 Research Synthesis Acceptance Suite", () => {
       viewport: { width: 1280, height: 800 },
     });
     sharedPage = await context.newPage();
-    sharedPage.on("request", (req: any) => {
-      if (req.url().includes("doc") || req.url().includes("research")) {
-      }
-    });
-    sharedPage.on("response", async (res: any) => {
-      if (res.url().includes("research")) {
-        try {
-          const body = await res.json();
-        } catch {}
-      }
-    });
     monitoring = setupPageMonitoring(sharedPage);
 
     // 1. Mock workspace documents: 3 ready docs and 1 processing doc

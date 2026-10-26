@@ -76,12 +76,11 @@ const FACET_CONFIG: Array<{
 
 
 function getPersistedRunId(workspaceId: number): number | null {
-  if (typeof window === "undefined") return null;
+  if (typeof window === "undefined" || !workspaceId || workspaceId <= 0) return null;
   try {
     const raw =
       window.sessionStorage.getItem(`active_research_run_${workspaceId}`) ||
-      window.localStorage.getItem(`active_research_run_${workspaceId}`) ||
-      window.sessionStorage.getItem("active_research_run_global");
+      window.localStorage.getItem(`active_research_run_${workspaceId}`);
     if (!raw) return null;
     const parsed = parseInt(raw, 10);
     return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
@@ -91,16 +90,14 @@ function getPersistedRunId(workspaceId: number): number | null {
 }
 
 function persistRunId(workspaceId: number, runId: number | null) {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined" || !workspaceId || workspaceId <= 0) return;
   try {
     if (runId !== null) {
       window.sessionStorage.setItem(`active_research_run_${workspaceId}`, String(runId));
       window.localStorage.setItem(`active_research_run_${workspaceId}`, String(runId));
-      window.sessionStorage.setItem("active_research_run_global", String(runId));
     } else {
       window.sessionStorage.removeItem(`active_research_run_${workspaceId}`);
       window.localStorage.removeItem(`active_research_run_${workspaceId}`);
-      window.sessionStorage.removeItem("active_research_run_global");
     }
   } catch {
     // Ignore storage errors
@@ -180,10 +177,11 @@ export function WorkspaceResearchSynthesisPanel({
     (runs[0] ?? null);
 
   // If a run is persisted or explicitly selected, ensure selectedRunId tracks it
-  const effectiveRunId = selectedRunId ?? (getPersistedRunId(workspaceId));
+  const persistedId = getPersistedRunId(workspaceId);
+  const effectiveRunId = selectedRunId ?? persistedId;
 
-  // Sync form inputs only when an explicit run is selected/restored (via user click or persistence)
-  const targetRunToSync = effectiveRunId !== null ? runs.find((r) => r.id === effectiveRunId) : null;
+  // Sync form inputs only when an explicit run matches current workspace's runs
+  const targetRunToSync = effectiveRunId !== null ? (runs.find((r) => r.id === effectiveRunId) ?? null) : null;
   if (targetRunToSync && targetRunToSync.id !== syncedRunId) {
     setSyncedRunId(targetRunToSync.id);
     if (selectedRunId !== targetRunToSync.id) {
