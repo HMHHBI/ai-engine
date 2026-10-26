@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useRef,  useEffect, useState } from "react";
 import {
   Sparkles,
   Download,
@@ -128,6 +128,19 @@ export function WorkspaceResearchSynthesisPanel({
   const [exportingFormat, setExportingFormat] = useState<"markdown" | "json" | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [syncedRunId, setSyncedRunId] = useState<number | null>(null);
+  const prevWorkspaceIdRef = useRef(workspaceId);
+
+  // Reset form inputs and local state when workspaceId prop changes on the same instance
+  useEffect(() => {
+    if (prevWorkspaceIdRef.current !== workspaceId) {
+      prevWorkspaceIdRef.current = workspaceId;
+      setQuery("");
+      setRawSelectedDocIds([]);
+      setLatestRun(null);
+      setSyncedRunId(null);
+      setSelectedRunId(getPersistedRunId(workspaceId));
+    }
+  }, [workspaceId]);
 
   // Load runs on mount or workspace switch
   useEffect(() => {
