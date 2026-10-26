@@ -31,6 +31,7 @@ export function WorkspaceController() {
   const { status, document: resolvedDocument } =
     useResolvedWorkspaceDocument(candidateDocId);
 
+
   const [pendingNavigationTarget, setPendingNavigationTarget] =
     useState<PdfNavigationTarget | null>(null);
   const navigationRequestIdRef = useRef<number>(0);

@@ -74,6 +74,39 @@ const FACET_CONFIG: Array<{
   },
 ];
 
+
+function getPersistedRunId(workspaceId: number): number | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw =
+      window.sessionStorage.getItem(`active_research_run_${workspaceId}`) ||
+      window.localStorage.getItem(`active_research_run_${workspaceId}`) ||
+      window.sessionStorage.getItem("active_research_run_global");
+    if (!raw) return null;
+    const parsed = parseInt(raw, 10);
+    return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistRunId(workspaceId: number, runId: number | null) {
+  if (typeof window === "undefined") return;
+  try {
+    if (runId !== null) {
+      window.sessionStorage.setItem(`active_research_run_${workspaceId}`, String(runId));
+      window.localStorage.setItem(`active_research_run_${workspaceId}`, String(runId));
+      window.sessionStorage.setItem("active_research_run_global", String(runId));
+    } else {
+      window.sessionStorage.removeItem(`active_research_run_${workspaceId}`);
+      window.localStorage.removeItem(`active_research_run_${workspaceId}`);
+      window.sessionStorage.removeItem("active_research_run_global");
+    }
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 export function WorkspaceResearchSynthesisPanel({
   workspaceId,
   className,
@@ -92,18 +125,21 @@ export function WorkspaceResearchSynthesisPanel({
   const [query, setQuery] = useState("");
   const [rawSelectedDocIds, setRawSelectedDocIds] = useState<number[]>([]);
   const [latestRun, setLatestRun] = useState<ResearchRun | null>(null);
-  const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
+  const [selectedRunId, setSelectedRunId] = useState<number | null>(() => getPersistedRunId(workspaceId));
   const [showHistory, setShowHistory] = useState(false);
   const [exportingFormat, setExportingFormat] = useState<"markdown" | "json" | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [syncedRunId, setSyncedRunId] = useState<number | null>(null);
 
-  // Synchronously reset run selections when switching workspaces
+  // Synchronously handle workspace transition without wiping persisted run if it belongs to current workspace
   if (prevWorkspaceId !== workspaceId) {
     setPrevWorkspaceId(workspaceId);
     setLatestRun(null);
-    setSelectedRunId(null);
+    const restored = getPersistedRunId(workspaceId);
+    setSelectedRunId(restored);
     setRawSelectedDocIds([]);
     setQuery("");
+    setSyncedRunId(null);
   }
 
   // Load runs on mount or workspace switch
@@ -112,6 +148,13 @@ export function WorkspaceResearchSynthesisPanel({
       void workspaceActions.loadResearchRuns(workspaceId);
     }
   }, [workspaceId]);
+
+  // Persist selectedRunId whenever it changes
+  useEffect(() => {
+    if (workspaceId > 0) {
+      persistRunId(workspaceId, selectedRunId);
+    }
+  }, [selectedRunId, workspaceId]);
 
   // Only ready documents can be selected for synthesis
   const safeDocs = Array.isArray(documents) ? documents : [];
@@ -130,11 +173,32 @@ export function WorkspaceResearchSynthesisPanel({
     selectedDocIds.length >= 2 &&
     selectedDocIds.length <= 20;
 
-  // Derive active run safely: selected history run > newly triggered run > store head
+  // Derive active run safely: selected history run > newly triggered run > fallback to head
   const activeRun: ResearchRun | null =
     (latestRun && latestRun.workspace_id === workspaceId && (selectedRunId === null || selectedRunId === latestRun.id) ? latestRun : null) ??
     (selectedRunId !== null ? runs.find((r) => r.id === selectedRunId) : null) ??
     (runs[0] ?? null);
+
+  // If a run is persisted or explicitly selected, ensure selectedRunId tracks it
+  const effectiveRunId = selectedRunId ?? (getPersistedRunId(workspaceId));
+
+  // Sync form inputs only when an explicit run is selected/restored (via user click or persistence)
+  const targetRunToSync = effectiveRunId !== null ? runs.find((r) => r.id === effectiveRunId) : null;
+  if (targetRunToSync && targetRunToSync.id !== syncedRunId) {
+    setSyncedRunId(targetRunToSync.id);
+    if (selectedRunId !== targetRunToSync.id) {
+      setSelectedRunId(targetRunToSync.id);
+    }
+    setQuery(targetRunToSync.query);
+    const savedIds = targetRunToSync.run_metadata?.selected_document_ids;
+    if (Array.isArray(savedIds)) {
+      setRawSelectedDocIds(
+        savedIds.filter(
+          (id): id is number => typeof id === "number" && Number.isInteger(id)
+        )
+      );
+    }
+  }
 
   function toggleDocSelection(docId: number) {
     if (!readyDocIdSet.has(docId)) return;
@@ -281,6 +345,7 @@ export function WorkspaceResearchSynthesisPanel({
                 type="button"
                 onClick={() => {
                   setSelectedRunId(run.id);
+                  persistRunId(workspaceId, run.id);
                   setQuery(run.query);
 
                   const savedIds = run.run_metadata?.selected_document_ids;

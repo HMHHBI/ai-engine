@@ -16,14 +16,12 @@ test.describe.serial("M6 Research Synthesis Acceptance Suite", () => {
     sharedPage = await context.newPage();
     sharedPage.on("request", (req: any) => {
       if (req.url().includes("doc") || req.url().includes("research")) {
-        console.log(">> RESEARCH REQ:", req.method(), req.url());
       }
     });
     sharedPage.on("response", async (res: any) => {
       if (res.url().includes("research")) {
         try {
           const body = await res.json();
-          console.log("<< RESEARCH RES:", res.status(), JSON.stringify(body).slice(0, 100));
         } catch {}
       }
     });
@@ -86,10 +84,19 @@ test.describe.serial("M6 Research Synthesis Acceptance Suite", () => {
         await route.continue();
       }
     });
-
-    // 2. Mock document metadata and binary file downloads for PDF Viewer
+        // 2. Structurally valid 4-page PDF for deterministic viewer navigation
     const minimalPdfBytes = Buffer.from(
-      "%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R 6 0 R] /Count 4 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n4 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n5 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n6 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\nxref\n0 7\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000142 00000 n \n0000000192 00000 n \n0000000242 00000 n \n0000000292 00000 n \ntrailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n342\n%%EOF"
+      [
+        "%PDF-1.4",
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj",
+        "2 0 obj\n<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R 6 0 R] /Count 4 >>\nendobj",
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj",
+        "4 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj",
+        "5 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj",
+        "6 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj",
+        "xref\n0 7\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000133 00000 n \n0000000208 00000 n \n0000000283 00000 n \n0000000358 00000 n \n",
+        "trailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n433\n%%EOF",
+      ].join("\n")
     );
 
     await sharedPage.route(/.*\/documents\/\d+.*$/, async (route: any) => {
@@ -120,7 +127,7 @@ test.describe.serial("M6 Research Synthesis Acceptance Suite", () => {
           contentType: "application/json",
           body: JSON.stringify({
             id: docId,
-            chat_id: 1,
+            chat_id: null,
             filename: `rag_test_doc_${docId === 2 ? "alpha" : docId === 3 ? "beta" : "gamma"}.pdf`,
             mime_type: "application/pdf",
             status: "ready",
@@ -212,6 +219,12 @@ test.describe.serial("M6 Research Synthesis Acceptance Suite", () => {
 
     // 4. Authenticate
     await sharedPage.goto("/login");
+    await sharedPage.evaluate(() => {
+      try {
+        window.sessionStorage.clear();
+        window.localStorage.clear();
+      } catch {}
+    });
     await sharedPage.fill("#email", TEST_EMAIL);
     await sharedPage.fill("#password", TEST_PASSWORD);
     await sharedPage.click('button[type="submit"]');
@@ -339,12 +352,12 @@ test.describe.serial("M6 Research Synthesis Acceptance Suite", () => {
   test("R5 — Past runs restore query, selected document IDs, and facet outputs", async () => {
     let panel = sharedPage.locator('[data-testid="research-synthesis-panel"]');
 
-    // Wait for Past Runs button using data-testid and click
+    // Wait for Past Runs button and open history
     const pastRunsBtn = panel.locator('[data-testid="toggle-history-button"]').or(panel.locator('button:has-text("Past Runs")')).first();
     await expect(pastRunsBtn).toBeVisible({ timeout: 10000 });
     await pastRunsBtn.click();
 
-    const runItem = sharedPage.locator('button:has-text("Compare cross-document findings")').first();
+    const runItem = panel.locator('[data-testid="history-run-888"]').or(panel.locator('button:has-text("Compare cross-document findings")')).first();
     await expect(runItem).toBeVisible({ timeout: 10000 });
     await runItem.click();
 
@@ -363,14 +376,21 @@ test.describe.serial("M6 Research Synthesis Acceptance Suite", () => {
     await expect(result).toBeVisible({ timeout: 5000 });
     await expect(result.locator('[data-testid="facet-card-methodology"]')).toBeVisible({ timeout: 5000 });
 
-    // 4. Persistence across reload: reload page and verify run remains available
+    // 4. Persistence across reload: reload page and verify active state restores
     await sharedPage.reload();
     panel = sharedPage.locator('[data-testid="research-synthesis-panel"]');
     await expect(panel).toBeVisible({ timeout: 15000 });
 
-    // Active run from history API is reloaded and displayed
     result = sharedPage.locator('[data-testid="research-run-result"]');
     await expect(result).toBeVisible({ timeout: 10000 });
     await expect(result.locator('[data-testid="facet-card-methodology"]')).toBeVisible({ timeout: 5000 });
+
+    const reloadedTextarea = panel.locator("textarea#synthesis-query");
+    await expect(reloadedTextarea).toHaveValue(/Compare cross-document findings across Alpha, Beta, and Gamma/);
+
+    for (const docId of [2, 3, 4]) {
+      const checkbox = panel.locator(`[data-testid="doc-select-checkbox-${docId}"]`);
+      await expect(checkbox).toBeChecked();
+    }
   });
 });
