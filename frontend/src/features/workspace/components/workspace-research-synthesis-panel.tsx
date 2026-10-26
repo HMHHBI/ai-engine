@@ -118,7 +118,6 @@ export function WorkspaceResearchSynthesisPanel({
   const isLoading = useWorkspaceStore((state) => state.isLoading);
   const error = useWorkspaceStore((state) => state.error);
 
-  const [prevWorkspaceId, setPrevWorkspaceId] = useState(workspaceId);
   const [query, setQuery] = useState("");
   const [rawSelectedDocIds, setRawSelectedDocIds] = useState<number[]>([]);
   const [latestRun, setLatestRun] = useState<ResearchRun | null>(null);
@@ -128,23 +127,25 @@ export function WorkspaceResearchSynthesisPanel({
   const [exportError, setExportError] = useState<string | null>(null);
   const [syncedRunId, setSyncedRunId] = useState<number | null>(null);
 
-  // Synchronously handle workspace transition without wiping persisted run if it belongs to current workspace
-  if (prevWorkspaceId !== workspaceId) {
-    setPrevWorkspaceId(workspaceId);
-    setLatestRun(null);
-    const restored = getPersistedRunId(workspaceId);
-    setSelectedRunId(restored);
-    setRawSelectedDocIds([]);
-    setQuery("");
-    setSyncedRunId(null);
-  }
-
   // Load runs on mount or workspace switch
   useEffect(() => {
     if (workspaceId > 0) {
       void workspaceActions.loadResearchRuns(workspaceId);
     }
   }, [workspaceId]);
+
+  // Validate persisted run once runs are fetched; clear invalid run ID from storage and state
+  useEffect(() => {
+    if (selectedRunId === null || runs.length === 0) return;
+    const exists = runs.some((r) => r.id === selectedRunId);
+    if (!exists) {
+      persistRunId(workspaceId, null);
+      // Schedule state reset outside the current render pass
+      queueMicrotask(() => {
+        setSelectedRunId((prev) => (prev === selectedRunId ? null : prev));
+      });
+    }
+  }, [runs, selectedRunId, workspaceId]);
 
   // Persist selectedRunId whenever it changes
   useEffect(() => {

@@ -73,20 +73,40 @@ test.describe.serial("M6 Research Synthesis Acceptance Suite", () => {
         await route.continue();
       }
     });
-        // 2. Structurally valid 4-page PDF for deterministic viewer navigation
-    const minimalPdfBytes = Buffer.from(
-      [
-        "%PDF-1.4",
+        // 2. Generate a structurally valid 4-page PDF with byte-accurate cross-reference table
+    function buildValidFourPagePdf(): Buffer {
+      const objects = [
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj",
         "2 0 obj\n<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R 6 0 R] /Count 4 >>\nendobj",
         "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj",
         "4 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj",
         "5 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj",
         "6 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj",
-        "xref\n0 7\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000133 00000 n \n0000000208 00000 n \n0000000283 00000 n \n0000000358 00000 n \n",
-        "trailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n433\n%%EOF",
-      ].join("\n")
-    );
+      ];
+
+      const header = "%PDF-1.4\n";
+      let body = "";
+      const offsets: number[] = [];
+
+      let currentOffset = Buffer.byteLength(header, "ascii");
+      for (const obj of objects) {
+        offsets.push(currentOffset);
+        const objStr = obj + "\n";
+        body += objStr;
+        currentOffset += Buffer.byteLength(objStr, "ascii");
+      }
+
+      const startXref = currentOffset;
+      let xref = `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+      for (const off of offsets) {
+        xref += `${String(off).padStart(10, "0")} 00000 n \n`;
+      }
+
+      const trailer = `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${startXref}\n%%EOF\n`;
+      return Buffer.from(header + body + xref + trailer, "ascii");
+    }
+
+    const minimalPdfBytes = buildValidFourPagePdf();
 
     await sharedPage.route(/.*\/documents\/\d+.*$/, async (route: any) => {
       const url = route.request().url();
