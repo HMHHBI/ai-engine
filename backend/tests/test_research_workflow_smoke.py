@@ -5,8 +5,13 @@ Validates the end-to-end multi-document research synthesis workflow:
 1. Deterministic seeding of multi-paper research workspaces.
 2. Isolated synthesis run creation and lifecycle verification.
 3. Structured facet output contract (methodology, datasets, metrics, findings, limitations).
-4. Citation attribution and passage provenance verification.
-5. Workspace boundary isolation and unselected document rejection.
+4. Citation attribution and passage/chunk provenance verification.
+5. Workspace boundary isolation and unready document rejection.
+
+Note on Architecture & Retrieval:
+The underlying backend retrieval pipeline performs keyword and token matching to rank
+and inject document chunks into prompt citations ([C1], [C2]). The SmokeResearchProvider
+acts as a deterministic LLM mock that emits structured facets referencing those citations.
 """
 
 from __future__ import annotations
@@ -33,7 +38,7 @@ from app.services.providers.factory import LLMProviderFactory
 
 
 class SmokeResearchProvider:
-    """Deterministic LLM Provider specifically for the isolated smoke profile."""
+    """Deterministic LLM Provider returning static mock response for the smoke test."""
 
     async def generate_response(
         self,
@@ -109,7 +114,7 @@ def create_smoke_document(
     filename: str,
     content: str,
     status: str = "ready",
-) -> Document:
+) -> tuple[Document, DocumentChunk]:
     chat = Chat(user_id=user.id, title=f"Chat for {filename}")
     db_session.add(chat)
     db_session.commit()
@@ -136,7 +141,8 @@ def create_smoke_document(
     )
     db_session.add(chunk)
     db_session.commit()
-    return doc
+    db_session.refresh(chunk)
+    return doc, chunk
 
 
 def associate_smoke_doc(
@@ -168,13 +174,13 @@ def test_isolated_research_workflow_smoke_profile(
     user = create_smoke_user(db_session, "smoke-runner@example.test")
     ws_id = create_smoke_workspace(client, user, "Smoke Research Workspace")
 
-    doc_a = create_smoke_document(
+    doc_a, chunk_a = create_smoke_document(
         db_session,
         user=user,
         filename="paper_a.pdf",
         content="Linear attention mechanisms improve latency during benchmark evaluations significantly.",
     )
-    doc_b = create_smoke_document(
+    doc_b, chunk_b = create_smoke_document(
         db_session,
         user=user,
         filename="paper_b.pdf",
@@ -183,6 +189,12 @@ def test_isolated_research_workflow_smoke_profile(
 
     associate_smoke_doc(db_session, ws_id, doc_a.id, user.id)
     associate_smoke_doc(db_session, ws_id, doc_b.id, user.id)
+
+    # Provenance tracking: map chunk_id to expected document_id
+    seeded_chunk_to_doc = {
+        chunk_a.id: doc_a.id,
+        chunk_b.id: doc_b.id,
+    }
 
     # 1. Trigger synthesis run
     response = client.post(
@@ -209,14 +221,21 @@ def test_isolated_research_workflow_smoke_profile(
         assert isinstance(facets[expected_facet], str)
         assert len(facets[expected_facet].strip()) > 0
 
-    # 4. Assert Citations & Provenance
+    # 4. Assert Citations & Precise Chunk Provenance
     citations = run_payload.get("citations")
     assert isinstance(citations, list)
     assert len(citations) >= 2
     cited_doc_ids = {c["document_id"] for c in citations}
     assert cited_doc_ids == {doc_a.id, doc_b.id}
+
     for c in citations:
-        assert c["chunk_id"] > 0
+        c_chunk_id = c["chunk_id"]
+        c_doc_id = c["document_id"]
+        assert c_chunk_id in seeded_chunk_to_doc, f"Unknown chunk_id {c_chunk_id} cited"
+        assert seeded_chunk_to_doc[c_chunk_id] == c_doc_id, (
+            f"Chunk ownership mismatch: chunk {c_chunk_id} belongs to "
+            f"doc {seeded_chunk_to_doc[c_chunk_id]}, but cited under doc {c_doc_id}"
+        )
         assert c["filename"] in ("paper_a.pdf", "paper_b.pdf")
         assert len(c["excerpt"]) > 0
 
@@ -247,24 +266,26 @@ def test_smoke_profile_guards_unselected_and_unready_documents(
     smoke_research_providers,
 ):
     """
-    Smoke profile error boundary: guards against documents not in workspace
-    or documents not yet in 'ready' status.
+    Smoke profile error boundary:
+    1. Rejects unready documents (e.g. status='processing').
+    2. Rejects documents owned by the same user but assigned to a different workspace (isolated workspace boundary).
     """
     user = create_smoke_user(db_session, "smoke-guards@example.test")
-    ws_id = create_smoke_workspace(client, user, "Smoke Guards Workspace")
+    ws_target = create_smoke_workspace(client, user, "Target Research Workspace")
+    ws_other = create_smoke_workspace(client, user, "Other Distinct Workspace")
 
-    doc_processing = create_smoke_document(
+    doc_processing, _ = create_smoke_document(
         db_session,
         user=user,
         filename="processing.pdf",
         content="Processing content...",
         status="processing",
     )
-    associate_smoke_doc(db_session, ws_id, doc_processing.id, user.id)
+    associate_smoke_doc(db_session, ws_target, doc_processing.id, user.id)
 
     # 1. Unready document rejection
     res = client.post(
-        f"/workspaces/{ws_id}/research/runs",
+        f"/workspaces/{ws_target}/research/runs",
         headers=smoke_auth_headers(user),
         json={
             "query": "test unready guard",
@@ -273,21 +294,24 @@ def test_smoke_profile_guards_unselected_and_unready_documents(
     )
     assert res.status_code in (400, 422)
 
-    # 2. Document outside workspace rejection
-    other_user = create_smoke_user(db_session, "other-user@example.test")
-    doc_outside = create_smoke_document(
+    # 2. Workspace boundary isolation: document is owned by the SAME user,
+    # but strictly associated with ws_other, not ws_target.
+    doc_in_other_ws, _ = create_smoke_document(
         db_session,
-        user=other_user,
-        filename="outside.pdf",
-        content="Sensitive foreign content.",
+        user=user,
+        filename="other_workspace_doc.pdf",
+        content="Content belonging to another workspace.",
         status="ready",
     )
-    res_outside = client.post(
-        f"/workspaces/{ws_id}/research/runs",
+    associate_smoke_doc(db_session, ws_other, doc_in_other_ws.id, user.id)
+
+    res_cross_workspace = client.post(
+        f"/workspaces/{ws_target}/research/runs",
         headers=smoke_auth_headers(user),
         json={
-            "query": "test outside guard",
-            "document_ids": [doc_outside.id],
+            "query": "test cross workspace guard",
+            "document_ids": [doc_in_other_ws.id],
         },
     )
-    assert res_outside.status_code in (400, 404, 422)
+    # Must reject because document is not in ws_target
+    assert res_cross_workspace.status_code in (400, 404, 422)
