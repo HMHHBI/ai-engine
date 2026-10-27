@@ -164,9 +164,10 @@ def validate_dataset(data: Any, min_cases: int = 30) -> None:
             if not isinstance(exp_docs, list):
                 raise DatasetValidationError(f"Case {case_id} claim {cid} expected_document_keys must be a list.")
             for ed in exp_docs:
+                if not isinstance(ed, str) or not ed.strip():
+                    raise DatasetValidationError(f"Case {case_id} claim {cid} has non-string expected_document_key.")
                 if ed not in doc_keys:
                     raise DatasetValidationError(f"Case {case_id} claim {cid} expects unknown document_key: {ed}")
-                # Enforce that gold claims cannot require unselected documents
                 if ed not in selected_key_set:
                     raise DatasetValidationError(
                         f"Case {case_id} claim {cid} expects unselected document_key '{ed}'."
@@ -176,6 +177,8 @@ def validate_dataset(data: Any, min_cases: int = 30) -> None:
             if not isinstance(exp_passages, list):
                 raise DatasetValidationError(f"Case {case_id} claim {cid} expected_passage_ids must be a list.")
             for ep in exp_passages:
+                if not isinstance(ep, str) or not ep.strip():
+                    raise DatasetValidationError(f"Case {case_id} claim {cid} has non-string expected_passage_id.")
                 if ep not in seen_passages_in_case:
                     raise DatasetValidationError(f"Case {case_id} claim {cid} expects unknown passage_id: {ep}")
 
@@ -203,8 +206,12 @@ def validate_predictions_structure(
         if not isinstance(cand, dict):
             raise PredictionValidationError(f"Prediction for '{case_id}' must be a JSON object.")
 
-        if "retrieved_passage_ids" in cand and not isinstance(cand["retrieved_passage_ids"], list):
-            raise PredictionValidationError(f"Case '{case_id}' retrieved_passage_ids must be a list.")
+        if "retrieved_passage_ids" in cand:
+            if not isinstance(cand["retrieved_passage_ids"], list):
+                raise PredictionValidationError(f"Case '{case_id}' retrieved_passage_ids must be a list.")
+            for pid in cand["retrieved_passage_ids"]:
+                if not isinstance(pid, str) or not pid.strip():
+                    raise PredictionValidationError(f"Case '{case_id}' has non-string retrieved_passage_id.")
 
         facets = cand.get("facets", {})
         if not isinstance(facets, dict):
@@ -214,21 +221,36 @@ def validate_predictions_structure(
         if not isinstance(top_citations, list):
             raise PredictionValidationError(f"Case '{case_id}' citations must be a list.")
         for cit in top_citations:
-            if not isinstance(cit, dict) or "document_key" not in cit or "passage_id" not in cit:
-                raise PredictionValidationError(f"Case '{case_id}' invalid top-level citation object.")
+            if not isinstance(cit, dict):
+                raise PredictionValidationError(f"Case '{case_id}' top-level citation must be an object.")
+            doc_key = cit.get("document_key")
+            passage_id = cit.get("passage_id")
+            if not isinstance(doc_key, str) or not doc_key.strip():
+                raise PredictionValidationError(f"Case '{case_id}' citation missing string 'document_key'.")
+            if not isinstance(passage_id, str) or not passage_id.strip():
+                raise PredictionValidationError(f"Case '{case_id}' citation missing string 'passage_id'.")
 
         pred_claims = cand.get("predicted_claims", [])
         if not isinstance(pred_claims, list):
             raise PredictionValidationError(f"Case '{case_id}' predicted_claims must be a list.")
         for pc in pred_claims:
-            if not isinstance(pc, dict) or "claim_id" not in pc:
-                raise PredictionValidationError(f"Case '{case_id}' predicted claim missing 'claim_id'.")
+            if not isinstance(pc, dict):
+                raise PredictionValidationError(f"Case '{case_id}' predicted claim must be an object.")
+            cid = pc.get("claim_id")
+            if not isinstance(cid, str) or not cid.strip():
+                raise PredictionValidationError(f"Case '{case_id}' predicted claim missing string 'claim_id'.")
             claim_cits = pc.get("citations", [])
             if not isinstance(claim_cits, list):
                 raise PredictionValidationError(f"Case '{case_id}' claim citations must be a list.")
             for cit in claim_cits:
-                if not isinstance(cit, dict) or "document_key" not in cit or "passage_id" not in cit:
-                    raise PredictionValidationError(f"Case '{case_id}' invalid claim citation object.")
+                if not isinstance(cit, dict):
+                    raise PredictionValidationError(f"Case '{case_id}' claim citation must be an object.")
+                doc_key = cit.get("document_key")
+                passage_id = cit.get("passage_id")
+                if not isinstance(doc_key, str) or not doc_key.strip():
+                    raise PredictionValidationError(f"Case '{case_id}' claim citation missing string 'document_key'.")
+                if not isinstance(passage_id, str) or not passage_id.strip():
+                    raise PredictionValidationError(f"Case '{case_id}' claim citation missing string 'passage_id'.")
 
 
 @dataclass
@@ -433,15 +455,28 @@ def score_case_synthesis(
 
     covered_gold_claims = 0
     for cid, gc in gold_claims.items():
-        exp_p = set(gc.get("expected_passage_ids", []))
+        expected_docs = set(gc.get("expected_document_keys", []))
+        expected_passages = set(gc.get("expected_passage_ids", []))
+        
+        # Collect all valid (doc_key, passage_id) citations provided across predictions for this claim
+        docs_covered_for_claim = set()
         for p_claim in pred_claims:
             if p_claim.get("claim_id") == cid:
                 for cit in p_claim.get("citations", []):
                     c_pid = cit.get("passage_id")
                     c_doc = cit.get("document_key")
-                    if c_pid in exp_p and passage_to_doc.get(c_pid) == c_doc and c_doc in selected_doc_keys:
-                        covered_gold_claims += 1
-                        break
+                    if (
+                        c_pid in expected_passages
+                        and passage_to_doc.get(c_pid) == c_doc
+                        and c_doc in selected_doc_keys
+                    ):
+                        docs_covered_for_claim.add(c_doc)
+        
+        # A comparative claim is only covered if evidence is cited from every required document
+        if expected_docs and expected_docs.issubset(docs_covered_for_claim):
+            covered_gold_claims += 1
+        elif not expected_docs and docs_covered_for_claim:
+            covered_gold_claims += 1
 
     citation_coverage = covered_gold_claims / len(gold_claims) if gold_claims else 1.0
     unsupported_claim_rate = (

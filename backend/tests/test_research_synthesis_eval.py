@@ -290,3 +290,85 @@ def test_cli_returns_code_0_on_passing_predictions(tmp_path, monkeypatch):
 
     monkeypatch.setattr(sys, "argv", ["prog", "--dataset", str(dataset_file), "--predictions", str(pred_file), "--min-cases", "1"])
     assert main() == 0
+
+
+def test_comparative_claim_coverage_requires_all_expected_documents(valid_dataset_payload):
+    # Set up a comparative claim requiring evidence from both paper-a and paper-b
+    case = valid_dataset_payload["cases"][0]
+    case["claims"] = [
+        {
+            "claim_id": "comparative-claim",
+            "expected_document_keys": ["paper-a", "paper-b"],
+            "expected_passage_ids": ["p-a-1", "p-b-1"],
+        }
+    ]
+
+    # Candidate cites only paper-a
+    partial_candidate = {
+        "retrieved_passage_ids": ["p-a-1", "p-b-1"],
+        "facets": {f: "content" for f in case["required_facets"]},
+        "citations": [
+            {"document_key": "paper-a", "passage_id": "p-a-1", "page_number": 1, "chunk_id": 1}
+        ],
+        "predicted_claims": [
+            {
+                "claim_id": "comparative-claim",
+                "citations": [
+                    {"document_key": "paper-a", "passage_id": "p-a-1"}
+                ]
+            }
+        ],
+    }
+    res_partial = score_case_synthesis(case, partial_candidate)
+    # Must fail coverage because paper-b was not cited
+    assert res_partial.citation_coverage == 0.0
+
+    # Candidate cites both paper-a and paper-b
+    complete_candidate = {
+        "retrieved_passage_ids": ["p-a-1", "p-b-1"],
+        "facets": {f: "content" for f in case["required_facets"]},
+        "citations": [
+            {"document_key": "paper-a", "passage_id": "p-a-1", "page_number": 1, "chunk_id": 1},
+            {"document_key": "paper-b", "passage_id": "p-b-1", "page_number": 1, "chunk_id": 2},
+        ],
+        "predicted_claims": [
+            {
+                "claim_id": "comparative-claim",
+                "citations": [
+                    {"document_key": "paper-a", "passage_id": "p-a-1"},
+                    {"document_key": "paper-b", "passage_id": "p-b-1"},
+                ]
+            }
+        ],
+    }
+    res_complete = score_case_synthesis(case, complete_candidate)
+    assert res_complete.citation_coverage == 1.0
+
+
+def test_validate_predictions_rejects_malformed_nested_types(valid_dataset_payload):
+    # Non-string retrieved passage ID
+    bad_retrieval = {
+        "case-001": {
+            "retrieved_passage_ids": [123],
+            "facets": {},
+        }
+    }
+    with pytest.raises(PredictionValidationError, match="non-string retrieved_passage_id"):
+        validate_predictions_structure(bad_retrieval, valid_dataset_payload["cases"])
+
+    # Non-string citation document_key
+    bad_cit_key = {
+        "case-001": {
+            "retrieved_passage_ids": ["p-a-1"],
+            "citations": [{"document_key": 999, "passage_id": "p-a-1"}],
+        }
+    }
+    with pytest.raises(PredictionValidationError, match="missing string 'document_key'"):
+        validate_predictions_structure(bad_cit_key, valid_dataset_payload["cases"])
+
+
+def test_validate_dataset_rejects_malformed_claim_nested_types(valid_dataset_payload):
+    # Non-string expected_document_key in gold claim
+    valid_dataset_payload["cases"][0]["claims"][0]["expected_document_keys"] = [12345]
+    with pytest.raises(DatasetValidationError, match="non-string expected_document_key"):
+        validate_dataset(valid_dataset_payload, min_cases=1)
