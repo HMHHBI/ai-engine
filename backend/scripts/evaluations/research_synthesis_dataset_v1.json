@@ -1,0 +1,2263 @@
+{
+  "schema_version": "1.0",
+  "dataset_id": "research-synthesis-v1",
+  "description": "Synthetic draft benchmark v1 for multi-paper research synthesis and citation evaluation contract.",
+  "cases": [
+    {
+      "case_id": "synth-001",
+      "title": "Retrieval-Augmented Generation Latency and Throughput",
+      "question": "Compare methodology, datasets, findings, and limitations across the selected studies regarding Retrieval-Augmented Generation Latency and Throughput.",
+      "documents": [
+        {
+          "document_key": "comparison-rag-perf-paper-a",
+          "fixture": "fixtures/comparison-rag-perf-paper-a.pdf",
+          "relevant_passage_ids": [
+            "comparison-rag-perf-paper-a-p1",
+            "comparison-rag-perf-paper-a-p2"
+          ]
+        },
+        {
+          "document_key": "comparison-rag-perf-paper-b",
+          "fixture": "fixtures/comparison-rag-perf-paper-b.pdf",
+          "relevant_passage_ids": [
+            "comparison-rag-perf-paper-b-p1"
+          ]
+        },
+        {
+          "document_key": "comparison-rag-perf-paper-c",
+          "fixture": "fixtures/comparison-rag-perf-paper-c.pdf",
+          "relevant_passage_ids": [
+            "comparison-rag-perf-paper-c-p1"
+          ]
+        }
+      ],
+      "required_facets": [
+        "methodology",
+        "datasets",
+        "metrics",
+        "findings",
+        "limitations"
+      ],
+      "claims": [
+        {
+          "claim_id": "claim-001-m1",
+          "claim_type": "methodology",
+          "expected_document_keys": [
+            "comparison-rag-perf-paper-a"
+          ],
+          "expected_passage_ids": [
+            "comparison-rag-perf-paper-a-p1"
+          ],
+          "description": "Experimental methodology proposed in comparison-rag-perf-paper-a"
+        },
+        {
+          "claim_id": "claim-001-d1",
+          "claim_type": "datasets",
+          "expected_document_keys": [
+            "comparison-rag-perf-paper-b"
+          ],
+          "expected_passage_ids": [
+            "comparison-rag-perf-paper-b-p1"
+          ],
+          "description": "Dataset split and benchmark setup used in comparison-rag-perf-paper-b"
+        },
+        {
+          "claim_id": "claim-001-r1",
+          "claim_type": "findings",
+          "expected_document_keys": [
+            "comparison-rag-perf-paper-a",
+            "comparison-rag-perf-paper-c"
+          ],
+          "expected_passage_ids": [
+            "comparison-rag-perf-paper-a-p2",
+            "comparison-rag-perf-paper-c-p1"
+          ],
+          "description": "Observed findings and consensus across comparison-rag-perf-paper-a and comparison-rag-perf-paper-c"
+        }
+      ],
+      "known_conflicts": [],
+      "unanswerable_questions": []
+    },
+    {
+      "case_id": "synth-002",
+      "title": "Vector Index Trade-offs: HNSW vs IVF-PQ",
+      "question": "Compare methodology, datasets, findings, and limitations across the selected studies regarding Vector Index Trade-offs: HNSW vs IVF-PQ.",
+      "documents": [
+        {
+          "document_key": "comparison-vector-index-paper-a",
+          "fixture": "fixtures/comparison-vector-index-paper-a.pdf",
+          "relevant_passage_ids": [
+            "comparison-vector-index-paper-a-p1",
+            "comparison-vector-index-paper-a-p2"
+          ]
+        },
+        {
+          "document_key": "comparison-vector-index-paper-b",
+          "fixture": "fixtures/comparison-vector-index-paper-b.pdf",
+          "relevant_passage_ids": [
+            "comparison-vector-index-paper-b-p1"
+          ]
+        },
+        {
+          "document_key": "comparison-vector-index-paper-c",
+          "fixture": "fixtures/comparison-vector-index-paper-c.pdf",
+          "relevant_passage_ids": [
+            "comparison-vector-index-paper-c-p1"
+          ]
+        }
+      ],
+      "required_facets": [
+        "methodology",
+        "datasets",
+        "metrics",
+        "findings",
+        "limitations"
+      ],
+      "claims": [
+        {
+          "claim_id": "claim-002-m1",
+          "claim_type": "methodology",
+          "expected_document_keys": [
+            "comparison-vector-index-paper-a"
+          ],
+          "expected_passage_ids": [
+            "comparison-vector-index-paper-a-p1"
+          ],
+          "description": "Experimental methodology proposed in comparison-vector-index-paper-a"
+        },
+        {
+          "claim_id": "claim-002-d1",
+          "claim_type": "datasets",
+          "expected_document_keys": [
+            "comparison-vector-index-paper-b"
+          ],
+          "expected_passage_ids": [
+            "comparison-vector-index-paper-b-p1"
+          ],
+          "description": "Dataset split and benchmark setup used in comparison-vector-index-paper-b"
+        },
+        {
+          "claim_id": "claim-002-r1",
+          "claim_type": "findings",
+          "expected_document_keys": [
+            "comparison-vector-index-paper-a",
+            "comparison-vector-index-paper-c"
+          ],
+          "expected_passage_ids": [
+            "comparison-vector-index-paper-a-p2",
+            "comparison-vector-index-paper-c-p1"
+          ],
+          "description": "Observed findings and consensus across comparison-vector-index-paper-a and comparison-vector-index-paper-c"
+        }
+      ],
+      "known_conflicts": [],
+      "unanswerable_questions": []
+    },
+    {
+      "case_id": "synth-003",
+      "title": "Dense vs Sparse vs Hybrid Retrieval for Domain QA",
+      "question": "Compare methodology, datasets, findings, and limitations across the selected studies regarding Dense vs Sparse vs Hybrid Retrieval for Domain QA.",
+      "documents": [
+        {
+          "document_key": "comparison-retrieval-hybrid-paper-a",
+          "fixture": "fixtures/comparison-retrieval-hybrid-paper-a.pdf",
+          "relevant_passage_ids": [
+            "comparison-retrieval-hybrid-paper-a-p1",
+            "comparison-retrieval-hybrid-paper-a-p2"
+          ]
+        },
+        {
+          "document_key": "comparison-retrieval-hybrid-paper-b",
+          "fixture": "fixtures/comparison-retrieval-hybrid-paper-b.pdf",
+          "relevant_passage_ids": [
+            "comparison-retrieval-hybrid-paper-b-p1"
+          ]
+        },
+        {
+          "document_key": "comparison-retrieval-hybrid-paper-c",
+          "fixture": "fixtures/comparison-retrieval-hybrid-paper-c.pdf",
+          "relevant_passage_ids": [
+            "comparison-retrieval-hybrid-paper-c-p1"
+          ]
+        }
+      ],
+      "required_facets": [
+        "methodology",
+        "datasets",
+        "metrics",
+        "findings",
+        "limitations"
+      ],
+      "claims": [
+        {
+          "claim_id": "claim-003-m1",
+          "claim_type": "methodology",
+          "expected_document_keys": [
+            "comparison-retrieval-hybrid-paper-a"
+          ],
+          "expected_passage_ids": [
+            "comparison-retrieval-hybrid-paper-a-p1"
+          ],
+          "description": "Experimental methodology proposed in comparison-retrieval-hybrid-paper-a"
+        },
+        {
+          "claim_id": "claim-003-d1",
+          "claim_type": "datasets",
+          "expected_document_keys": [
+            "comparison-retrieval-hybrid-paper-b"
+          ],
+          "expected_passage_ids": [
+            "comparison-retrieval-hybrid-paper-b-p1"
+          ],
+          "description": "Dataset split and benchmark setup used in comparison-retrieval-hybrid-paper-b"
+        },
+        {
+          "claim_id": "claim-003-r1",
+          "claim_type": "findings",
+          "expected_document_keys": [
+            "comparison-retrieval-hybrid-paper-a",
+            "comparison-retrieval-hybrid-paper-c"
+          ],
+          "expected_passage_ids": [
+            "comparison-retrieval-hybrid-paper-a-p2",
+            "comparison-retrieval-hybrid-paper-c-p1"
+          ],
+          "description": "Observed findings and consensus across comparison-retrieval-hybrid-paper-a and comparison-retrieval-hybrid-paper-c"
+        }
+      ],
+      "known_conflicts": [
+        "Conflicting accuracy tradeoffs between comparison-retrieval-hybrid-paper-a and comparison-retrieval-hybrid-paper-b"
+      ],
+      "unanswerable_questions": []
+    },
+    {
+      "case_id": "synth-004",
+      "title": "Chunking Granularity: Sentence vs Fixed Token vs Semantic",
+      "question": "Compare methodology, datasets, findings, and limitations across the selected studies regarding Chunking Granularity: Sentence vs Fixed Token vs Semantic.",
+      "documents": [
+        {
+          "document_key": "comparison-chunking-granularity-paper-a",
+          "fixture": "fixtures/comparison-chunking-granularity-paper-a.pdf",
+          "relevant_passage_ids": [
+            "comparison-chunking-granularity-paper-a-p1",
+            "comparison-chunking-granularity-paper-a-p2"
+          ]
+        },
+        {
+          "document_key": "comparison-chunking-granularity-paper-b",
+          "fixture": "fixtures/comparison-chunking-granularity-paper-b.pdf",
+          "relevant_passage_ids": [
+            "comparison-chunking-granularity-paper-b-p1"
+          ]
+        },
+        {
+          "document_key": "comparison-chunking-granularity-paper-c",
+          "fixture": "fixtures/comparison-chunking-granularity-paper-c.pdf",
+          "relevant_passage_ids": [
+            "comparison-chunking-granularity-paper-c-p1"
+          ]
+        }
+      ],
+      "required_facets": [
+        "methodology",
+        "datasets",
+        "metrics",
+        "findings",
+        "limitations"
+      ],
+      "claims": [
+        {
+          "claim_id": "claim-004-m1",
+          "claim_type": "methodology",
+          "expected_document_keys": [
+            "comparison-chunking-granularity-paper-a"
+          ],
+          "expected_passage_ids": [
+            "comparison-chunking-granularity-paper-a-p1"
+          ],
+          "description": "Experimental methodology proposed in comparison-chunking-granularity-paper-a"
+        },
+        {
+          "claim_id": "claim-004-d1",
+          "claim_type": "datasets",
+          "expected_document_keys": [
+            "comparison-chunking-granularity-paper-b"
+          ],
+          "expected_passage_ids": [
+            "comparison-chunking-granularity-paper-b-p1"
+          ],
+          "description": "Dataset split and benchmark setup used in comparison-chunking-granularity-paper-b"
+        },
+        {
+          "claim_id": "claim-004-r1",
+          "claim_type": "findings",
+          "expected_document_keys": [
+            "comparison-chunking-granularity-paper-a",
+            "comparison-chunking-granularity-paper-c"
+          ],
+          "expected_passage_ids": [
+            "comparison-chunking-granularity-paper-a-p2",
+            "comparison-chunking-granularity-paper-c-p1"
+          ],
+          "description": "Observed findings and consensus across comparison-chunking-granularity-paper-a and comparison-chunking-granularity-paper-c"
+        }
+      ],
+      "known_conflicts": [],
+      "unanswerable_questions": []
+    },
+    {
+      "case_id": "synth-005",
+      "title": "Cross-Encoder Reranking Precision Gains vs Latency Overhead",
+      "question": "Compare methodology, datasets, findings, and limitations across the selected studies regarding Cross-Encoder Reranking Precision Gains vs Latency Overhead.",
+      "documents": [
+        {
+          "document_key": "comparison-reranking-overhead-paper-a",
+          "fixture": "fixtures/comparison-reranking-overhead-paper-a.pdf",
+          "relevant_passage_ids": [
+            "comparison-reranking-overhead-paper-a-p1",
+            "comparison-reranking-overhead-paper-a-p2"
+          ]
+        },
+        {
+          "document_key": "comparison-reranking-overhead-paper-b",
+          "fixture": "fixtures/comparison-reranking-overhead-paper-b.pdf",
+          "relevant_passage_ids": [
+            "comparison-reranking-overhead-paper-b-p1"
+          ]
+        },
+        {
+          "document_key": "comparison-reranking-overhead-paper-c",
+          "fixture": "fixtures/comparison-reranking-overhead-paper-c.pdf",
+          "relevant_passage_ids": [
+            "comparison-reranking-overhead-paper-c-p1"
+          ]
+        }
+      ],
+      "required_facets": [
+        "methodology",
+        "datasets",
+        "metrics",
+        "findings",
+        "limitations"
+      ],
+      "claims": [
+        {
+          "claim_id": "claim-005-m1",
+          "claim_type": "methodology",
+          "expected_document_keys": [
+            "comparison-reranking-overhead-paper-a"
+          ],
+          "expected_passage_ids": [
+            "comparison-reranking-overhead-paper-a-p1"
+          ],
+          "description": "Experimental methodology proposed in comparison-reranking-overhead-paper-a"
+        },
+        {
+          "claim_id": "claim-005-d1",
+          "claim_type": "datasets",
+          "expected_document_keys": [
+            "comparison-reranking-overhead-paper-b"
+          ],
+          "expected_passage_ids": [
+            "comparison-reranking-overhead-paper-b-p1"
+          ],
+          "description": "Dataset split and benchmark setup used in comparison-reranking-overhead-paper-b"
+        },
+        {
+          "claim_id": "claim-005-r1",
+          "claim_type": "findings",
+          "expected_document_keys": [
+            "comparison-reranking-overhead-paper-a",
+            "comparison-reranking-overhead-paper-c"
+          ],
+          "expected_passage_ids": [
+            "comparison-reranking-overhead-paper-a-p2",
+            "comparison-reranking-overhead-paper-c-p1"
+          ],
+          "description": "Observed findings and consensus across comparison-reranking-overhead-paper-a and comparison-reranking-overhead-paper-c"
+        }
+      ],
+      "known_conflicts": [],
+      "unanswerable_questions": []
+    },
+    {
+      "case_id": "synth-006",
+      "title": "Context Compression Methods for Long-Document QA",
+      "question": "Compare methodology, datasets, findings, and limitations across the selected studies regarding Context Compression Methods for Long-Document QA.",
+      "documents": [
+        {
+          "document_key": "comparison-context-compression-paper-a",
+          "fixture": "fixtures/comparison-context-compression-paper-a.pdf",
+          "relevant_passage_ids": [
+            "comparison-context-compression-paper-a-p1",
+            "comparison-context-compression-paper-a-p2"
+          ]
+        },
+        {
+          "document_key": "comparison-context-compression-paper-b",
+          "fixture": "fixtures/comparison-context-compression-paper-b.pdf",
+          "relevant_passage_ids": [
+            "comparison-context-compression-paper-b-p1"
+          ]
+        },
+        {
+          "document_key": "comparison-context-compression-paper-c",
+          "fixture": "fixtures/comparison-context-compression-paper-c.pdf",
+          "relevant_passage_ids": [
+            "comparison-context-compression-paper-c-p1"
+          ]
+        }
+      ],
+      "required_facets": [
+        "methodology",
+        "datasets",
+        "metrics",
+        "findings",
+        "limitations"
+      ],
+      "claims": [
+        {
+          "claim_id": "claim-006-m1",
+          "claim_type": "methodology",
+          "expected_document_keys": [
+            "comparison-context-compression-paper-a"
+          ],
+          "expected_passage_ids": [
+            "comparison-context-compression-paper-a-p1"
+          ],
+          "description": "Experimental methodology proposed in comparison-context-compression-paper-a"
+        },
+        {
+          "claim_id": "claim-006-d1",
+          "claim_type": "datasets",
+          "expected_document_keys": [
+            "comparison-context-compression-paper-b"
+          ],
+          "expected_passage_ids": [
+            "comparison-context-compression-paper-b-p1"
+          ],
+          "description": "Dataset split and benchmark setup used in comparison-context-compression-paper-b"
+        },
+        {
+          "claim_id": "claim-006-r1",
+          "claim_type": "findings",
+          "expected_document_keys": [
+            "comparison-context-compression-paper-a",
+            "comparison-context-compression-paper-c"
+          ],
+          "expected_passage_ids": [
+            "comparison-context-compression-paper-a-p2",
+            "comparison-context-compression-paper-c-p1"
+          ],
+          "description": "Observed findings and consensus across comparison-context-compression-paper-a and comparison-context-compression-paper-c"
+        }
+      ],
+      "known_conflicts": [],
+      "unanswerable_questions": []
+    },
+    {
+      "case_id": "synth-007",
+      "title": "Citation Faithfulness and Hallucination Reduction in LLMs",
+      "question": "Compare methodology, datasets, findings, and limitations across the selected studies regarding Citation Faithfulness and Hallucination Reduction in LLMs.",
+      "documents": [
+        {
+          "document_key": "comparison-citation-faithfulness-paper-a",
+          "fixture": "fixtures/comparison-citation-faithfulness-paper-a.pdf",
+          "relevant_passage_ids": [
+            "comparison-citation-faithfulness-paper-a-p1",
+            "comparison-citation-faithfulness-paper-a-p2"
+          ]
+        },
+        {
+          "document_key": "comparison-citation-faithfulness-paper-b",
+          "fixture": "fixtures/comparison-citation-faithfulness-paper-b.pdf",
+          "relevant_passage_ids": [
+            "comparison-citation-faithfulness-paper-b-p1"
+          ]
+        },
+        {
+          "document_key": "comparison-citation-faithfulness-paper-c",
+          "fixture": "fixtures/comparison-citation-faithfulness-paper-c.pdf",
+          "relevant_passage_ids": [
+            "comparison-citation-faithfulness-paper-c-p1"
+          ]
+        }
+      ],
+      "required_facets": [
+        "methodology",
+        "datasets",
+        "metrics",
+        "findings",
+        "limitations"
+      ],
+      "claims": [
+        {
+          "claim_id": "claim-007-m1",
+          "claim_type": "methodology",
+          "expected_document_keys": [
+            "comparison-citation-faithfulness-paper-a"
+          ],
+          "expected_passage_ids": [
+            "comparison-citation-faithfulness-paper-a-p1"
+          ],
+          "description": "Experimental methodology proposed in comparison-citation-faithfulness-paper-a"
+        },
+        {
+          "claim_id": "claim-007-d1",
+          "claim_type": "datasets",
+          "expected_document_keys": [
+            "comparison-citation-faithfulness-paper-b"
+          ],
+          "expected_passage_ids": [
+            "comparison-citation-faithfulness-paper-b-p1"
+          ],
+          "description": "Dataset split and benchmark setup used in comparison-citation-faithfulness-paper-b"
+        },
+        {
+          "claim_id": "claim-007-r1",
+          "claim_type": "findings",
+          "expected_document_keys": [
+            "comparison-citation-faithfulness-paper-a",
+            "comparison-citation-faithfulness-paper-c"
+          ],
+          "expected_passage_ids": [
+            "comparison-citation-faithfulness-paper-a-p2",
+            "comparison-citation-faithfulness-paper-c-p1"
+          ],
+          "description": "Observed findings and consensus across comparison-citation-faithfulness-paper-a and comparison-citation-faithfulness-paper-c"
+        }
+      ],
+      "known_conflicts": [],
+      "unanswerable_questions": []
+    },
+    {
+      "case_id": "synth-008",
+      "title": "Multi-Hop Reasoning Benchmarks in Scientific QA",
+      "question": "Compare methodology, datasets, findings, and limitations across the selected studies regarding Multi-Hop Reasoning Benchmarks in Scientific QA.",
+      "documents": [
+        {
+          "document_key": "comparison-multihop-reasoning-paper-a",
+          "fixture": "fixtures/comparison-multihop-reasoning-paper-a.pdf",
+          "relevant_passage_ids": [
+            "comparison-multihop-reasoning-paper-a-p1",
+            "comparison-multihop-reasoning-paper-a-p2"
+          ]
+        },
+        {
+          "document_key": "comparison-multihop-reasoning-paper-b",
+          "fixture": "fixtures/comparison-multihop-reasoning-paper-b.pdf",
+          "relevant_passage_ids": [
+            "comparison-multihop-reasoning-paper-b-p1"
+          ]
+        },
+        {
+          "document_key": "comparison-multihop-reasoning-paper-c",
+          "fixture": "fixtures/comparison-multihop-reasoning-paper-c.pdf",
+          "relevant_passage_ids": [
+            "comparison-multihop-reasoning-paper-c-p1"
+          ]
+        }
+      ],
+      "required_facets": [
+        "methodology",
+        "datasets",
+        "metrics",
+        "findings",
+        "limitations"
+      ],
+      "claims": [
+        {
+          "claim_id": "claim-008-m1",
+          "claim_type": "methodology",
+          "expected_document_keys": [
+            "comparison-multihop-reasoning-paper-a"
+          ],
+          "expected_passage_ids": [
+            "comparison-multihop-reasoning-paper-a-p1"
+          ],
+          "description": "Experimental methodology proposed in comparison-multihop-reasoning-paper-a"
+        },
+        {
+          "claim_id": "claim-008-d1",
+          "claim_type": "datasets",
+          "expected_document_keys": [
+            "comparison-multihop-reasoning-paper-b"
+          ],
+          "expected_passage_ids": [
+            "comparison-multihop-reasoning-paper-b-p1"
+          ],
+          "description": "Dataset split and benchmark setup used in comparison-multihop-reasoning-paper-b"
+        },
+        {
+          "claim_id": "claim-008-r1",
+          "claim_type": "findings",
+          "expected_document_keys": [
+            "comparison-multihop-reasoning-paper-a",
+            "comparison-multihop-reasoning-paper-c"
+          ],
+          "expected_passage_ids": [
+            "comparison-multihop-reasoning-paper-a-p2",
+            "comparison-multihop-reasoning-paper-c-p1"
+          ],
+          "description": "Observed findings and consensus across comparison-multihop-reasoning-paper-a and comparison-multihop-reasoning-paper-c"
+        }
+      ],
+      "known_conflicts": [],
+      "unanswerable_questions": []
+    },
+    {
+      "case_id": "synth-009",
+      "title": "Quantization (INT4 vs FP8) Impact on Embedding Geometry",
+      "question": "Compare methodology, datasets, findings, and limitations across the selected studies regarding Quantization (INT4 vs FP8) Impact on Embedding Geometry.",
+      "documents": [
+        {
+          "document_key": "comparison-quant-embeddings-paper-a",
+          "fixture": "fixtures/comparison-quant-embeddings-paper-a.pdf",
+          "relevant_passage_ids": [
+            "comparison-quant-embeddings-paper-a-p1",
+            "comparison-quant-embeddings-paper-a-p2"
+          ]
+        },
+        {
+          "document_key": "comparison-quant-embeddings-paper-b",
+          "fixture": "fixtures/comparison-quant-embeddings-paper-b.pdf",
+          "relevant_passage_ids": [
+            "comparison-quant-embeddings-paper-b-p1"
+          ]
+        },
+        {
+          "document_key": "comparison-quant-embeddings-paper-c",
+          "fixture": "fixtures/comparison-quant-embeddings-paper-c.pdf",
+          "relevant_passage_ids": [
+            "comparison-quant-embeddings-paper-c-p1"
+          ]
+        }
+      ],
+      "required_facets": [
+        "methodology",
+        "datasets",
+        "metrics",
+        "findings",
+        "limitations"
+      ],
+      "claims": [
+        {
+          "claim_id": "claim-009-m1",
+          "claim_type": "methodology",
+          "expected_document_keys": [
+            "comparison-quant-embeddings-paper-a"
+          ],
+          "expected_passage_ids": [
+            "comparison-quant-embeddings-paper-a-p1"
+          ],
+          "description": "Experimental methodology proposed in comparison-quant-embeddings-paper-a"
+        },
+        {
+          "claim_id": "claim-009-d1",
+          "claim_type": "datasets",
+          "expected_document_keys": [
+            "comparison-quant-embeddings-paper-b"
+          ],
+          "expected_passage_ids": [
+            "comparison-quant-embeddings-paper-b-p1"
+          ],
+          "description": "Dataset split and benchmark setup used in comparison-quant-embeddings-paper-b"
+        },
+        {
+          "claim_id": "claim-009-r1",
+          "claim_type": "findings",
+          "expected_document_keys": [
+            "comparison-quant-embeddings-paper-a",
+            "comparison-quant-embeddings-paper-c"
+          ],
+          "expected_passage_ids": [
+            "comparison-quant-embeddings-paper-a-p2",
+            "comparison-quant-embeddings-paper-c-p1"
+          ],
+          "description": "Observed findings and consensus across comparison-quant-embeddings-paper-a and comparison-quant-embeddings-paper-c"
+        }
+      ],
+      "known_conflicts": [],
+      "unanswerable_questions": []
+    },
+    {
+      "case_id": "synth-010",
+      "title": "Contrastive Learning Objectives in Dense Document Encoders",
+      "question": "Compare methodology, datasets, findings, and limitations across the selected studies regarding Contrastive Learning Objectives in Dense Document Encoders.",
+      "documents": [
+        {
+          "document_key": "comparison-contrastive-dense-paper-a",
+          "fixture": "fixtures/comparison-contrastive-dense-paper-a.pdf",
+          "relevant_passage_ids": [
+            "comparison-contrastive-dense-paper-a-p1",
+            "comparison-contrastive-dense-paper-a-p2"
+          ]
+        },
+        {
+          "document_key": "comparison-contrastive-dense-paper-b",
+          "fixture": "fixtures/comparison-contrastive-dense-paper-b.pdf",
+          "relevant_passage_ids": [
+            "comparison-contrastive-dense-paper-b-p1"
+          ]
+        },
+        {
+          "document_key": "comparison-contrastive-dense-paper-c",
+          "fixture": "fixtures/comparison-contrastive-dense-paper-c.pdf",
+          "relevant_passage_ids": [
+            "comparison-contrastive-dense-paper-c-p1"
+          ]
+        }
+      ],
+      "required_facets": [
+        "methodology",
+        "datasets",
+        "metrics",
+        "findings",
+        "limitations"
+      ],
+      "claims": [
+        {
+          "claim_id": "claim-010-m1",
+          "claim_type": "methodology",
+          "expected_document_keys": [
+            "comparison-contrastive-dense-paper-a"
+          ],
+          "expected_passage_ids": [
+            "comparison-contrastive-dense-paper-a-p1"
+          ],
+          "description": "Experimental methodology proposed in comparison-contrastive-dense-paper-a"
+        },
+        {
+          "claim_id": "claim-010-d1",
+          "claim_type": "datasets",
+          "expected_document_keys": [
+            "comparison-contrastive-dense-paper-b"
+          ],
+          "expected_passage_ids": [
+            "comparison-contrastive-dense-paper-b-p1"
+          ],
+          "description": "Dataset split and benchmark setup used in comparison-contrastive-dense-paper-b"
+        },
+        {
+          "claim_id": "claim-010-r1",
+          "claim_type": "findings",
+          "expected_document_keys": [
+            "comparison-contrastive-dense-paper-a",
+            "comparison-contrastive-dense-paper-c"
+          ],
+          "expected_passage_ids": [
+            "comparison-contrastive-dense-paper-a-p2",
+            "comparison-contrastive-dense-paper-c-p1"
+          ],
+          "description": "Observed findings and consensus across comparison-contrastive-dense-paper-a and comparison-contrastive-dense-paper-c"
+        }
+      ],
+      "known_conflicts": [],
+      "unanswerable_questions": []
+    },
+    {
+      "case_id": "synth-011",
+      "title": "Self-RAG vs Standard RAG for Factual Consistency",
+      "question": "Compare methodology, datasets, findings, and limitations across the selected studies regarding Self-RAG vs Standard RAG for Factual Consistency.",
+      "documents": [
+        {
+          "document_key": "comparison-self-rag-paper-a",
+          "fixture": "fixtures/comparison-self-rag-paper-a.pdf",
+          "relevant_passage_ids": [
+            "comparison-self-rag-paper-a-p1",
+            "comparison-self-rag-paper-a-p2"
+          ]
+        },
+        {
+          "document_key": "comparison-self-rag-paper-b",
+          "fixture": "fixtures/comparison-self-rag-paper-b.pdf",
+          "relevant_passage_ids": [
+            "comparison-self-rag-paper-b-p1"
+          ]
+        },
+        {
+          "document_key": "comparison-self-rag-paper-c",
+          "fixture": "fixtures/comparison-self-rag-paper-c.pdf",
+          "relevant_passage_ids": [
+            "comparison-self-rag-paper-c-p1"
+          ]
+        }
+      ],
+      "required_facets": [
+        "methodology",
+        "datasets",
+        "metrics",
+        "findings",
+        "limitations"
+      ],
+      "claims": [
+        {
+          "claim_id": "claim-011-m1",
+          "claim_type": "methodology",
+          "expected_document_keys": [
+            "comparison-self-rag-paper-a"
+          ],
+          "expected_passage_ids": [
+            "comparison-self-rag-paper-a-p1"
+          ],
+          "description": "Experimental methodology proposed in comparison-self-rag-paper-a"
+        },
+        {
+          "claim_id": "claim-011-d1",
+          "claim_type": "datasets",
+          "expected_document_keys": [
+            "comparison-self-rag-paper-b"
+          ],
+          "expected_passage_ids": [
+            "comparison-self-rag-paper-b-p1"
+          ],
+          "description": "Dataset split and benchmark setup used in comparison-self-rag-paper-b"
+        },
+        {
+          "claim_id": "claim-011-r1",
+          "claim_type": "findings",
+          "expected_document_keys": [
+            "comparison-self-rag-paper-a",
+            "comparison-self-rag-paper-c"
+          ],
+          "expected_passage_ids": [
+            "comparison-self-rag-paper-a-p2",
+            "comparison-self-rag-paper-c-p1"
+          ],
+          "description": "Observed findings and consensus across comparison-self-rag-paper-a and comparison-self-rag-paper-c"
+        }
+      ],
+      "known_conflicts": [],
+      "unanswerable_questions": []
+    },
+    {
+      "case_id": "synth-012",
+      "title": "Recursive Summarization of Multi-Paper Scientific Literature",
+      "question": "Compare methodology, datasets, findings, and limitations across the selected studies regarding Recursive Summarization of Multi-Paper Scientific Literature.",
+      "documents": [
+        {
+          "document_key": "comparison-recursive-summaries-paper-a",
+          "fixture": "fixtures/comparison-recursive-summaries-paper-a.pdf",
+          "relevant_passage_ids": [
+            "comparison-recursive-summaries-paper-a-p1",
+            "comparison-recursive-summaries-paper-a-p2"
+          ]
+        },
+        {
+          "document_key": "comparison-recursive-summaries-paper-b",
+          "fixture": "fixtures/comparison-recursive-summaries-paper-b.pdf",
+          "relevant_passage_ids": [
+            "comparison-recursive-summaries-paper-b-p1"
+          ]
+        },
+        {
+          "document_key": "comparison-recursive-summaries-paper-c",
+          "fixture": "fixtures/comparison-recursive-summaries-paper-c.pdf",
+          "relevant_passage_ids": [
+            "comparison-recursive-summaries-paper-c-p1"
+          ]
+        }
+      ],
+      "required_facets": [
+        "methodology",
+        "datasets",
+        "metrics",
+        "findings",
+        "limitations"
+      ],
+      "claims": [
+        {
+          "claim_id": "claim-012-m1",
+          "claim_type": "methodology",
+          "expected_document_keys": [
+            "comparison-recursive-summaries-paper-a"
+          ],
+          "expected_passage_ids": [
+            "comparison-recursive-summaries-paper-a-p1"
+          ],
+          "description": "Experimental methodology proposed in comparison-recursive-summaries-paper-a"
+        },
+        {
+          "claim_id": "claim-012-d1",
+          "claim_type": "datasets",
+          "expected_document_keys": [
+            "comparison-recursive-summaries-paper-b"
+          ],
+          "expected_passage_ids": [
+            "comparison-recursive-summaries-paper-b-p1"
+          ],
+          "description": "Dataset split and benchmark setup used in comparison-recursive-summaries-paper-b"
+        },
+        {
+          "claim_id": "claim-012-r1",
+          "claim_type": "findings",
+          "expected_document_keys": [
+            "comparison-recursive-summaries-paper-a",
+            "comparison-recursive-summaries-paper-c"
+          ],
+          "expected_passage_ids": [
+            "comparison-recursive-summaries-paper-a-p2",
+            "comparison-recursive-summaries-paper-c-p1"
+          ],
+          "description": "Observed findings and consensus across comparison-recursive-summaries-paper-a and comparison-recursive-summaries-paper-c"
+        }
+      ],
+      "known_conflicts": [],
+      "unanswerable_questions": []
+    },
+    {
+      "case_id": "synth-013",
+      "title": "Graph-Augmented Retrieval for Relational Paper Grounding",
+      "question": "Compare methodology, datasets, findings, and limitations across the selected studies regarding Graph-Augmented Retrieval for Relational Paper Grounding.",
+      "documents": [
+        {
+          "document_key": "comparison-graph-rag-paper-a",
+          "fixture": "fixtures/comparison-graph-rag-paper-a.pdf",
+          "relevant_passage_ids": [
+            "comparison-graph-rag-paper-a-p1",
+            "comparison-graph-rag-paper-a-p2"
+          ]
+        },
+        {
+          "document_key": "comparison-graph-rag-paper-b",
+          "fixture": "fixtures/comparison-graph-rag-paper-b.pdf",
+          "relevant_passage_ids": [
+            "comparison-graph-rag-paper-b-p1"
+          ]
+        },
+        {
+          "document_key": "comparison-graph-rag-paper-c",
+          "fixture": "fixtures/comparison-graph-rag-paper-c.pdf",
+          "relevant_passage_ids": [
+            "comparison-graph-rag-paper-c-p1"
+          ]
+        }
+      ],
+      "required_facets": [
+        "methodology",
+        "datasets",
+        "metrics",
+        "findings",
+        "limitations"
+      ],
+      "claims": [
+        {
+          "claim_id": "claim-013-m1",
+          "claim_type": "methodology",
+          "expected_document_keys": [
+            "comparison-graph-rag-paper-a"
+          ],
+          "expected_passage_ids": [
+            "comparison-graph-rag-paper-a-p1"
+          ],
+          "description": "Experimental methodology proposed in comparison-graph-rag-paper-a"
+        },
+        {
+          "claim_id": "claim-013-d1",
+          "claim_type": "datasets",
+          "expected_document_keys": [
+            "comparison-graph-rag-paper-b"
+          ],
+          "expected_passage_ids": [
+            "comparison-graph-rag-paper-b-p1"
+          ],
+          "description": "Dataset split and benchmark setup used in comparison-graph-rag-paper-b"
+        },
+        {
+          "claim_id": "claim-013-r1",
+          "claim_type": "findings",
+          "expected_document_keys": [
+            "comparison-graph-rag-paper-a",
+            "comparison-graph-rag-paper-c"
+          ],
+          "expected_passage_ids": [
+            "comparison-graph-rag-paper-a-p2",
+            "comparison-graph-rag-paper-c-p1"
+          ],
+          "description": "Observed findings and consensus across comparison-graph-rag-paper-a and comparison-graph-rag-paper-c"
+        }
+      ],
+      "known_conflicts": [],
+      "unanswerable_questions": []
+    },
+    {
+      "case_id": "synth-014",
+      "title": "Prompt Formatting and Delimiter Robustness in Synthesis",
+      "question": "Compare methodology, datasets, findings, and limitations across the selected studies regarding Prompt Formatting and Delimiter Robustness in Synthesis.",
+      "documents": [
+        {
+          "document_key": "comparison-prompt-delimiters-paper-a",
+          "fixture": "fixtures/comparison-prompt-delimiters-paper-a.pdf",
+          "relevant_passage_ids": [
+            "comparison-prompt-delimiters-paper-a-p1",
+            "comparison-prompt-delimiters-paper-a-p2"
+          ]
+        },
+        {
+          "document_key": "comparison-prompt-delimiters-paper-b",
+          "fixture": "fixtures/comparison-prompt-delimiters-paper-b.pdf",
+          "relevant_passage_ids": [
+            "comparison-prompt-delimiters-paper-b-p1"
+          ]
+        },
+        {
+          "document_key": "comparison-prompt-delimiters-paper-c",
+          "fixture": "fixtures/comparison-prompt-delimiters-paper-c.pdf",
+          "relevant_passage_ids": [
+            "comparison-prompt-delimiters-paper-c-p1"
+          ]
+        }
+      ],
+      "required_facets": [
+        "methodology",
+        "datasets",
+        "metrics",
+        "findings",
+        "limitations"
+      ],
+      "claims": [
+        {
+          "claim_id": "claim-014-m1",
+          "claim_type": "methodology",
+          "expected_document_keys": [
+            "comparison-prompt-delimiters-paper-a"
+          ],
+          "expected_passage_ids": [
+            "comparison-prompt-delimiters-paper-a-p1"
+          ],
+          "description": "Experimental methodology proposed in comparison-prompt-delimiters-paper-a"
+        },
+        {
+          "claim_id": "claim-014-d1",
+          "claim_type": "datasets",
+          "expected_document_keys": [
+            "comparison-prompt-delimiters-paper-b"
+          ],
+          "expected_passage_ids": [
+            "comparison-prompt-delimiters-paper-b-p1"
+          ],
+          "description": "Dataset split and benchmark setup used in comparison-prompt-delimiters-paper-b"
+        },
+        {
+          "claim_id": "claim-014-r1",
+          "claim_type": "findings",
+          "expected_document_keys": [
+            "comparison-prompt-delimiters-paper-a",
+            "comparison-prompt-delimiters-paper-c"
+          ],
+          "expected_passage_ids": [
+            "comparison-prompt-delimiters-paper-a-p2",
+            "comparison-prompt-delimiters-paper-c-p1"
+          ],
+          "description": "Observed findings and consensus across comparison-prompt-delimiters-paper-a and comparison-prompt-delimiters-paper-c"
+        }
+      ],
+      "known_conflicts": [],
+      "unanswerable_questions": []
+    },
+    {
+      "case_id": "synth-015",
+      "title": "Context Poisoning and Distractor Document Robustness",
+      "question": "Compare methodology, datasets, findings, and limitations across the selected studies regarding Context Poisoning and Distractor Document Robustness.",
+      "documents": [
+        {
+          "document_key": "comparison-distractor-robustness-paper-a",
+          "fixture": "fixtures/comparison-distractor-robustness-paper-a.pdf",
+          "relevant_passage_ids": [
+            "comparison-distractor-robustness-paper-a-p1",
+            "comparison-distractor-robustness-paper-a-p2"
+          ]
+        },
+        {
+          "document_key": "comparison-distractor-robustness-paper-b",
+          "fixture": "fixtures/comparison-distractor-robustness-paper-b.pdf",
+          "relevant_passage_ids": [
+            "comparison-distractor-robustness-paper-b-p1"
+          ]
+        },
+        {
+          "document_key": "comparison-distractor-robustness-paper-c",
+          "fixture": "fixtures/comparison-distractor-robustness-paper-c.pdf",
+          "relevant_passage_ids": [
+            "comparison-distractor-robustness-paper-c-p1"
+          ]
+        }
+      ],
+      "required_facets": [
+        "methodology",
+        "datasets",
+        "metrics",
+        "findings",
+        "limitations"
+      ],
+      "claims": [
+        {
+          "claim_id": "claim-015-m1",
+          "claim_type": "methodology",
+          "expected_document_keys": [
+            "comparison-distractor-robustness-paper-a"
+          ],
+          "expected_passage_ids": [
+            "comparison-distractor-robustness-paper-a-p1"
+          ],
+          "description": "Experimental methodology proposed in comparison-distractor-robustness-paper-a"
+        },
+        {
+          "claim_id": "claim-015-d1",
+          "claim_type": "datasets",
+          "expected_document_keys": [
+            "comparison-distractor-robustness-paper-b"
+          ],
+          "expected_passage_ids": [
+            "comparison-distractor-robustness-paper-b-p1"
+          ],
+          "description": "Dataset split and benchmark setup used in comparison-distractor-robustness-paper-b"
+        },
+        {
+          "claim_id": "claim-015-r1",
+          "claim_type": "findings",
+          "expected_document_keys": [
+            "comparison-distractor-robustness-paper-a",
+            "comparison-distractor-robustness-paper-c"
+          ],
+          "expected_passage_ids": [
+            "comparison-distractor-robustness-paper-a-p2",
+            "comparison-distractor-robustness-paper-c-p1"
+          ],
+          "description": "Observed findings and consensus across comparison-distractor-robustness-paper-a and comparison-distractor-robustness-paper-c"
+        }
+      ],
+      "known_conflicts": [],
+      "unanswerable_questions": []
+    },
+    {
+      "case_id": "synth-016",
+      "title": "Fine-tuning vs In-Context Learning for Structured Facet Extraction",
+      "question": "Compare methodology, datasets, findings, and limitations across the selected studies regarding Fine-tuning vs In-Context Learning for Structured Facet Extraction.",
+      "documents": [
+        {
+          "document_key": "comparison-finetuning-extraction-paper-a",
+          "fixture": "fixtures/comparison-finetuning-extraction-paper-a.pdf",
+          "relevant_passage_ids": [
+            "comparison-finetuning-extraction-paper-a-p1",
+            "comparison-finetuning-extraction-paper-a-p2"
+          ]
+        },
+        {
+          "document_key": "comparison-finetuning-extraction-paper-b",
+          "fixture": "fixtures/comparison-finetuning-extraction-paper-b.pdf",
+          "relevant_passage_ids": [
+            "comparison-finetuning-extraction-paper-b-p1"
+          ]
+        },
+        {
+          "document_key": "comparison-finetuning-extraction-paper-c",
+          "fixture": "fixtures/comparison-finetuning-extraction-paper-c.pdf",
+          "relevant_passage_ids": [
+            "comparison-finetuning-extraction-paper-c-p1"
+          ]
+        }
+      ],
+      "required_facets": [
+        "methodology",
+        "datasets",
+        "metrics",
+        "findings",
+        "limitations"
+      ],
+      "claims": [
+        {
+          "claim_id": "claim-016-m1",
+          "claim_type": "methodology",
+          "expected_document_keys": [
+            "comparison-finetuning-extraction-paper-a"
+          ],
+          "expected_passage_ids": [
+            "comparison-finetuning-extraction-paper-a-p1"
+          ],
+          "description": "Experimental methodology proposed in comparison-finetuning-extraction-paper-a"
+        },
+        {
+          "claim_id": "claim-016-d1",
+          "claim_type": "datasets",
+          "expected_document_keys": [
+            "comparison-finetuning-extraction-paper-b"
+          ],
+          "expected_passage_ids": [
+            "comparison-finetuning-extraction-paper-b-p1"
+          ],
+          "description": "Dataset split and benchmark setup used in comparison-finetuning-extraction-paper-b"
+        },
+        {
+          "claim_id": "claim-016-r1",
+          "claim_type": "findings",
+          "expected_document_keys": [
+            "comparison-finetuning-extraction-paper-a",
+            "comparison-finetuning-extraction-paper-c"
+          ],
+          "expected_passage_ids": [
+            "comparison-finetuning-extraction-paper-a-p2",
+            "comparison-finetuning-extraction-paper-c-p1"
+          ],
+          "description": "Observed findings and consensus across comparison-finetuning-extraction-paper-a and comparison-finetuning-extraction-paper-c"
+        }
+      ],
+      "known_conflicts": [],
+      "unanswerable_questions": []
+    },
+    {
+      "case_id": "synth-017",
+      "title": "Out-of-Distribution Generalization of Bi-Encoder Embeddings",
+      "question": "Compare methodology, datasets, findings, and limitations across the selected studies regarding Out-of-Distribution Generalization of Bi-Encoder Embeddings.",
+      "documents": [
+        {
+          "document_key": "comparison-ood-generalization-paper-a",
+          "fixture": "fixtures/comparison-ood-generalization-paper-a.pdf",
+          "relevant_passage_ids": [
+            "comparison-ood-generalization-paper-a-p1",
+            "comparison-ood-generalization-paper-a-p2"
+          ]
+        },
+        {
+          "document_key": "comparison-ood-generalization-paper-b",
+          "fixture": "fixtures/comparison-ood-generalization-paper-b.pdf",
+          "relevant_passage_ids": [
+            "comparison-ood-generalization-paper-b-p1"
+          ]
+        },
+        {
+          "document_key": "comparison-ood-generalization-paper-c",
+          "fixture": "fixtures/comparison-ood-generalization-paper-c.pdf",
+          "relevant_passage_ids": [
+            "comparison-ood-generalization-paper-c-p1"
+          ]
+        }
+      ],
+      "required_facets": [
+        "methodology",
+        "datasets",
+        "metrics",
+        "findings",
+        "limitations"
+      ],
+      "claims": [
+        {
+          "claim_id": "claim-017-m1",
+          "claim_type": "methodology",
+          "expected_document_keys": [
+            "comparison-ood-generalization-paper-a"
+          ],
+          "expected_passage_ids": [
+            "comparison-ood-generalization-paper-a-p1"
+          ],
+          "description": "Experimental methodology proposed in comparison-ood-generalization-paper-a"
+        },
+        {
+          "claim_id": "claim-017-d1",
+          "claim_type": "datasets",
+          "expected_document_keys": [
+            "comparison-ood-generalization-paper-b"
+          ],
+          "expected_passage_ids": [
+            "comparison-ood-generalization-paper-b-p1"
+          ],
+          "description": "Dataset split and benchmark setup used in comparison-ood-generalization-paper-b"
+        },
+        {
+          "claim_id": "claim-017-r1",
+          "claim_type": "findings",
+          "expected_document_keys": [
+            "comparison-ood-generalization-paper-a",
+            "comparison-ood-generalization-paper-c"
+          ],
+          "expected_passage_ids": [
+            "comparison-ood-generalization-paper-a-p2",
+            "comparison-ood-generalization-paper-c-p1"
+          ],
+          "description": "Observed findings and consensus across comparison-ood-generalization-paper-a and comparison-ood-generalization-paper-c"
+        }
+      ],
+      "known_conflicts": [],
+      "unanswerable_questions": []
+    },
+    {
+      "case_id": "synth-018",
+      "title": "Token Pruning Strategies for Dense Context Windows",
+      "question": "Compare methodology, datasets, findings, and limitations across the selected studies regarding Token Pruning Strategies for Dense Context Windows.",
+      "documents": [
+        {
+          "document_key": "comparison-token-pruning-paper-a",
+          "fixture": "fixtures/comparison-token-pruning-paper-a.pdf",
+          "relevant_passage_ids": [
+            "comparison-token-pruning-paper-a-p1",
+            "comparison-token-pruning-paper-a-p2"
+          ]
+        },
+        {
+          "document_key": "comparison-token-pruning-paper-b",
+          "fixture": "fixtures/comparison-token-pruning-paper-b.pdf",
+          "relevant_passage_ids": [
+            "comparison-token-pruning-paper-b-p1"
+          ]
+        },
+        {
+          "document_key": "comparison-token-pruning-paper-c",
+          "fixture": "fixtures/comparison-token-pruning-paper-c.pdf",
+          "relevant_passage_ids": [
+            "comparison-token-pruning-paper-c-p1"
+          ]
+        }
+      ],
+      "required_facets": [
+        "methodology",
+        "datasets",
+        "metrics",
+        "findings",
+        "limitations"
+      ],
+      "claims": [
+        {
+          "claim_id": "claim-018-m1",
+          "claim_type": "methodology",
+          "expected_document_keys": [
+            "comparison-token-pruning-paper-a"
+          ],
+          "expected_passage_ids": [
+            "comparison-token-pruning-paper-a-p1"
+          ],
+          "description": "Experimental methodology proposed in comparison-token-pruning-paper-a"
+        },
+        {
+          "claim_id": "claim-018-d1",
+          "claim_type": "datasets",
+          "expected_document_keys": [
+            "comparison-token-pruning-paper-b"
+          ],
+          "expected_passage_ids": [
+            "comparison-token-pruning-paper-b-p1"
+          ],
+          "description": "Dataset split and benchmark setup used in comparison-token-pruning-paper-b"
+        },
+        {
+          "claim_id": "claim-018-r1",
+          "claim_type": "findings",
+          "expected_document_keys": [
+            "comparison-token-pruning-paper-a",
+            "comparison-token-pruning-paper-c"
+          ],
+          "expected_passage_ids": [
+            "comparison-token-pruning-paper-a-p2",
+            "comparison-token-pruning-paper-c-p1"
+          ],
+          "description": "Observed findings and consensus across comparison-token-pruning-paper-a and comparison-token-pruning-paper-c"
+        }
+      ],
+      "known_conflicts": [],
+      "unanswerable_questions": []
+    },
+    {
+      "case_id": "synth-019",
+      "title": "Table and Math Extraction Precision from Scientific PDFs",
+      "question": "Compare methodology, datasets, findings, and limitations across the selected studies regarding Table and Math Extraction Precision from Scientific PDFs.",
+      "documents": [
+        {
+          "document_key": "comparison-table-math-extraction-paper-a",
+          "fixture": "fixtures/comparison-table-math-extraction-paper-a.pdf",
+          "relevant_passage_ids": [
+            "comparison-table-math-extraction-paper-a-p1",
+            "comparison-table-math-extraction-paper-a-p2"
+          ]
+        },
+        {
+          "document_key": "comparison-table-math-extraction-paper-b",
+          "fixture": "fixtures/comparison-table-math-extraction-paper-b.pdf",
+          "relevant_passage_ids": [
+            "comparison-table-math-extraction-paper-b-p1"
+          ]
+        },
+        {
+          "document_key": "comparison-table-math-extraction-paper-c",
+          "fixture": "fixtures/comparison-table-math-extraction-paper-c.pdf",
+          "relevant_passage_ids": [
+            "comparison-table-math-extraction-paper-c-p1"
+          ]
+        }
+      ],
+      "required_facets": [
+        "methodology",
+        "datasets",
+        "metrics",
+        "findings",
+        "limitations"
+      ],
+      "claims": [
+        {
+          "claim_id": "claim-019-m1",
+          "claim_type": "methodology",
+          "expected_document_keys": [
+            "comparison-table-math-extraction-paper-a"
+          ],
+          "expected_passage_ids": [
+            "comparison-table-math-extraction-paper-a-p1"
+          ],
+          "description": "Experimental methodology proposed in comparison-table-math-extraction-paper-a"
+        },
+        {
+          "claim_id": "claim-019-d1",
+          "claim_type": "datasets",
+          "expected_document_keys": [
+            "comparison-table-math-extraction-paper-b"
+          ],
+          "expected_passage_ids": [
+            "comparison-table-math-extraction-paper-b-p1"
+          ],
+          "description": "Dataset split and benchmark setup used in comparison-table-math-extraction-paper-b"
+        },
+        {
+          "claim_id": "claim-019-r1",
+          "claim_type": "findings",
+          "expected_document_keys": [
+            "comparison-table-math-extraction-paper-a",
+            "comparison-table-math-extraction-paper-c"
+          ],
+          "expected_passage_ids": [
+            "comparison-table-math-extraction-paper-a-p2",
+            "comparison-table-math-extraction-paper-c-p1"
+          ],
+          "description": "Observed findings and consensus across comparison-table-math-extraction-paper-a and comparison-table-math-extraction-paper-c"
+        }
+      ],
+      "known_conflicts": [],
+      "unanswerable_questions": []
+    },
+    {
+      "case_id": "synth-020",
+      "title": "Hierarchical Multi-Level Passage Chunking for PDF Trees",
+      "question": "Compare methodology, datasets, findings, and limitations across the selected studies regarding Hierarchical Multi-Level Passage Chunking for PDF Trees.",
+      "documents": [
+        {
+          "document_key": "comparison-hierarchical-chunking-paper-a",
+          "fixture": "fixtures/comparison-hierarchical-chunking-paper-a.pdf",
+          "relevant_passage_ids": [
+            "comparison-hierarchical-chunking-paper-a-p1",
+            "comparison-hierarchical-chunking-paper-a-p2"
+          ]
+        },
+        {
+          "document_key": "comparison-hierarchical-chunking-paper-b",
+          "fixture": "fixtures/comparison-hierarchical-chunking-paper-b.pdf",
+          "relevant_passage_ids": [
+            "comparison-hierarchical-chunking-paper-b-p1"
+          ]
+        },
+        {
+          "document_key": "comparison-hierarchical-chunking-paper-c",
+          "fixture": "fixtures/comparison-hierarchical-chunking-paper-c.pdf",
+          "relevant_passage_ids": [
+            "comparison-hierarchical-chunking-paper-c-p1"
+          ]
+        }
+      ],
+      "required_facets": [
+        "methodology",
+        "datasets",
+        "metrics",
+        "findings",
+        "limitations"
+      ],
+      "claims": [
+        {
+          "claim_id": "claim-020-m1",
+          "claim_type": "methodology",
+          "expected_document_keys": [
+            "comparison-hierarchical-chunking-paper-a"
+          ],
+          "expected_passage_ids": [
+            "comparison-hierarchical-chunking-paper-a-p1"
+          ],
+          "description": "Experimental methodology proposed in comparison-hierarchical-chunking-paper-a"
+        },
+        {
+          "claim_id": "claim-020-d1",
+          "claim_type": "datasets",
+          "expected_document_keys": [
+            "comparison-hierarchical-chunking-paper-b"
+          ],
+          "expected_passage_ids": [
+            "comparison-hierarchical-chunking-paper-b-p1"
+          ],
+          "description": "Dataset split and benchmark setup used in comparison-hierarchical-chunking-paper-b"
+        },
+        {
+          "claim_id": "claim-020-r1",
+          "claim_type": "findings",
+          "expected_document_keys": [
+            "comparison-hierarchical-chunking-paper-a",
+            "comparison-hierarchical-chunking-paper-c"
+          ],
+          "expected_passage_ids": [
+            "comparison-hierarchical-chunking-paper-a-p2",
+            "comparison-hierarchical-chunking-paper-c-p1"
+          ],
+          "description": "Observed findings and consensus across comparison-hierarchical-chunking-paper-a and comparison-hierarchical-chunking-paper-c"
+        }
+      ],
+      "known_conflicts": [],
+      "unanswerable_questions": []
+    },
+    {
+      "case_id": "synth-021",
+      "title": "Streaming Synthesis Time-to-First-Token vs Full Generation Latency",
+      "question": "Compare methodology, datasets, findings, and limitations across the selected studies regarding Streaming Synthesis Time-to-First-Token vs Full Generation Latency.",
+      "documents": [
+        {
+          "document_key": "comparison-streaming-ttft-paper-a",
+          "fixture": "fixtures/comparison-streaming-ttft-paper-a.pdf",
+          "relevant_passage_ids": [
+            "comparison-streaming-ttft-paper-a-p1",
+            "comparison-streaming-ttft-paper-a-p2"
+          ]
+        },
+        {
+          "document_key": "comparison-streaming-ttft-paper-b",
+          "fixture": "fixtures/comparison-streaming-ttft-paper-b.pdf",
+          "relevant_passage_ids": [
+            "comparison-streaming-ttft-paper-b-p1"
+          ]
+        },
+        {
+          "document_key": "comparison-streaming-ttft-paper-c",
+          "fixture": "fixtures/comparison-streaming-ttft-paper-c.pdf",
+          "relevant_passage_ids": [
+            "comparison-streaming-ttft-paper-c-p1"
+          ]
+        }
+      ],
+      "required_facets": [
+        "methodology",
+        "datasets",
+        "metrics",
+        "findings",
+        "limitations"
+      ],
+      "claims": [
+        {
+          "claim_id": "claim-021-m1",
+          "claim_type": "methodology",
+          "expected_document_keys": [
+            "comparison-streaming-ttft-paper-a"
+          ],
+          "expected_passage_ids": [
+            "comparison-streaming-ttft-paper-a-p1"
+          ],
+          "description": "Experimental methodology proposed in comparison-streaming-ttft-paper-a"
+        },
+        {
+          "claim_id": "claim-021-d1",
+          "claim_type": "datasets",
+          "expected_document_keys": [
+            "comparison-streaming-ttft-paper-b"
+          ],
+          "expected_passage_ids": [
+            "comparison-streaming-ttft-paper-b-p1"
+          ],
+          "description": "Dataset split and benchmark setup used in comparison-streaming-ttft-paper-b"
+        },
+        {
+          "claim_id": "claim-021-r1",
+          "claim_type": "findings",
+          "expected_document_keys": [
+            "comparison-streaming-ttft-paper-a",
+            "comparison-streaming-ttft-paper-c"
+          ],
+          "expected_passage_ids": [
+            "comparison-streaming-ttft-paper-a-p2",
+            "comparison-streaming-ttft-paper-c-p1"
+          ],
+          "description": "Observed findings and consensus across comparison-streaming-ttft-paper-a and comparison-streaming-ttft-paper-c"
+        }
+      ],
+      "known_conflicts": [],
+      "unanswerable_questions": []
+    },
+    {
+      "case_id": "synth-022",
+      "title": "Confidence Calibration and Calibration Drift in Synthesis",
+      "question": "Compare methodology, datasets, findings, and limitations across the selected studies regarding Confidence Calibration and Calibration Drift in Synthesis.",
+      "documents": [
+        {
+          "document_key": "comparison-confidence-calibration-paper-a",
+          "fixture": "fixtures/comparison-confidence-calibration-paper-a.pdf",
+          "relevant_passage_ids": [
+            "comparison-confidence-calibration-paper-a-p1",
+            "comparison-confidence-calibration-paper-a-p2"
+          ]
+        },
+        {
+          "document_key": "comparison-confidence-calibration-paper-b",
+          "fixture": "fixtures/comparison-confidence-calibration-paper-b.pdf",
+          "relevant_passage_ids": [
+            "comparison-confidence-calibration-paper-b-p1"
+          ]
+        },
+        {
+          "document_key": "comparison-confidence-calibration-paper-c",
+          "fixture": "fixtures/comparison-confidence-calibration-paper-c.pdf",
+          "relevant_passage_ids": [
+            "comparison-confidence-calibration-paper-c-p1"
+          ]
+        }
+      ],
+      "required_facets": [
+        "methodology",
+        "datasets",
+        "metrics",
+        "findings",
+        "limitations"
+      ],
+      "claims": [
+        {
+          "claim_id": "claim-022-m1",
+          "claim_type": "methodology",
+          "expected_document_keys": [
+            "comparison-confidence-calibration-paper-a"
+          ],
+          "expected_passage_ids": [
+            "comparison-confidence-calibration-paper-a-p1"
+          ],
+          "description": "Experimental methodology proposed in comparison-confidence-calibration-paper-a"
+        },
+        {
+          "claim_id": "claim-022-d1",
+          "claim_type": "datasets",
+          "expected_document_keys": [
+            "comparison-confidence-calibration-paper-b"
+          ],
+          "expected_passage_ids": [
+            "comparison-confidence-calibration-paper-b-p1"
+          ],
+          "description": "Dataset split and benchmark setup used in comparison-confidence-calibration-paper-b"
+        },
+        {
+          "claim_id": "claim-022-r1",
+          "claim_type": "findings",
+          "expected_document_keys": [
+            "comparison-confidence-calibration-paper-a",
+            "comparison-confidence-calibration-paper-c"
+          ],
+          "expected_passage_ids": [
+            "comparison-confidence-calibration-paper-a-p2",
+            "comparison-confidence-calibration-paper-c-p1"
+          ],
+          "description": "Observed findings and consensus across comparison-confidence-calibration-paper-a and comparison-confidence-calibration-paper-c"
+        }
+      ],
+      "known_conflicts": [],
+      "unanswerable_questions": []
+    },
+    {
+      "case_id": "synth-023",
+      "title": "Cross-Lingual Scientific Document Retrieval Benchmarks",
+      "question": "Compare methodology, datasets, findings, and limitations across the selected studies regarding Cross-Lingual Scientific Document Retrieval Benchmarks.",
+      "documents": [
+        {
+          "document_key": "comparison-cross-lingual-paper-a",
+          "fixture": "fixtures/comparison-cross-lingual-paper-a.pdf",
+          "relevant_passage_ids": [
+            "comparison-cross-lingual-paper-a-p1",
+            "comparison-cross-lingual-paper-a-p2"
+          ]
+        },
+        {
+          "document_key": "comparison-cross-lingual-paper-b",
+          "fixture": "fixtures/comparison-cross-lingual-paper-b.pdf",
+          "relevant_passage_ids": [
+            "comparison-cross-lingual-paper-b-p1"
+          ]
+        },
+        {
+          "document_key": "comparison-cross-lingual-paper-c",
+          "fixture": "fixtures/comparison-cross-lingual-paper-c.pdf",
+          "relevant_passage_ids": [
+            "comparison-cross-lingual-paper-c-p1"
+          ]
+        }
+      ],
+      "required_facets": [
+        "methodology",
+        "datasets",
+        "metrics",
+        "findings",
+        "limitations"
+      ],
+      "claims": [
+        {
+          "claim_id": "claim-023-m1",
+          "claim_type": "methodology",
+          "expected_document_keys": [
+            "comparison-cross-lingual-paper-a"
+          ],
+          "expected_passage_ids": [
+            "comparison-cross-lingual-paper-a-p1"
+          ],
+          "description": "Experimental methodology proposed in comparison-cross-lingual-paper-a"
+        },
+        {
+          "claim_id": "claim-023-d1",
+          "claim_type": "datasets",
+          "expected_document_keys": [
+            "comparison-cross-lingual-paper-b"
+          ],
+          "expected_passage_ids": [
+            "comparison-cross-lingual-paper-b-p1"
+          ],
+          "description": "Dataset split and benchmark setup used in comparison-cross-lingual-paper-b"
+        },
+        {
+          "claim_id": "claim-023-r1",
+          "claim_type": "findings",
+          "expected_document_keys": [
+            "comparison-cross-lingual-paper-a",
+            "comparison-cross-lingual-paper-c"
+          ],
+          "expected_passage_ids": [
+            "comparison-cross-lingual-paper-a-p2",
+            "comparison-cross-lingual-paper-c-p1"
+          ],
+          "description": "Observed findings and consensus across comparison-cross-lingual-paper-a and comparison-cross-lingual-paper-c"
+        }
+      ],
+      "known_conflicts": [],
+      "unanswerable_questions": []
+    },
+    {
+      "case_id": "synth-024",
+      "title": "Differential Privacy Guarantees in Embedded Vector Search",
+      "question": "Compare methodology, datasets, findings, and limitations across the selected studies regarding Differential Privacy Guarantees in Embedded Vector Search.",
+      "documents": [
+        {
+          "document_key": "comparison-differential-privacy-paper-a",
+          "fixture": "fixtures/comparison-differential-privacy-paper-a.pdf",
+          "relevant_passage_ids": [
+            "comparison-differential-privacy-paper-a-p1",
+            "comparison-differential-privacy-paper-a-p2"
+          ]
+        },
+        {
+          "document_key": "comparison-differential-privacy-paper-b",
+          "fixture": "fixtures/comparison-differential-privacy-paper-b.pdf",
+          "relevant_passage_ids": [
+            "comparison-differential-privacy-paper-b-p1"
+          ]
+        },
+        {
+          "document_key": "comparison-differential-privacy-paper-c",
+          "fixture": "fixtures/comparison-differential-privacy-paper-c.pdf",
+          "relevant_passage_ids": [
+            "comparison-differential-privacy-paper-c-p1"
+          ]
+        }
+      ],
+      "required_facets": [
+        "methodology",
+        "datasets",
+        "metrics",
+        "findings",
+        "limitations"
+      ],
+      "claims": [
+        {
+          "claim_id": "claim-024-m1",
+          "claim_type": "methodology",
+          "expected_document_keys": [
+            "comparison-differential-privacy-paper-a"
+          ],
+          "expected_passage_ids": [
+            "comparison-differential-privacy-paper-a-p1"
+          ],
+          "description": "Experimental methodology proposed in comparison-differential-privacy-paper-a"
+        },
+        {
+          "claim_id": "claim-024-d1",
+          "claim_type": "datasets",
+          "expected_document_keys": [
+            "comparison-differential-privacy-paper-b"
+          ],
+          "expected_passage_ids": [
+            "comparison-differential-privacy-paper-b-p1"
+          ],
+          "description": "Dataset split and benchmark setup used in comparison-differential-privacy-paper-b"
+        },
+        {
+          "claim_id": "claim-024-r1",
+          "claim_type": "findings",
+          "expected_document_keys": [
+            "comparison-differential-privacy-paper-a",
+            "comparison-differential-privacy-paper-c"
+          ],
+          "expected_passage_ids": [
+            "comparison-differential-privacy-paper-a-p2",
+            "comparison-differential-privacy-paper-c-p1"
+          ],
+          "description": "Observed findings and consensus across comparison-differential-privacy-paper-a and comparison-differential-privacy-paper-c"
+        }
+      ],
+      "known_conflicts": [],
+      "unanswerable_questions": []
+    },
+    {
+      "case_id": "synth-025",
+      "title": "Dynamic Top-K Retrieval Allocation Based on Query Ambiguity",
+      "question": "Compare methodology, datasets, findings, and limitations across the selected studies regarding Dynamic Top-K Retrieval Allocation Based on Query Ambiguity.",
+      "documents": [
+        {
+          "document_key": "comparison-dynamic-topk-paper-a",
+          "fixture": "fixtures/comparison-dynamic-topk-paper-a.pdf",
+          "relevant_passage_ids": [
+            "comparison-dynamic-topk-paper-a-p1",
+            "comparison-dynamic-topk-paper-a-p2"
+          ]
+        },
+        {
+          "document_key": "comparison-dynamic-topk-paper-b",
+          "fixture": "fixtures/comparison-dynamic-topk-paper-b.pdf",
+          "relevant_passage_ids": [
+            "comparison-dynamic-topk-paper-b-p1"
+          ]
+        },
+        {
+          "document_key": "comparison-dynamic-topk-paper-c",
+          "fixture": "fixtures/comparison-dynamic-topk-paper-c.pdf",
+          "relevant_passage_ids": [
+            "comparison-dynamic-topk-paper-c-p1"
+          ]
+        }
+      ],
+      "required_facets": [
+        "methodology",
+        "datasets",
+        "metrics",
+        "findings",
+        "limitations"
+      ],
+      "claims": [
+        {
+          "claim_id": "claim-025-m1",
+          "claim_type": "methodology",
+          "expected_document_keys": [
+            "comparison-dynamic-topk-paper-a"
+          ],
+          "expected_passage_ids": [
+            "comparison-dynamic-topk-paper-a-p1"
+          ],
+          "description": "Experimental methodology proposed in comparison-dynamic-topk-paper-a"
+        },
+        {
+          "claim_id": "claim-025-d1",
+          "claim_type": "datasets",
+          "expected_document_keys": [
+            "comparison-dynamic-topk-paper-b"
+          ],
+          "expected_passage_ids": [
+            "comparison-dynamic-topk-paper-b-p1"
+          ],
+          "description": "Dataset split and benchmark setup used in comparison-dynamic-topk-paper-b"
+        },
+        {
+          "claim_id": "claim-025-r1",
+          "claim_type": "findings",
+          "expected_document_keys": [
+            "comparison-dynamic-topk-paper-a",
+            "comparison-dynamic-topk-paper-c"
+          ],
+          "expected_passage_ids": [
+            "comparison-dynamic-topk-paper-a-p2",
+            "comparison-dynamic-topk-paper-c-p1"
+          ],
+          "description": "Observed findings and consensus across comparison-dynamic-topk-paper-a and comparison-dynamic-topk-paper-c"
+        }
+      ],
+      "known_conflicts": [],
+      "unanswerable_questions": []
+    },
+    {
+      "case_id": "synth-026",
+      "title": "Multi-Modal Document Layout Understanding (LayoutLM vs OCR-free)",
+      "question": "Compare methodology, datasets, findings, and limitations across the selected studies regarding Multi-Modal Document Layout Understanding (LayoutLM vs OCR-free).",
+      "documents": [
+        {
+          "document_key": "comparison-multimodal-layout-paper-a",
+          "fixture": "fixtures/comparison-multimodal-layout-paper-a.pdf",
+          "relevant_passage_ids": [
+            "comparison-multimodal-layout-paper-a-p1",
+            "comparison-multimodal-layout-paper-a-p2"
+          ]
+        },
+        {
+          "document_key": "comparison-multimodal-layout-paper-b",
+          "fixture": "fixtures/comparison-multimodal-layout-paper-b.pdf",
+          "relevant_passage_ids": [
+            "comparison-multimodal-layout-paper-b-p1"
+          ]
+        },
+        {
+          "document_key": "comparison-multimodal-layout-paper-c",
+          "fixture": "fixtures/comparison-multimodal-layout-paper-c.pdf",
+          "relevant_passage_ids": [
+            "comparison-multimodal-layout-paper-c-p1"
+          ]
+        }
+      ],
+      "required_facets": [
+        "methodology",
+        "datasets",
+        "metrics",
+        "findings",
+        "limitations"
+      ],
+      "claims": [
+        {
+          "claim_id": "claim-026-m1",
+          "claim_type": "methodology",
+          "expected_document_keys": [
+            "comparison-multimodal-layout-paper-a"
+          ],
+          "expected_passage_ids": [
+            "comparison-multimodal-layout-paper-a-p1"
+          ],
+          "description": "Experimental methodology proposed in comparison-multimodal-layout-paper-a"
+        },
+        {
+          "claim_id": "claim-026-d1",
+          "claim_type": "datasets",
+          "expected_document_keys": [
+            "comparison-multimodal-layout-paper-b"
+          ],
+          "expected_passage_ids": [
+            "comparison-multimodal-layout-paper-b-p1"
+          ],
+          "description": "Dataset split and benchmark setup used in comparison-multimodal-layout-paper-b"
+        },
+        {
+          "claim_id": "claim-026-r1",
+          "claim_type": "findings",
+          "expected_document_keys": [
+            "comparison-multimodal-layout-paper-a",
+            "comparison-multimodal-layout-paper-c"
+          ],
+          "expected_passage_ids": [
+            "comparison-multimodal-layout-paper-a-p2",
+            "comparison-multimodal-layout-paper-c-p1"
+          ],
+          "description": "Observed findings and consensus across comparison-multimodal-layout-paper-a and comparison-multimodal-layout-paper-c"
+        }
+      ],
+      "known_conflicts": [],
+      "unanswerable_questions": []
+    },
+    {
+      "case_id": "synth-027",
+      "title": "Ablation of Reciprocal Rank Fusion vs Learned Cross-Scoring",
+      "question": "Compare methodology, datasets, findings, and limitations across the selected studies regarding Ablation of Reciprocal Rank Fusion vs Learned Cross-Scoring.",
+      "documents": [
+        {
+          "document_key": "comparison-rrf-ablation-paper-a",
+          "fixture": "fixtures/comparison-rrf-ablation-paper-a.pdf",
+          "relevant_passage_ids": [
+            "comparison-rrf-ablation-paper-a-p1",
+            "comparison-rrf-ablation-paper-a-p2"
+          ]
+        },
+        {
+          "document_key": "comparison-rrf-ablation-paper-b",
+          "fixture": "fixtures/comparison-rrf-ablation-paper-b.pdf",
+          "relevant_passage_ids": [
+            "comparison-rrf-ablation-paper-b-p1"
+          ]
+        },
+        {
+          "document_key": "comparison-rrf-ablation-paper-c",
+          "fixture": "fixtures/comparison-rrf-ablation-paper-c.pdf",
+          "relevant_passage_ids": [
+            "comparison-rrf-ablation-paper-c-p1"
+          ]
+        }
+      ],
+      "required_facets": [
+        "methodology",
+        "datasets",
+        "metrics",
+        "findings",
+        "limitations"
+      ],
+      "claims": [
+        {
+          "claim_id": "claim-027-m1",
+          "claim_type": "methodology",
+          "expected_document_keys": [
+            "comparison-rrf-ablation-paper-a"
+          ],
+          "expected_passage_ids": [
+            "comparison-rrf-ablation-paper-a-p1"
+          ],
+          "description": "Experimental methodology proposed in comparison-rrf-ablation-paper-a"
+        },
+        {
+          "claim_id": "claim-027-d1",
+          "claim_type": "datasets",
+          "expected_document_keys": [
+            "comparison-rrf-ablation-paper-b"
+          ],
+          "expected_passage_ids": [
+            "comparison-rrf-ablation-paper-b-p1"
+          ],
+          "description": "Dataset split and benchmark setup used in comparison-rrf-ablation-paper-b"
+        },
+        {
+          "claim_id": "claim-027-r1",
+          "claim_type": "findings",
+          "expected_document_keys": [
+            "comparison-rrf-ablation-paper-a",
+            "comparison-rrf-ablation-paper-c"
+          ],
+          "expected_passage_ids": [
+            "comparison-rrf-ablation-paper-a-p2",
+            "comparison-rrf-ablation-paper-c-p1"
+          ],
+          "description": "Observed findings and consensus across comparison-rrf-ablation-paper-a and comparison-rrf-ablation-paper-c"
+        }
+      ],
+      "known_conflicts": [
+        "Conflicting accuracy tradeoffs between comparison-rrf-ablation-paper-a and comparison-rrf-ablation-paper-b"
+      ],
+      "unanswerable_questions": []
+    },
+    {
+      "case_id": "synth-028",
+      "title": "Contradiction Detection Between Conflicting Clinical Trials",
+      "question": "Compare methodology, datasets, findings, and limitations across the selected studies regarding Contradiction Detection Between Conflicting Clinical Trials.",
+      "documents": [
+        {
+          "document_key": "comparison-clinical-contradiction-paper-a",
+          "fixture": "fixtures/comparison-clinical-contradiction-paper-a.pdf",
+          "relevant_passage_ids": [
+            "comparison-clinical-contradiction-paper-a-p1",
+            "comparison-clinical-contradiction-paper-a-p2"
+          ]
+        },
+        {
+          "document_key": "comparison-clinical-contradiction-paper-b",
+          "fixture": "fixtures/comparison-clinical-contradiction-paper-b.pdf",
+          "relevant_passage_ids": [
+            "comparison-clinical-contradiction-paper-b-p1"
+          ]
+        },
+        {
+          "document_key": "comparison-clinical-contradiction-paper-c",
+          "fixture": "fixtures/comparison-clinical-contradiction-paper-c.pdf",
+          "relevant_passage_ids": [
+            "comparison-clinical-contradiction-paper-c-p1"
+          ]
+        }
+      ],
+      "required_facets": [
+        "methodology",
+        "datasets",
+        "metrics",
+        "findings",
+        "limitations"
+      ],
+      "claims": [
+        {
+          "claim_id": "claim-028-m1",
+          "claim_type": "methodology",
+          "expected_document_keys": [
+            "comparison-clinical-contradiction-paper-a"
+          ],
+          "expected_passage_ids": [
+            "comparison-clinical-contradiction-paper-a-p1"
+          ],
+          "description": "Experimental methodology proposed in comparison-clinical-contradiction-paper-a"
+        },
+        {
+          "claim_id": "claim-028-d1",
+          "claim_type": "datasets",
+          "expected_document_keys": [
+            "comparison-clinical-contradiction-paper-b"
+          ],
+          "expected_passage_ids": [
+            "comparison-clinical-contradiction-paper-b-p1"
+          ],
+          "description": "Dataset split and benchmark setup used in comparison-clinical-contradiction-paper-b"
+        },
+        {
+          "claim_id": "claim-028-r1",
+          "claim_type": "findings",
+          "expected_document_keys": [
+            "comparison-clinical-contradiction-paper-a",
+            "comparison-clinical-contradiction-paper-c"
+          ],
+          "expected_passage_ids": [
+            "comparison-clinical-contradiction-paper-a-p2",
+            "comparison-clinical-contradiction-paper-c-p1"
+          ],
+          "description": "Observed findings and consensus across comparison-clinical-contradiction-paper-a and comparison-clinical-contradiction-paper-c"
+        }
+      ],
+      "known_conflicts": [],
+      "unanswerable_questions": [
+        "Unreported hyperparameter details for comparison-clinical-contradiction-paper-c"
+      ]
+    },
+    {
+      "case_id": "synth-029",
+      "title": "Temporal Drift in Scientific Claim Verification",
+      "question": "Compare methodology, datasets, findings, and limitations across the selected studies regarding Temporal Drift in Scientific Claim Verification.",
+      "documents": [
+        {
+          "document_key": "comparison-temporal-drift-paper-a",
+          "fixture": "fixtures/comparison-temporal-drift-paper-a.pdf",
+          "relevant_passage_ids": [
+            "comparison-temporal-drift-paper-a-p1",
+            "comparison-temporal-drift-paper-a-p2"
+          ]
+        },
+        {
+          "document_key": "comparison-temporal-drift-paper-b",
+          "fixture": "fixtures/comparison-temporal-drift-paper-b.pdf",
+          "relevant_passage_ids": [
+            "comparison-temporal-drift-paper-b-p1"
+          ]
+        },
+        {
+          "document_key": "comparison-temporal-drift-paper-c",
+          "fixture": "fixtures/comparison-temporal-drift-paper-c.pdf",
+          "relevant_passage_ids": [
+            "comparison-temporal-drift-paper-c-p1"
+          ]
+        }
+      ],
+      "required_facets": [
+        "methodology",
+        "datasets",
+        "metrics",
+        "findings",
+        "limitations"
+      ],
+      "claims": [
+        {
+          "claim_id": "claim-029-m1",
+          "claim_type": "methodology",
+          "expected_document_keys": [
+            "comparison-temporal-drift-paper-a"
+          ],
+          "expected_passage_ids": [
+            "comparison-temporal-drift-paper-a-p1"
+          ],
+          "description": "Experimental methodology proposed in comparison-temporal-drift-paper-a"
+        },
+        {
+          "claim_id": "claim-029-d1",
+          "claim_type": "datasets",
+          "expected_document_keys": [
+            "comparison-temporal-drift-paper-b"
+          ],
+          "expected_passage_ids": [
+            "comparison-temporal-drift-paper-b-p1"
+          ],
+          "description": "Dataset split and benchmark setup used in comparison-temporal-drift-paper-b"
+        },
+        {
+          "claim_id": "claim-029-r1",
+          "claim_type": "findings",
+          "expected_document_keys": [
+            "comparison-temporal-drift-paper-a",
+            "comparison-temporal-drift-paper-c"
+          ],
+          "expected_passage_ids": [
+            "comparison-temporal-drift-paper-a-p2",
+            "comparison-temporal-drift-paper-c-p1"
+          ],
+          "description": "Observed findings and consensus across comparison-temporal-drift-paper-a and comparison-temporal-drift-paper-c"
+        }
+      ],
+      "known_conflicts": [],
+      "unanswerable_questions": []
+    },
+    {
+      "case_id": "synth-030",
+      "title": "Zero-Shot Abstractive Faceted Comparison of Preprints",
+      "question": "Compare methodology, datasets, findings, and limitations across the selected studies regarding Zero-Shot Abstractive Faceted Comparison of Preprints.",
+      "documents": [
+        {
+          "document_key": "comparison-zeroshot-faceted-paper-a",
+          "fixture": "fixtures/comparison-zeroshot-faceted-paper-a.pdf",
+          "relevant_passage_ids": [
+            "comparison-zeroshot-faceted-paper-a-p1",
+            "comparison-zeroshot-faceted-paper-a-p2"
+          ]
+        },
+        {
+          "document_key": "comparison-zeroshot-faceted-paper-b",
+          "fixture": "fixtures/comparison-zeroshot-faceted-paper-b.pdf",
+          "relevant_passage_ids": [
+            "comparison-zeroshot-faceted-paper-b-p1"
+          ]
+        },
+        {
+          "document_key": "comparison-zeroshot-faceted-paper-c",
+          "fixture": "fixtures/comparison-zeroshot-faceted-paper-c.pdf",
+          "relevant_passage_ids": [
+            "comparison-zeroshot-faceted-paper-c-p1"
+          ]
+        }
+      ],
+      "required_facets": [
+        "methodology",
+        "datasets",
+        "metrics",
+        "findings",
+        "limitations"
+      ],
+      "claims": [
+        {
+          "claim_id": "claim-030-m1",
+          "claim_type": "methodology",
+          "expected_document_keys": [
+            "comparison-zeroshot-faceted-paper-a"
+          ],
+          "expected_passage_ids": [
+            "comparison-zeroshot-faceted-paper-a-p1"
+          ],
+          "description": "Experimental methodology proposed in comparison-zeroshot-faceted-paper-a"
+        },
+        {
+          "claim_id": "claim-030-d1",
+          "claim_type": "datasets",
+          "expected_document_keys": [
+            "comparison-zeroshot-faceted-paper-b"
+          ],
+          "expected_passage_ids": [
+            "comparison-zeroshot-faceted-paper-b-p1"
+          ],
+          "description": "Dataset split and benchmark setup used in comparison-zeroshot-faceted-paper-b"
+        },
+        {
+          "claim_id": "claim-030-r1",
+          "claim_type": "findings",
+          "expected_document_keys": [
+            "comparison-zeroshot-faceted-paper-a",
+            "comparison-zeroshot-faceted-paper-c"
+          ],
+          "expected_passage_ids": [
+            "comparison-zeroshot-faceted-paper-a-p2",
+            "comparison-zeroshot-faceted-paper-c-p1"
+          ],
+          "description": "Observed findings and consensus across comparison-zeroshot-faceted-paper-a and comparison-zeroshot-faceted-paper-c"
+        }
+      ],
+      "known_conflicts": [],
+      "unanswerable_questions": []
+    }
+  ]
+}
