@@ -79,7 +79,8 @@
       "unanswerable_questions": [],
       "selected_document_keys": [
         "comparison-rag-perf-paper-a",
-        "comparison-rag-perf-paper-b"
+        "comparison-rag-perf-paper-b",
+        "comparison-rag-perf-paper-c"
       ]
     },
     {
@@ -158,7 +159,8 @@
       "unanswerable_questions": [],
       "selected_document_keys": [
         "comparison-vector-index-paper-a",
-        "comparison-vector-index-paper-b"
+        "comparison-vector-index-paper-b",
+        "comparison-vector-index-paper-c"
       ]
     },
     {
@@ -239,7 +241,8 @@
       "unanswerable_questions": [],
       "selected_document_keys": [
         "comparison-retrieval-hybrid-paper-a",
-        "comparison-retrieval-hybrid-paper-b"
+        "comparison-retrieval-hybrid-paper-b",
+        "comparison-retrieval-hybrid-paper-c"
       ]
     },
     {
@@ -318,7 +321,8 @@
       "unanswerable_questions": [],
       "selected_document_keys": [
         "comparison-chunking-granularity-paper-a",
-        "comparison-chunking-granularity-paper-b"
+        "comparison-chunking-granularity-paper-b",
+        "comparison-chunking-granularity-paper-c"
       ]
     },
     {
@@ -397,7 +401,8 @@
       "unanswerable_questions": [],
       "selected_document_keys": [
         "comparison-reranking-overhead-paper-a",
-        "comparison-reranking-overhead-paper-b"
+        "comparison-reranking-overhead-paper-b",
+        "comparison-reranking-overhead-paper-c"
       ]
     },
     {
@@ -476,7 +481,8 @@
       "unanswerable_questions": [],
       "selected_document_keys": [
         "comparison-context-compression-paper-a",
-        "comparison-context-compression-paper-b"
+        "comparison-context-compression-paper-b",
+        "comparison-context-compression-paper-c"
       ]
     },
     {
@@ -555,7 +561,8 @@
       "unanswerable_questions": [],
       "selected_document_keys": [
         "comparison-citation-faithfulness-paper-a",
-        "comparison-citation-faithfulness-paper-b"
+        "comparison-citation-faithfulness-paper-b",
+        "comparison-citation-faithfulness-paper-c"
       ]
     },
     {
@@ -634,7 +641,8 @@
       "unanswerable_questions": [],
       "selected_document_keys": [
         "comparison-multihop-reasoning-paper-a",
-        "comparison-multihop-reasoning-paper-b"
+        "comparison-multihop-reasoning-paper-b",
+        "comparison-multihop-reasoning-paper-c"
       ]
     },
     {
@@ -713,7 +721,8 @@
       "unanswerable_questions": [],
       "selected_document_keys": [
         "comparison-quant-embeddings-paper-a",
-        "comparison-quant-embeddings-paper-b"
+        "comparison-quant-embeddings-paper-b",
+        "comparison-quant-embeddings-paper-c"
       ]
     },
     {
@@ -792,7 +801,8 @@
       "unanswerable_questions": [],
       "selected_document_keys": [
         "comparison-contrastive-dense-paper-a",
-        "comparison-contrastive-dense-paper-b"
+        "comparison-contrastive-dense-paper-b",
+        "comparison-contrastive-dense-paper-c"
       ]
     },
     {
@@ -871,7 +881,8 @@
       "unanswerable_questions": [],
       "selected_document_keys": [
         "comparison-self-rag-paper-a",
-        "comparison-self-rag-paper-b"
+        "comparison-self-rag-paper-b",
+        "comparison-self-rag-paper-c"
       ]
     },
     {
@@ -950,7 +961,8 @@
       "unanswerable_questions": [],
       "selected_document_keys": [
         "comparison-recursive-summaries-paper-a",
-        "comparison-recursive-summaries-paper-b"
+        "comparison-recursive-summaries-paper-b",
+        "comparison-recursive-summaries-paper-c"
       ]
     },
     {
@@ -1029,7 +1041,8 @@
       "unanswerable_questions": [],
       "selected_document_keys": [
         "comparison-graph-rag-paper-a",
-        "comparison-graph-rag-paper-b"
+        "comparison-graph-rag-paper-b",
+        "comparison-graph-rag-paper-c"
       ]
     },
     {
@@ -1108,7 +1121,8 @@
       "unanswerable_questions": [],
       "selected_document_keys": [
         "comparison-prompt-delimiters-paper-a",
-        "comparison-prompt-delimiters-paper-b"
+        "comparison-prompt-delimiters-paper-b",
+        "comparison-prompt-delimiters-paper-c"
       ]
     },
     {
@@ -1187,7 +1201,8 @@
       "unanswerable_questions": [],
       "selected_document_keys": [
         "comparison-distractor-robustness-paper-a",
-        "comparison-distractor-robustness-paper-b"
+        "comparison-distractor-robustness-paper-b",
+        "comparison-distractor-robustness-paper-c"
       ]
     },
     {
@@ -1266,7 +1281,8 @@
       "unanswerable_questions": [],
       "selected_document_keys": [
         "comparison-finetuning-extraction-paper-a",
-        "comparison-finetuning-extraction-paper-b"
+        "comparison-finetuning-extraction-paper-b",
+        "comparison-finetuning-extraction-paper-c"
       ]
     },
     {
@@ -1345,7 +1361,8 @@
       "unanswerable_questions": [],
       "selected_document_keys": [
         "comparison-ood-generalization-paper-a",
-        "comparison-ood-generalization-paper-b"
+        "comparison-ood-generalization-paper-b",
+        "comparison-ood-generalization-paper-c"
       ]
     },
     {
@@ -1424,7 +1441,8 @@
       "unanswerable_questions": [],
       "selected_document_keys": [
         "comparison-token-pruning-paper-a",
-        "comparison-token-pruning-paper-b"
+        "comparison-token-pruning-paper-b",
+        "comparison-token-pruning-paper-c"
       ]
     },
     {
@@ -1503,7 +1521,8 @@
       "unanswerable_questions": [],
       "selected_document_keys": [
         "comparison-table-math-extraction-paper-a",
-        "comparison-table-math-extraction-paper-b"
+        "comparison-table-math-extraction-paper-b",
+        "comparison-table-math-extraction-paper-c"
       ]
     },
     {
@@ -1582,7 +1601,8 @@
       "unanswerable_questions": [],
       "selected_document_keys": [
         "comparison-hierarchical-chunking-paper-a",
-        "comparison-hierarchical-chunking-paper-b"
+        "comparison-hierarchical-chunking-paper-b",
+        "comparison-hierarchical-chunking-paper-c"
       ]
     },
     {
@@ -1661,7 +1681,8 @@
       "unanswerable_questions": [],
       "selected_document_keys": [
         "comparison-streaming-ttft-paper-a",
-        "comparison-streaming-ttft-paper-b"
+        "comparison-streaming-ttft-paper-b",
+        "comparison-streaming-ttft-paper-c"
       ]
     },
     {
@@ -1740,7 +1761,8 @@
       "unanswerable_questions": [],
       "selected_document_keys": [
         "comparison-confidence-calibration-paper-a",
-        "comparison-confidence-calibration-paper-b"
+        "comparison-confidence-calibration-paper-b",
+        "comparison-confidence-calibration-paper-c"
       ]
     },
     {
@@ -1819,7 +1841,8 @@
       "unanswerable_questions": [],
       "selected_document_keys": [
         "comparison-cross-lingual-paper-a",
-        "comparison-cross-lingual-paper-b"
+        "comparison-cross-lingual-paper-b",
+        "comparison-cross-lingual-paper-c"
       ]
     },
     {
@@ -1898,7 +1921,8 @@
       "unanswerable_questions": [],
       "selected_document_keys": [
         "comparison-differential-privacy-paper-a",
-        "comparison-differential-privacy-paper-b"
+        "comparison-differential-privacy-paper-b",
+        "comparison-differential-privacy-paper-c"
       ]
     },
     {
@@ -1977,7 +2001,8 @@
       "unanswerable_questions": [],
       "selected_document_keys": [
         "comparison-dynamic-topk-paper-a",
-        "comparison-dynamic-topk-paper-b"
+        "comparison-dynamic-topk-paper-b",
+        "comparison-dynamic-topk-paper-c"
       ]
     },
     {
@@ -2056,7 +2081,8 @@
       "unanswerable_questions": [],
       "selected_document_keys": [
         "comparison-multimodal-layout-paper-a",
-        "comparison-multimodal-layout-paper-b"
+        "comparison-multimodal-layout-paper-b",
+        "comparison-multimodal-layout-paper-c"
       ]
     },
     {
@@ -2137,7 +2163,8 @@
       "unanswerable_questions": [],
       "selected_document_keys": [
         "comparison-rrf-ablation-paper-a",
-        "comparison-rrf-ablation-paper-b"
+        "comparison-rrf-ablation-paper-b",
+        "comparison-rrf-ablation-paper-c"
       ]
     },
     {
@@ -2218,7 +2245,8 @@
       ],
       "selected_document_keys": [
         "comparison-clinical-contradiction-paper-a",
-        "comparison-clinical-contradiction-paper-b"
+        "comparison-clinical-contradiction-paper-b",
+        "comparison-clinical-contradiction-paper-c"
       ]
     },
     {
@@ -2297,7 +2325,8 @@
       "unanswerable_questions": [],
       "selected_document_keys": [
         "comparison-temporal-drift-paper-a",
-        "comparison-temporal-drift-paper-b"
+        "comparison-temporal-drift-paper-b",
+        "comparison-temporal-drift-paper-c"
       ]
     },
     {
@@ -2376,7 +2405,8 @@
       "unanswerable_questions": [],
       "selected_document_keys": [
         "comparison-zeroshot-faceted-paper-a",
-        "comparison-zeroshot-faceted-paper-b"
+        "comparison-zeroshot-faceted-paper-b",
+        "comparison-zeroshot-faceted-paper-c"
       ]
     }
   ]

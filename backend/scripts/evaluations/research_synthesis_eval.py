@@ -17,8 +17,6 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Sequence
 
-STANDARD_FACETS = ("methodology", "datasets", "metrics", "findings", "limitations")
-
 DEFAULT_THRESHOLDS = {
     "evidence_recall_at_5": 0.80,
     "mrr_at_10": 0.70,
@@ -52,17 +50,23 @@ def get_git_revision() -> str:
         return "unknown"
 
 
-def validate_dataset(data: dict[str, Any], min_cases: int = 30) -> None:
-    """Validate research synthesis dataset against the v1 specification."""
+def validate_dataset(data: Any, min_cases: int = 30) -> None:
+    """Comprehensive validation of benchmark dataset schema and relational invariants."""
     if not isinstance(data, dict):
         raise DatasetValidationError("Dataset must be a JSON object.")
 
     if data.get("schema_version") != "1.0":
         raise DatasetValidationError(f"Unsupported schema_version: {data.get('schema_version')}")
 
+    dataset_id = data.get("dataset_id")
+    if not isinstance(dataset_id, str) or not dataset_id.strip():
+        raise DatasetValidationError("Dataset must have a non-empty string 'dataset_id'.")
+
     cases = data.get("cases")
     if not isinstance(cases, list) or len(cases) < min_cases:
-        raise DatasetValidationError(f"Dataset must contain at least {min_cases} cases, found {len(cases) if isinstance(cases, list) else 0}.")
+        raise DatasetValidationError(
+            f"Dataset must contain at least {min_cases} cases, found {len(cases) if isinstance(cases, list) else 0}."
+        )
 
     seen_case_ids: set[str] = set()
 
@@ -71,7 +75,7 @@ def validate_dataset(data: dict[str, Any], min_cases: int = 30) -> None:
             raise DatasetValidationError(f"Case at index {idx} must be a JSON object.")
 
         case_id = case.get("case_id")
-        if not case_id or not isinstance(case_id, str):
+        if not isinstance(case_id, str) or not case_id.strip():
             raise DatasetValidationError(f"Case at index {idx} must have a valid non-empty 'case_id'.")
 
         if case_id in seen_case_ids:
@@ -79,16 +83,12 @@ def validate_dataset(data: dict[str, Any], min_cases: int = 30) -> None:
         seen_case_ids.add(case_id)
 
         question = case.get("question")
-        if not question or not isinstance(question, str) or not question.strip():
+        if not isinstance(question, str) or not question.strip():
             raise DatasetValidationError(f"Case {case_id} must have a non-empty string 'question'.")
 
         documents = case.get("documents")
         if not isinstance(documents, list) or len(documents) < 2:
             raise DatasetValidationError(f"Case {case_id} must have at least 2 documents.")
-
-        selected_keys = case.get("selected_document_keys")
-        if not isinstance(selected_keys, list) or len(selected_keys) < 1:
-            raise DatasetValidationError(f"Case {case_id} must define non-empty 'selected_document_keys'.")
 
         doc_keys = set()
         seen_passages_in_case: set[str] = set()
@@ -96,7 +96,7 @@ def validate_dataset(data: dict[str, Any], min_cases: int = 30) -> None:
             if not isinstance(doc, dict):
                 raise DatasetValidationError(f"Case {case_id} documents must be objects.")
             key = doc.get("document_key")
-            if not key or not isinstance(key, str):
+            if not isinstance(key, str) or not key.strip():
                 raise DatasetValidationError(f"Case {case_id} has invalid document_key.")
             if key in doc_keys:
                 raise DatasetValidationError(f"Case {case_id} has duplicate document_key: {key}")
@@ -106,19 +106,44 @@ def validate_dataset(data: dict[str, Any], min_cases: int = 30) -> None:
             if not isinstance(passages, list):
                 raise DatasetValidationError(f"Case {case_id} doc {key} relevant_passage_ids must be a list.")
             for p in passages:
-                if not isinstance(p, str):
-                    raise DatasetValidationError(f"Case {case_id} passage ID must be a string.")
+                if not isinstance(p, str) or not p.strip():
+                    raise DatasetValidationError(f"Case {case_id} passage ID must be a non-empty string.")
                 if p in seen_passages_in_case:
                     raise DatasetValidationError(f"Case {case_id} has duplicate passage_id: {p}")
                 seen_passages_in_case.add(p)
 
+        selected_keys = case.get("selected_document_keys")
+        if not isinstance(selected_keys, list) or len(selected_keys) < 1:
+            raise DatasetValidationError(f"Case {case_id} must define non-empty 'selected_document_keys'.")
+
+        selected_key_set = set()
         for sk in selected_keys:
+            if not isinstance(sk, str) or not sk.strip():
+                raise DatasetValidationError(f"Case {case_id} has invalid string in selected_document_keys.")
             if sk not in doc_keys:
                 raise DatasetValidationError(f"Case {case_id} selected_document_key '{sk}' not found in documents.")
+            if sk in selected_key_set:
+                raise DatasetValidationError(f"Case {case_id} duplicate selected_document_key: {sk}")
+            selected_key_set.add(sk)
 
         required_facets = case.get("required_facets")
         if not isinstance(required_facets, list) or not required_facets:
             raise DatasetValidationError(f"Case {case_id} must define a non-empty 'required_facets' list.")
+        seen_facets = set()
+        for f in required_facets:
+            if not isinstance(f, str) or not f.strip():
+                raise DatasetValidationError(f"Case {case_id} required_facets must contain non-empty strings.")
+            if f in seen_facets:
+                raise DatasetValidationError(f"Case {case_id} duplicate required_facet: {f}")
+            seen_facets.add(f)
+
+        for list_name in ("known_conflicts", "unanswerable_questions"):
+            items = case.get(list_name, [])
+            if not isinstance(items, list):
+                raise DatasetValidationError(f"Case {case_id} '{list_name}' must be a list.")
+            for item in items:
+                if not isinstance(item, str):
+                    raise DatasetValidationError(f"Case {case_id} '{list_name}' items must be strings.")
 
         claims = case.get("claims", [])
         if not isinstance(claims, list):
@@ -126,21 +151,84 @@ def validate_dataset(data: dict[str, Any], min_cases: int = 30) -> None:
 
         seen_claim_ids = set()
         for claim in claims:
+            if not isinstance(claim, dict):
+                raise DatasetValidationError(f"Case {case_id} claim must be an object.")
             cid = claim.get("claim_id")
-            if not cid or not isinstance(cid, str):
+            if not isinstance(cid, str) or not cid.strip():
                 raise DatasetValidationError(f"Case {case_id} claim missing string 'claim_id'.")
             if cid in seen_claim_ids:
                 raise DatasetValidationError(f"Case {case_id} duplicate claim_id: {cid}")
             seen_claim_ids.add(cid)
 
             exp_docs = claim.get("expected_document_keys", [])
+            if not isinstance(exp_docs, list):
+                raise DatasetValidationError(f"Case {case_id} claim {cid} expected_document_keys must be a list.")
             for ed in exp_docs:
                 if ed not in doc_keys:
                     raise DatasetValidationError(f"Case {case_id} claim {cid} expects unknown document_key: {ed}")
+                # Enforce that gold claims cannot require unselected documents
+                if ed not in selected_key_set:
+                    raise DatasetValidationError(
+                        f"Case {case_id} claim {cid} expects unselected document_key '{ed}'."
+                    )
+
             exp_passages = claim.get("expected_passage_ids", [])
+            if not isinstance(exp_passages, list):
+                raise DatasetValidationError(f"Case {case_id} claim {cid} expected_passage_ids must be a list.")
             for ep in exp_passages:
                 if ep not in seen_passages_in_case:
                     raise DatasetValidationError(f"Case {case_id} claim {cid} expects unknown passage_id: {ep}")
+
+
+def validate_predictions_structure(
+    predictions: Any,
+    dataset_cases: list[dict[str, Any]],
+) -> None:
+    """Validate predictions object and ensure exact 1-to-1 mapping with dataset."""
+    if not isinstance(predictions, dict):
+        raise PredictionValidationError("Predictions root must be a JSON object mapping case_id to candidate data.")
+
+    dataset_case_ids = {c["case_id"] for c in dataset_cases}
+    pred_case_ids = set(predictions.keys())
+
+    missing = dataset_case_ids - pred_case_ids
+    extra = pred_case_ids - dataset_case_ids
+
+    if missing:
+        raise PredictionValidationError(f"Missing predictions for cases: {sorted(missing)}")
+    if extra:
+        raise PredictionValidationError(f"Extra unexpected prediction case IDs: {sorted(extra)}")
+
+    for case_id, cand in predictions.items():
+        if not isinstance(cand, dict):
+            raise PredictionValidationError(f"Prediction for '{case_id}' must be a JSON object.")
+
+        if "retrieved_passage_ids" in cand and not isinstance(cand["retrieved_passage_ids"], list):
+            raise PredictionValidationError(f"Case '{case_id}' retrieved_passage_ids must be a list.")
+
+        facets = cand.get("facets", {})
+        if not isinstance(facets, dict):
+            raise PredictionValidationError(f"Case '{case_id}' facets must be an object.")
+
+        top_citations = cand.get("citations", [])
+        if not isinstance(top_citations, list):
+            raise PredictionValidationError(f"Case '{case_id}' citations must be a list.")
+        for cit in top_citations:
+            if not isinstance(cit, dict) or "document_key" not in cit or "passage_id" not in cit:
+                raise PredictionValidationError(f"Case '{case_id}' invalid top-level citation object.")
+
+        pred_claims = cand.get("predicted_claims", [])
+        if not isinstance(pred_claims, list):
+            raise PredictionValidationError(f"Case '{case_id}' predicted_claims must be a list.")
+        for pc in pred_claims:
+            if not isinstance(pc, dict) or "claim_id" not in pc:
+                raise PredictionValidationError(f"Case '{case_id}' predicted claim missing 'claim_id'.")
+            claim_cits = pc.get("citations", [])
+            if not isinstance(claim_cits, list):
+                raise PredictionValidationError(f"Case '{case_id}' claim citations must be a list.")
+            for cit in claim_cits:
+                if not isinstance(cit, dict) or "document_key" not in cit or "passage_id" not in cit:
+                    raise PredictionValidationError(f"Case '{case_id}' invalid claim citation object.")
 
 
 @dataclass
@@ -179,10 +267,7 @@ def calculate_retrieval_metrics(
     relevant_passage_ids: Sequence[str],
     is_unanswerable: bool = False,
 ) -> tuple[float, float]:
-    """
-    Calculate Evidence Recall@5 and MRR@10 deterministically.
-    If no relevant passages exist on an answerable query, returns (0.0, 0.0).
-    """
+    """Calculate Evidence Recall@5 and MRR@10 deterministically."""
     if not relevant_passage_ids:
         if is_unanswerable:
             return 1.0, 1.0
@@ -224,13 +309,20 @@ def score_case_synthesis(
 
     is_unanswerable = len(case.get("unanswerable_questions", [])) > 0 and len(selected_expected_passages) == 0
 
-    # 2. Retrieval Metrics
+    # 2. Retrieval Metrics and Retrieval Leakage
     retrieved_passages = candidate_result.get("retrieved_passage_ids", [])
     recall_at_5, mrr_at_10 = calculate_retrieval_metrics(
         retrieved_passages, selected_expected_passages, is_unanswerable=is_unanswerable
     )
 
-    # 3. Facet Conformance (Must exactly match case required_facets with non-empty strings)
+    unselected_leakage = False
+    for r_pid in retrieved_passages:
+        owner = passage_to_doc.get(r_pid)
+        if owner and owner not in selected_doc_keys:
+            unselected_leakage = True
+            errors.append(f"Retrieved passage '{r_pid}' belongs to unselected document '{owner}'.")
+
+    # 3. Facet Conformance
     facets = candidate_result.get("facets", {})
     required_facets = set(case.get("required_facets", []))
     provided_facets = set(facets.keys()) if isinstance(facets, dict) else set()
@@ -250,21 +342,45 @@ def score_case_synthesis(
     else:
         facet_conformance = 1.0
 
-    # 4. Citations, Ownership & Unselected-Source Leakage
-    citations = candidate_result.get("citations", [])
-    unselected_leakage = False
+    # 4. Canonical Citation Consistency Validation
+    top_citations = candidate_result.get("citations", [])
+    pred_claims = candidate_result.get("predicted_claims", [])
+
+    # Collect citations from claims
+    claim_citations: list[dict[str, Any]] = []
+    for pc in pred_claims:
+        claim_citations.extend(pc.get("citations", []))
+
+    # If both are provided, validate their equivalence
+    if top_citations and claim_citations:
+        top_cit_tuples = {(c.get("document_key"), c.get("passage_id")) for c in top_citations}
+        claim_cit_tuples = {(c.get("document_key"), c.get("passage_id")) for c in claim_citations}
+        if top_cit_tuples != claim_cit_tuples:
+            errors.append("Inconsistency detected between top-level citations and claim-linked citations.")
+
+    # Also verify claim citations for leakage & ownership
+    for cit in claim_citations:
+        doc_key = cit.get("document_key")
+        passage_id = cit.get("passage_id")
+        if doc_key not in selected_doc_keys:
+            unselected_leakage = True
+            errors.append(f"Unselected source cited in claim: {doc_key}")
+        owner_doc = passage_to_doc.get(passage_id)
+        if owner_doc and owner_doc != doc_key:
+            errors.append(f"Passage ownership mismatch in claim: {passage_id} belongs to {owner_doc}, cited under {doc_key}")
+
+    # Top-level citations carry document metadata (chunk_id, page_number)
+    citations_for_identity = top_citations if top_citations else claim_citations
     valid_source_identities = 0
 
-    for cit in citations:
+    for cit in citations_for_identity:
         doc_key = cit.get("document_key")
         passage_id = cit.get("passage_id")
 
-        # Check leakage against selected set
         if doc_key not in selected_doc_keys:
             unselected_leakage = True
             errors.append(f"Unselected source cited: {doc_key}")
 
-        # Check passage ownership
         owner_doc = passage_to_doc.get(passage_id)
         if owner_doc and owner_doc != doc_key:
             errors.append(f"Passage ownership mismatch: {passage_id} belongs to {owner_doc}, cited under {doc_key}")
@@ -277,31 +393,31 @@ def score_case_synthesis(
             valid_source_identities += 1
 
     source_identity_accuracy = (
-        valid_source_identities / len(citations) if citations else (1.0 if not unselected_leakage else 0.0)
+        valid_source_identities / len(citations_for_identity)
+        if citations_for_identity
+        else (1.0 if not unselected_leakage else 0.0)
     )
 
-    # 5. Claim-Linked Citation Precision, Coverage, and Unsupported Claims
+    # 5. Claim-Linked Precision, Coverage, and Unsupported Claims
     gold_claims = {c["claim_id"]: c for c in case.get("claims", [])}
-    predicted_claims = candidate_result.get("predicted_claims", [])
-
-    total_citations = 0
-    supported_citations = 0
+    total_claim_citations = 0
+    supported_claim_citations = 0
     unsupported_pred_claims = 0
 
-    for p_claim in predicted_claims:
+    for p_claim in pred_claims:
         claim_id = p_claim.get("claim_id")
-        claim_citations = p_claim.get("citations", [])
-        total_citations += len(claim_citations)
+        cits = p_claim.get("citations", [])
+        total_claim_citations += len(cits)
 
         claim_supported = False
         gold_c = gold_claims.get(claim_id)
         if gold_c:
             expected_passages = set(gold_c.get("expected_passage_ids", []))
-            for cit in claim_citations:
+            for cit in cits:
                 c_pid = cit.get("passage_id")
                 c_doc = cit.get("document_key")
-                if c_pid in expected_passages and passage_to_doc.get(c_pid) == c_doc:
-                    supported_citations += 1
+                if c_pid in expected_passages and passage_to_doc.get(c_pid) == c_doc and c_doc in selected_doc_keys:
+                    supported_claim_citations += 1
                     claim_supported = True
         else:
             errors.append(f"Unknown predicted claim_id: {claim_id}")
@@ -310,23 +426,26 @@ def score_case_synthesis(
             unsupported_pred_claims += 1
 
     citation_precision = (
-        supported_citations / total_citations if total_citations > 0 else (1.0 if not predicted_claims else 0.0)
+        supported_claim_citations / total_claim_citations
+        if total_claim_citations > 0
+        else (1.0 if not pred_claims else 0.0)
     )
 
-    # Coverage: gold claims supported by predicted claims
     covered_gold_claims = 0
     for cid, gc in gold_claims.items():
         exp_p = set(gc.get("expected_passage_ids", []))
-        for p_claim in predicted_claims:
+        for p_claim in pred_claims:
             if p_claim.get("claim_id") == cid:
                 for cit in p_claim.get("citations", []):
-                    if cit.get("passage_id") in exp_p and passage_to_doc.get(cit.get("passage_id")) == cit.get("document_key"):
+                    c_pid = cit.get("passage_id")
+                    c_doc = cit.get("document_key")
+                    if c_pid in exp_p and passage_to_doc.get(c_pid) == c_doc and c_doc in selected_doc_keys:
                         covered_gold_claims += 1
                         break
 
     citation_coverage = covered_gold_claims / len(gold_claims) if gold_claims else 1.0
     unsupported_claim_rate = (
-        unsupported_pred_claims / len(predicted_claims) if predicted_claims else 0.0
+        unsupported_pred_claims / len(pred_claims) if pred_claims else 0.0
     )
 
     # 6. Unanswerable Handling
@@ -350,6 +469,7 @@ def score_case_synthesis(
         and not unselected_leakage
         and facet_conformance >= DEFAULT_THRESHOLDS["facet_contract_conformance"]
         and handled_unanswerable
+        and not errors
     )
 
     return CaseEvaluationResult(
@@ -377,6 +497,8 @@ def evaluate_dataset_benchmark(
 ) -> BenchmarkSummary:
     """Evaluate entire benchmark dataset and produce a structured summary."""
     validate_dataset(dataset, min_cases=min_cases)
+    validate_predictions_structure(candidate_responses, dataset["cases"])
+
     active_thresholds = dict(DEFAULT_THRESHOLDS)
     if thresholds:
         active_thresholds.update(thresholds)
@@ -396,9 +518,7 @@ def evaluate_dataset_benchmark(
 
     for case in cases:
         case_id = case["case_id"]
-        candidate = candidate_responses.get(case_id)
-        if candidate is None:
-            raise PredictionValidationError(f"Missing prediction for dataset case_id: {case_id}")
+        candidate = candidate_responses[case_id]
         res = score_case_synthesis(case, candidate)
         results.append(res)
         if res.unselected_source_leakage:
@@ -474,7 +594,7 @@ def main() -> int:
         "--predictions",
         type=str,
         default=None,
-        help="Path to predictions JSON file. If omitted, runs in validate-only mode.",
+        help="Path to predictions JSON file.",
     )
     parser.add_argument(
         "--validate-only",
@@ -495,6 +615,15 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    # Require explicit mode selection
+    if not args.validate_only and not args.predictions:
+        print("Error: Either --predictions <path> or --validate-only must be specified.", file=sys.stderr)
+        return 1
+
+    if args.validate_only and args.predictions:
+        print("Error: --validate-only and --predictions are mutually exclusive.", file=sys.stderr)
+        return 1
+
     dataset_path = Path(args.dataset)
     if not dataset_path.exists():
         print(f"Error: Dataset not found at {dataset_path}", file=sys.stderr)
@@ -508,7 +637,7 @@ def main() -> int:
         print(f"Dataset Validation Failed: {exc}", file=sys.stderr)
         return 1
 
-    if args.validate_only or not args.predictions:
+    if args.validate_only:
         print(f"Dataset '{data.get('dataset_id')}' validated successfully ({len(data.get('cases', []))} cases).")
         return 0
 
@@ -525,8 +654,11 @@ def main() -> int:
             dataset_bytes=raw_bytes,
             min_cases=args.min_cases,
         )
-    except PredictionValidationError as exc:
-        print(f"Prediction Validation Failed: {exc}", file=sys.stderr)
+    except (PredictionValidationError, DatasetValidationError) as exc:
+        print(f"Validation Failed: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"Execution Error: {exc}", file=sys.stderr)
         return 1
 
     report = asdict(summary)
