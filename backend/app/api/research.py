@@ -26,6 +26,7 @@ from app.schemas.research_schema import (
 )
 from app.services.audit_log import record_audit_event
 from app.services.multi_doc_retrieval import (
+    validate_document_selection,
     DocumentSelectionError,
     retrieve_multi_document_candidates,
 )
@@ -156,6 +157,18 @@ async def create_research_run(
     access=Depends(require_workspace_role("researcher")),
     db: Session = Depends(get_db),
 ):
+    try:
+        validate_document_selection(
+            db,
+            workspace_id=workspace_id,
+            document_ids=payload.document_ids,
+        )
+    except DocumentSelectionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
     run = ResearchRun(
         workspace_id=workspace_id,
         requester_id=current_user.id,

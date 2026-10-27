@@ -3,10 +3,13 @@ Comprehensive Security & IDOR Authorization Matrix (Phase 2C / PR 3).
 
 Validates server-side authorization enforcement across Research, Workspace,
 and Document APIs:
-1. Workspace boundary isolation and resource non-disclosure (404 on unjoined workspaces).
-2. Cross-workspace Run ID and Export IDOR prevention.
-3. Multi-document research synthesis foreign document injection guards.
-4. Role-based access control (RBAC) boundaries (viewer vs. researcher vs. admin/owner).
+1. Workspace boundary isolation and resource non-disclosure (404 on unjoined workspaces,
+   zero leakage of query, answer, or citation sentinel tokens in response bodies).
+2. Cross-workspace Run ID and Export IDOR prevention with body inspection.
+3. Multi-document research synthesis foreign document injection guards with database
+   side-effect / mutation verification.
+4. Role-based access control (RBAC) boundaries (viewer vs. researcher vs. admin/owner)
+   including document attachment and synthesis creation.
 5. Document metadata, file-stream download, and retry/delete cross-tenant protection.
 """
 
@@ -189,16 +192,24 @@ def create_research_run_fixture(
     workspace_id: int,
     requester_id: int,
     doc_ids: list[int],
-) -> ResearchRun:
+    sentinel_suffix: str = "DEFAULT",
+) -> tuple[ResearchRun, dict[str, str]]:
+    sentinels = {
+        "query": f"SENTINEL_QUERY_{sentinel_suffix}_TOP_SECRET",
+        "answer": f"SENTINEL_ANSWER_{sentinel_suffix}_CONFIDENTIAL",
+        "facet": f"SENTINEL_METHODOLOGY_{sentinel_suffix}_INTERNAL",
+        "excerpt": f"SENTINEL_EXCERPT_{sentinel_suffix}_RESTRICTED_EVIDENCE",
+    }
+
     run = ResearchRun(
         workspace_id=workspace_id,
         requester_id=requester_id,
-        query="Secured comparative research question",
+        query=sentinels["query"],
         status="completed",
-        answer="Comparative analysis [C1] [C2].",
+        answer=f"{sentinels['answer']} [C1] [C2].",
         run_metadata={
             "facets": {
-                "methodology": "Comparative methodology.",
+                "methodology": f"Comparative methodology {sentinels['facet']}.",
                 "datasets": "Dataset benchmarks.",
                 "metrics": "F1 score.",
                 "findings": "Significant findings.",
@@ -211,7 +222,7 @@ def create_research_run_fixture(
                     "document_id": doc_ids[0] if doc_ids else 1,
                     "filename": "doc_1.pdf",
                     "page_number": 1,
-                    "excerpt": "Evidence text 1",
+                    "excerpt": sentinels["excerpt"],
                 },
                 {
                     "marker": "[C2]",
@@ -232,7 +243,7 @@ def create_research_run_fixture(
         rrd = ResearchRunDocument(research_run_id=run.id, document_id=did)
         db_session.add(rrd)
     db_session.commit()
-    return run
+    return run, sentinels
 
 
 # =========================================================================
@@ -245,7 +256,8 @@ def test_cross_workspace_run_retrieval_idor_denied(
 ):
     """
     Ensure user in Workspace A cannot access or discover runs belonging to Workspace B,
-    even if the Run ID is guessed or known.
+    even if the Run ID is guessed or known. Inspects serialized response to ensure
+    no confidential sentinels from Workspace B are leaked.
     """
     owner_a = create_user_fixture(db_session, "owner-a@security.test")
     owner_b = create_user_fixture(db_session, "owner-b@security.test")
@@ -258,11 +270,12 @@ def test_cross_workspace_run_retrieval_idor_denied(
     associate_document_to_ws(db_session, workspace_id=ws_b.id, document_id=doc_b1.id, added_by=owner_b.id)
     associate_document_to_ws(db_session, workspace_id=ws_b.id, document_id=doc_b2.id, added_by=owner_b.id)
 
-    run_b = create_research_run_fixture(
+    run_b, sentinels = create_research_run_fixture(
         db_session,
         workspace_id=ws_b.id,
         requester_id=owner_b.id,
         doc_ids=[doc_b1.id, doc_b2.id],
+        sentinel_suffix="RUN_GET",
     )
 
     # 1. User A queries Run B under Workspace A ID -> 404 (Scoped to workspace_id)
@@ -272,6 +285,8 @@ def test_cross_workspace_run_retrieval_idor_denied(
     )
     assert res.status_code == 404
     assert "not found" in res.json().get("detail", "").lower()
+    for sentinel_value in sentinels.values():
+        assert sentinel_value not in res.text
 
     # 2. User A queries Run B under Workspace B ID directly -> 404 (Non-member rejection)
     res_direct = client.get(
@@ -280,6 +295,8 @@ def test_cross_workspace_run_retrieval_idor_denied(
     )
     assert res_direct.status_code == 404
     assert res_direct.json().get("detail") == "Workspace not found."
+    for sentinel_value in sentinels.values():
+        assert sentinel_value not in res_direct.text
 
 
 def test_cross_workspace_run_export_idor_denied(
@@ -288,7 +305,8 @@ def test_cross_workspace_run_export_idor_denied(
 ):
     """
     Verify unauthorized users cannot trigger or download run exports (JSON / Markdown)
-    for runs in workspaces they do not belong to.
+    for runs in workspaces they do not belong to. Asserts absence of sentinel data
+    in response bodies.
     """
     owner_a = create_user_fixture(db_session, "owner-export-a@security.test")
     owner_b = create_user_fixture(db_session, "owner-export-b@security.test")
@@ -301,11 +319,12 @@ def test_cross_workspace_run_export_idor_denied(
     associate_document_to_ws(db_session, workspace_id=ws_b.id, document_id=doc_b1.id, added_by=owner_b.id)
     associate_document_to_ws(db_session, workspace_id=ws_b.id, document_id=doc_b2.id, added_by=owner_b.id)
 
-    run_b = create_research_run_fixture(
+    run_b, sentinels = create_research_run_fixture(
         db_session,
         workspace_id=ws_b.id,
         requester_id=owner_b.id,
         doc_ids=[doc_b1.id, doc_b2.id],
+        sentinel_suffix="RUN_EXPORT",
     )
 
     for fmt in ("json", "markdown"):
@@ -316,6 +335,8 @@ def test_cross_workspace_run_export_idor_denied(
         )
         assert res_a.status_code == 404
         assert "not found" in res_a.json().get("detail", "").lower()
+        for sentinel_value in sentinels.values():
+            assert sentinel_value not in res_a.text
 
         # Direct access via Workspace B route without membership
         res_b = client.get(
@@ -324,6 +345,8 @@ def test_cross_workspace_run_export_idor_denied(
         )
         assert res_b.status_code == 404
         assert res_b.json().get("detail") == "Workspace not found."
+        for sentinel_value in sentinels.values():
+            assert sentinel_value not in res_b.text
 
 
 def test_cross_workspace_run_list_non_member_denied(
@@ -346,7 +369,7 @@ def test_cross_workspace_run_list_non_member_denied(
 
 
 # =========================================================================
-# Scenario 2: Multi-Document Synthesis Injection Boundary
+# Scenario 2: Multi-Document Synthesis Injection Boundary & Side-Effect Check
 # =========================================================================
 
 def test_synthesis_rejects_foreign_and_unassociated_documents(
@@ -358,6 +381,8 @@ def test_synthesis_rejects_foreign_and_unassociated_documents(
     Ensure POST /workspaces/{workspace_id}/research/runs rejects foreign document IDs:
     - Documents belonging to other users.
     - Documents owned by caller but not associated with the target workspace.
+    Verifies that rejected requests cause zero database mutations (no ResearchRun
+    or ResearchRunDocument records created).
     """
     user_a = create_user_fixture(db_session, "user-synth-a@security.test")
     user_b = create_user_fixture(db_session, "user-synth-b@security.test")
@@ -371,6 +396,9 @@ def test_synthesis_rejects_foreign_and_unassociated_documents(
     # 1. Foreign user document
     doc_foreign = create_document_fixture(db_session, user=user_b, filename="foreign_doc.pdf")
 
+    runs_before = db_session.query(ResearchRun).count()
+    run_docs_before = db_session.query(ResearchRunDocument).count()
+
     res_foreign = client.post(
         f"/workspaces/{ws_a.id}/research/runs",
         headers=auth_header(user_a),
@@ -381,9 +409,16 @@ def test_synthesis_rejects_foreign_and_unassociated_documents(
     )
     assert res_foreign.status_code in (400, 404, 422)
 
+    db_session.expire_all()
+    assert db_session.query(ResearchRun).count() == runs_before, "ResearchRun created on rejected foreign doc"
+    assert db_session.query(ResearchRunDocument).count() == run_docs_before, "ResearchRunDocument created on rejected foreign doc"
+
     # 2. Document owned by User A but associated only with ws_other
     doc_other_ws = create_document_fixture(db_session, user=user_a, filename="other_ws_doc.pdf")
     associate_document_to_ws(db_session, workspace_id=ws_other.id, document_id=doc_other_ws.id, added_by=user_a.id)
+
+    runs_before_cross = db_session.query(ResearchRun).count()
+    run_docs_before_cross = db_session.query(ResearchRunDocument).count()
 
     res_other = client.post(
         f"/workspaces/{ws_a.id}/research/runs",
@@ -394,6 +429,10 @@ def test_synthesis_rejects_foreign_and_unassociated_documents(
         },
     )
     assert res_other.status_code in (400, 404, 422)
+
+    db_session.expire_all()
+    assert db_session.query(ResearchRun).count() == runs_before_cross, "ResearchRun created on unassociated workspace doc"
+    assert db_session.query(ResearchRunDocument).count() == run_docs_before_cross, "ResearchRunDocument created on unassociated workspace doc"
 
 
 # =========================================================================
@@ -407,8 +446,9 @@ def test_workspace_role_hierarchy_permissions(
 ):
     """
     Test role levels:
-    - viewer (level 1): Can read runs, CANNOT start research runs, CANNOT attach documents.
+    - viewer (level 1): Can read runs and docs, CANNOT start research runs, CANNOT attach documents.
     - researcher (level 2): Can read and start research runs, CANNOT delete workspace.
+    Verifies that unauthorized mutations leave no side effects in the database.
     """
     owner = create_user_fixture(db_session, "owner-rbac@security.test")
     viewer = create_user_fixture(db_session, "viewer-rbac@security.test")
@@ -423,14 +463,32 @@ def test_workspace_role_hierarchy_permissions(
     associate_document_to_ws(db_session, workspace_id=ws.id, document_id=doc1.id, added_by=owner.id)
     associate_document_to_ws(db_session, workspace_id=ws.id, document_id=doc2.id, added_by=owner.id)
 
-    # Viewer CAN read documents and runs
+    # Document to test attachment permissions
+    doc_unattached = create_document_fixture(db_session, user=viewer, filename="viewer_unattached.pdf")
+
+    # 1. Viewer CAN read documents and runs
     res_view_docs = client.get(f"/workspaces/{ws.id}/documents", headers=auth_header(viewer))
     assert res_view_docs.status_code == 200
 
     res_view_runs = client.get(f"/workspaces/{ws.id}/research/runs", headers=auth_header(viewer))
     assert res_view_runs.status_code == 200
 
-    # Viewer CANNOT trigger synthesis (requires researcher role)
+    # 2. Viewer CANNOT attach documents to workspace (requires researcher/admin role)
+    ws_docs_before = db_session.query(WorkspaceDocument).filter(WorkspaceDocument.workspace_id == ws.id).count()
+    res_viewer_attach = client.post(
+        f"/workspaces/{ws.id}/documents",
+        headers=auth_header(viewer),
+        json={"document_id": doc_unattached.id},
+    )
+    assert res_viewer_attach.status_code == 403
+    assert "insufficient workspace permissions" in res_viewer_attach.json().get("detail", "").lower()
+
+    db_session.expire_all()
+    ws_docs_after = db_session.query(WorkspaceDocument).filter(WorkspaceDocument.workspace_id == ws.id).count()
+    assert ws_docs_after == ws_docs_before, "WorkspaceDocument created by unauthorized viewer"
+
+    # 3. Viewer CANNOT trigger synthesis (requires researcher role)
+    runs_before = db_session.query(ResearchRun).filter(ResearchRun.workspace_id == ws.id).count()
     res_viewer_synth = client.post(
         f"/workspaces/{ws.id}/research/runs",
         headers=auth_header(viewer),
@@ -439,7 +497,10 @@ def test_workspace_role_hierarchy_permissions(
     assert res_viewer_synth.status_code == 403
     assert "insufficient workspace permissions" in res_viewer_synth.json().get("detail", "").lower()
 
-    # Researcher CAN trigger synthesis with valid multi-document set
+    db_session.expire_all()
+    assert db_session.query(ResearchRun).filter(ResearchRun.workspace_id == ws.id).count() == runs_before
+
+    # 4. Researcher CAN trigger synthesis with valid multi-document set
     res_researcher_synth = client.post(
         f"/workspaces/{ws.id}/research/runs",
         headers=auth_header(researcher),
@@ -447,7 +508,7 @@ def test_workspace_role_hierarchy_permissions(
     )
     assert res_researcher_synth.status_code == 201
 
-    # Researcher CANNOT delete workspace (requires admin/owner)
+    # 5. Researcher CANNOT delete workspace (requires admin/owner)
     res_researcher_delete = client.delete(
         f"/workspaces/{ws.id}",
         headers=auth_header(researcher),

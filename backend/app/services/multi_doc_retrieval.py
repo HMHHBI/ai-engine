@@ -91,6 +91,8 @@ def _validate_document_selection(
 
     return [documents_by_id[document_id] for document_id in document_ids]
 
+validate_document_selection = _validate_document_selection
+
 
 def _normalize_scores(
     values: dict[int, float],
