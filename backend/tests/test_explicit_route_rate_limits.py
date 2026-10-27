@@ -111,6 +111,10 @@ def test_research_run_endpoint_enforces_5_per_minute_rate_limit(
         return None
 
     monkeypatch.setattr(
+        "app.api.research.validate_document_selection",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
         "app.api.research.retrieve_multi_document_candidates",
         mock_retrieve,
     )
