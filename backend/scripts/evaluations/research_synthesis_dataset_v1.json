@@ -76,7 +76,11 @@
         }
       ],
       "known_conflicts": [],
-      "unanswerable_questions": []
+      "unanswerable_questions": [],
+      "selected_document_keys": [
+        "comparison-rag-perf-paper-a",
+        "comparison-rag-perf-paper-b"
+      ]
     },
     {
       "case_id": "synth-002",
@@ -151,7 +155,11 @@
         }
       ],
       "known_conflicts": [],
-      "unanswerable_questions": []
+      "unanswerable_questions": [],
+      "selected_document_keys": [
+        "comparison-vector-index-paper-a",
+        "comparison-vector-index-paper-b"
+      ]
     },
     {
       "case_id": "synth-003",
@@ -228,7 +236,11 @@
       "known_conflicts": [
         "Conflicting accuracy tradeoffs between comparison-retrieval-hybrid-paper-a and comparison-retrieval-hybrid-paper-b"
       ],
-      "unanswerable_questions": []
+      "unanswerable_questions": [],
+      "selected_document_keys": [
+        "comparison-retrieval-hybrid-paper-a",
+        "comparison-retrieval-hybrid-paper-b"
+      ]
     },
     {
       "case_id": "synth-004",
@@ -303,7 +315,11 @@
         }
       ],
       "known_conflicts": [],
-      "unanswerable_questions": []
+      "unanswerable_questions": [],
+      "selected_document_keys": [
+        "comparison-chunking-granularity-paper-a",
+        "comparison-chunking-granularity-paper-b"
+      ]
     },
     {
       "case_id": "synth-005",
@@ -378,7 +394,11 @@
         }
       ],
       "known_conflicts": [],
-      "unanswerable_questions": []
+      "unanswerable_questions": [],
+      "selected_document_keys": [
+        "comparison-reranking-overhead-paper-a",
+        "comparison-reranking-overhead-paper-b"
+      ]
     },
     {
       "case_id": "synth-006",
@@ -453,7 +473,11 @@
         }
       ],
       "known_conflicts": [],
-      "unanswerable_questions": []
+      "unanswerable_questions": [],
+      "selected_document_keys": [
+        "comparison-context-compression-paper-a",
+        "comparison-context-compression-paper-b"
+      ]
     },
     {
       "case_id": "synth-007",
@@ -528,7 +552,11 @@
         }
       ],
       "known_conflicts": [],
-      "unanswerable_questions": []
+      "unanswerable_questions": [],
+      "selected_document_keys": [
+        "comparison-citation-faithfulness-paper-a",
+        "comparison-citation-faithfulness-paper-b"
+      ]
     },
     {
       "case_id": "synth-008",
@@ -603,7 +631,11 @@
         }
       ],
       "known_conflicts": [],
-      "unanswerable_questions": []
+      "unanswerable_questions": [],
+      "selected_document_keys": [
+        "comparison-multihop-reasoning-paper-a",
+        "comparison-multihop-reasoning-paper-b"
+      ]
     },
     {
       "case_id": "synth-009",
@@ -678,7 +710,11 @@
         }
       ],
       "known_conflicts": [],
-      "unanswerable_questions": []
+      "unanswerable_questions": [],
+      "selected_document_keys": [
+        "comparison-quant-embeddings-paper-a",
+        "comparison-quant-embeddings-paper-b"
+      ]
     },
     {
       "case_id": "synth-010",
@@ -753,7 +789,11 @@
         }
       ],
       "known_conflicts": [],
-      "unanswerable_questions": []
+      "unanswerable_questions": [],
+      "selected_document_keys": [
+        "comparison-contrastive-dense-paper-a",
+        "comparison-contrastive-dense-paper-b"
+      ]
     },
     {
       "case_id": "synth-011",
@@ -828,7 +868,11 @@
         }
       ],
       "known_conflicts": [],
-      "unanswerable_questions": []
+      "unanswerable_questions": [],
+      "selected_document_keys": [
+        "comparison-self-rag-paper-a",
+        "comparison-self-rag-paper-b"
+      ]
     },
     {
       "case_id": "synth-012",
@@ -903,7 +947,11 @@
         }
       ],
       "known_conflicts": [],
-      "unanswerable_questions": []
+      "unanswerable_questions": [],
+      "selected_document_keys": [
+        "comparison-recursive-summaries-paper-a",
+        "comparison-recursive-summaries-paper-b"
+      ]
     },
     {
       "case_id": "synth-013",
@@ -978,7 +1026,11 @@
         }
       ],
       "known_conflicts": [],
-      "unanswerable_questions": []
+      "unanswerable_questions": [],
+      "selected_document_keys": [
+        "comparison-graph-rag-paper-a",
+        "comparison-graph-rag-paper-b"
+      ]
     },
     {
       "case_id": "synth-014",
@@ -1053,7 +1105,11 @@
         }
       ],
       "known_conflicts": [],
-      "unanswerable_questions": []
+      "unanswerable_questions": [],
+      "selected_document_keys": [
+        "comparison-prompt-delimiters-paper-a",
+        "comparison-prompt-delimiters-paper-b"
+      ]
     },
     {
       "case_id": "synth-015",
@@ -1128,7 +1184,11 @@
         }
       ],
       "known_conflicts": [],
-      "unanswerable_questions": []
+      "unanswerable_questions": [],
+      "selected_document_keys": [
+        "comparison-distractor-robustness-paper-a",
+        "comparison-distractor-robustness-paper-b"
+      ]
     },
     {
       "case_id": "synth-016",
@@ -1203,7 +1263,11 @@
         }
       ],
       "known_conflicts": [],
-      "unanswerable_questions": []
+      "unanswerable_questions": [],
+      "selected_document_keys": [
+        "comparison-finetuning-extraction-paper-a",
+        "comparison-finetuning-extraction-paper-b"
+      ]
     },
     {
       "case_id": "synth-017",
@@ -1278,7 +1342,11 @@
         }
       ],
       "known_conflicts": [],
-      "unanswerable_questions": []
+      "unanswerable_questions": [],
+      "selected_document_keys": [
+        "comparison-ood-generalization-paper-a",
+        "comparison-ood-generalization-paper-b"
+      ]
     },
     {
       "case_id": "synth-018",
@@ -1353,7 +1421,11 @@
         }
       ],
       "known_conflicts": [],
-      "unanswerable_questions": []
+      "unanswerable_questions": [],
+      "selected_document_keys": [
+        "comparison-token-pruning-paper-a",
+        "comparison-token-pruning-paper-b"
+      ]
     },
     {
       "case_id": "synth-019",
@@ -1428,7 +1500,11 @@
         }
       ],
       "known_conflicts": [],
-      "unanswerable_questions": []
+      "unanswerable_questions": [],
+      "selected_document_keys": [
+        "comparison-table-math-extraction-paper-a",
+        "comparison-table-math-extraction-paper-b"
+      ]
     },
     {
       "case_id": "synth-020",
@@ -1503,7 +1579,11 @@
         }
       ],
       "known_conflicts": [],
-      "unanswerable_questions": []
+      "unanswerable_questions": [],
+      "selected_document_keys": [
+        "comparison-hierarchical-chunking-paper-a",
+        "comparison-hierarchical-chunking-paper-b"
+      ]
     },
     {
       "case_id": "synth-021",
@@ -1578,7 +1658,11 @@
         }
       ],
       "known_conflicts": [],
-      "unanswerable_questions": []
+      "unanswerable_questions": [],
+      "selected_document_keys": [
+        "comparison-streaming-ttft-paper-a",
+        "comparison-streaming-ttft-paper-b"
+      ]
     },
     {
       "case_id": "synth-022",
@@ -1653,7 +1737,11 @@
         }
       ],
       "known_conflicts": [],
-      "unanswerable_questions": []
+      "unanswerable_questions": [],
+      "selected_document_keys": [
+        "comparison-confidence-calibration-paper-a",
+        "comparison-confidence-calibration-paper-b"
+      ]
     },
     {
       "case_id": "synth-023",
@@ -1728,7 +1816,11 @@
         }
       ],
       "known_conflicts": [],
-      "unanswerable_questions": []
+      "unanswerable_questions": [],
+      "selected_document_keys": [
+        "comparison-cross-lingual-paper-a",
+        "comparison-cross-lingual-paper-b"
+      ]
     },
     {
       "case_id": "synth-024",
@@ -1803,7 +1895,11 @@
         }
       ],
       "known_conflicts": [],
-      "unanswerable_questions": []
+      "unanswerable_questions": [],
+      "selected_document_keys": [
+        "comparison-differential-privacy-paper-a",
+        "comparison-differential-privacy-paper-b"
+      ]
     },
     {
       "case_id": "synth-025",
@@ -1878,7 +1974,11 @@
         }
       ],
       "known_conflicts": [],
-      "unanswerable_questions": []
+      "unanswerable_questions": [],
+      "selected_document_keys": [
+        "comparison-dynamic-topk-paper-a",
+        "comparison-dynamic-topk-paper-b"
+      ]
     },
     {
       "case_id": "synth-026",
@@ -1953,7 +2053,11 @@
         }
       ],
       "known_conflicts": [],
-      "unanswerable_questions": []
+      "unanswerable_questions": [],
+      "selected_document_keys": [
+        "comparison-multimodal-layout-paper-a",
+        "comparison-multimodal-layout-paper-b"
+      ]
     },
     {
       "case_id": "synth-027",
@@ -2030,7 +2134,11 @@
       "known_conflicts": [
         "Conflicting accuracy tradeoffs between comparison-rrf-ablation-paper-a and comparison-rrf-ablation-paper-b"
       ],
-      "unanswerable_questions": []
+      "unanswerable_questions": [],
+      "selected_document_keys": [
+        "comparison-rrf-ablation-paper-a",
+        "comparison-rrf-ablation-paper-b"
+      ]
     },
     {
       "case_id": "synth-028",
@@ -2107,6 +2215,10 @@
       "known_conflicts": [],
       "unanswerable_questions": [
         "Unreported hyperparameter details for comparison-clinical-contradiction-paper-c"
+      ],
+      "selected_document_keys": [
+        "comparison-clinical-contradiction-paper-a",
+        "comparison-clinical-contradiction-paper-b"
       ]
     },
     {
@@ -2182,7 +2294,11 @@
         }
       ],
       "known_conflicts": [],
-      "unanswerable_questions": []
+      "unanswerable_questions": [],
+      "selected_document_keys": [
+        "comparison-temporal-drift-paper-a",
+        "comparison-temporal-drift-paper-b"
+      ]
     },
     {
       "case_id": "synth-030",
@@ -2257,7 +2373,11 @@
         }
       ],
       "known_conflicts": [],
-      "unanswerable_questions": []
+      "unanswerable_questions": [],
+      "selected_document_keys": [
+        "comparison-zeroshot-faceted-paper-a",
+        "comparison-zeroshot-faceted-paper-b"
+      ]
     }
   ]
 }
