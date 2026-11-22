@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPdfNavigationTarget } from "@/features/pdf/utils/pdf-navigation-utils";
 import type { RetrievedSource } from "@/types/api";
 import { Sparkles, ArrowLeft, AlertTriangle } from "lucide-react";
@@ -31,10 +31,21 @@ export function WorkspaceController() {
   const { status, document: resolvedDocument } =
     useResolvedWorkspaceDocument(candidateDocId);
 
-
   const [pendingNavigationTarget, setPendingNavigationTarget] =
     useState<PdfNavigationTarget | null>(null);
   const navigationRequestIdRef = useRef<number>(0);
+
+  // Clear stale pending citation/PDF navigation targets when switching workspaces
+  useEffect(() => {
+    setPendingNavigationTarget(null);
+  }, [activeWorkspaceId]);
+
+  const effectiveNavigationTarget =
+    pendingNavigationTarget &&
+    candidateDocId !== null &&
+    pendingNavigationTarget.documentId === candidateDocId
+      ? pendingNavigationTarget
+      : null;
 
   const handleCloseDocument = useCallback(() => {
     const currentChatId = useChatStore.getState().activeChatId;
@@ -139,9 +150,10 @@ export function WorkspaceController() {
   if (status === "resolved" && resolvedDocument) {
     return (
       <ResearchWorkspace
+        key={`${activeWorkspaceId ?? "chat"}-${resolvedDocument.id}`}
         document={resolvedDocument}
         onClose={handleCloseDocument}
-        navigationTarget={pendingNavigationTarget}
+        navigationTarget={effectiveNavigationTarget}
         onDocumentNavigation={handleDocumentNavigation}
       />
     );

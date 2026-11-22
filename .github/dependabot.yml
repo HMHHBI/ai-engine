@@ -10,6 +10,10 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      - dependency-name: "SQLAlchemy"
+        versions: [">= 2.1.0"]
+      - dependency-name: "tenacity"
+        versions: [">= 9.2.0"]
     groups:
       python-dependencies:
         patterns:

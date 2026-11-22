@@ -5,6 +5,10 @@ import type { CreateResearchRunInput } from "@/types/research";
 import type { WorkspaceDocument } from "@/types/workspace";
 import type { Document as ApiDocument } from "@/types/api";
 
+const latestDocRequestByWorkspace = new Map<number, number>();
+const latestRunsRequestByWorkspace = new Map<number, number>();
+let workspaceSelectionSeq = 0;
+
 export const workspaceActions = {
   async loadWorkspaces(): Promise<void> {
     const store = useWorkspaceStore.getState();
@@ -14,16 +18,16 @@ export const workspaceActions = {
       const list = await workspaceService.listWorkspaces();
       store.setWorkspaces(list);
 
-      const currentActiveId = store.activeWorkspaceId;
+      const currentActiveId = useWorkspaceStore.getState().activeWorkspaceId;
       const isCurrentValid = list.some((ws) => ws.id === currentActiveId);
 
       if (!isCurrentValid) {
         const nextId = list.length > 0 ? list[0].id : null;
         store.setActiveWorkspaceId(nextId);
-        if (nextId) {
+        if (nextId !== null) {
           void this.loadDocuments(nextId);
         }
-      } else if (currentActiveId) {
+      } else if (currentActiveId !== null) {
         void this.loadDocuments(currentActiveId);
       }
     } catch (err) {
@@ -34,14 +38,33 @@ export const workspaceActions = {
   },
 
   async selectWorkspace(workspaceId: number): Promise<void> {
+    const selectionToken = ++workspaceSelectionSeq;
     const store = useWorkspaceStore.getState();
+    store.setError(null);
     store.setActiveWorkspaceId(workspaceId);
-    await this.loadDocuments(workspaceId);
+    store.setLoading(true);
+
+    try {
+      await Promise.all([
+        this.loadDocuments(workspaceId),
+        this.loadResearchRuns(workspaceId),
+      ]);
+    } finally {
+      if (workspaceSelectionSeq === selectionToken) {
+        useWorkspaceStore.getState().setLoading(false);
+      }
+    }
   },
 
   async loadDocuments(workspaceId: number): Promise<void> {
+    const requestId = (latestDocRequestByWorkspace.get(workspaceId) ?? 0) + 1;
+    latestDocRequestByWorkspace.set(workspaceId, requestId);
+
     try {
       const docs = await workspaceService.listDocuments(workspaceId);
+      if (latestDocRequestByWorkspace.get(workspaceId) !== requestId) {
+        return;
+      }
       useWorkspaceStore.getState().setWorkspaceDocuments(workspaceId, docs);
     } catch (err) {
       // Do not pollute global store error to prevent cascading re-render loops
@@ -107,9 +130,15 @@ export const workspaceActions = {
   },
 
   async loadResearchRuns(workspaceId: number): Promise<void> {
+    const requestId = (latestRunsRequestByWorkspace.get(workspaceId) ?? 0) + 1;
+    latestRunsRequestByWorkspace.set(workspaceId, requestId);
+
     const store = useWorkspaceStore.getState();
     try {
       const response = await workspaceService.listResearchRuns(workspaceId);
+      if (latestRunsRequestByWorkspace.get(workspaceId) !== requestId) {
+        return;
+      }
       store.setResearchRuns(workspaceId, response.items || []);
     } catch {
       // Do not crash UI on history fetch error
