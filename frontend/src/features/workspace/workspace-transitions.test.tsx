@@ -254,6 +254,71 @@ describe("Phase 2D: In-place workspace transition regressions", () => {
     expect(screen.queryByTestId("research-workspace-view")).toBeNull();
   });
 
+  it("reconciles route when destination workspace cache is stale (cached [12] vs authoritative [99])", async () => {
+    const workspaces = [
+      { id: 1, name: "Workspace A", created_by: 1, created_at: "", updated_at: "" },
+      { id: 2, name: "Workspace B", created_by: 1, created_at: "", updated_at: "" },
+    ];
+
+    // Workspace B's cached documentsByWorkspace[2] still holds stale [12] from before detachment
+    useWorkspaceStore.setState({
+      workspaces,
+      activeWorkspaceId: 1,
+      documentsByWorkspace: {
+        1: [makeWsDoc(12, 10)],
+        2: [makeWsDoc(12, 10)],
+      },
+    });
+
+    vi.spyOn(workspaceService, "listWorkspaces").mockResolvedValue(workspaces);
+    // Authoritative server response for Workspace B returns [99] (doc 12 was detached)
+    vi.spyOn(workspaceService, "listDocuments").mockImplementation(async (wsId: number) =>
+      wsId === 1 ? [makeWsDoc(12, 10)] : [makeWsDoc(99, 20)],
+    );
+    vi.spyOn(workspaceService, "listResearchRuns").mockResolvedValue({ items: [], total: 0 });
+    vi.spyOn(documentApi, "get").mockImplementation(async (docId: number) => {
+      if (docId === 12) return makeDoc(12, 10);
+      return makeDoc(99, 20);
+    });
+
+    mockSearchParams.set("docId", "12");
+    mockSearchParams.set("filter", "pinned");
+
+    const { rerender } = render(
+      <>
+        <WorkspaceSwitcher />
+        <WorkspaceController />
+      </>,
+    );
+    rerenderHarness = () =>
+      rerender(
+        <>
+          <WorkspaceSwitcher />
+          <WorkspaceController />
+        </>,
+      );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("active-doc-id")).toHaveTextContent("12");
+    });
+
+    // Switch Workspace A -> B; initial optimistic check sees stale [12] in cache,
+    // then authoritative listDocuments(2) returns [99] and forces route reconciliation.
+    fireEvent.click(screen.getByRole("button", { name: /Workspace: Workspace A/i }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Workspace B/i }));
+    });
+
+    await waitFor(() => {
+      expect(mockSearchParams.get("docId")).toBeUndefined();
+    });
+    expect(mockSearchParams.get("filter")).toBe("pinned");
+    expect(mockRouterReplace).toHaveBeenCalledWith("/dashboard?filter=pinned");
+    expect(screen.getByTestId("chat-area")).toBeDefined();
+    expect(screen.queryByTestId("research-workspace-view")).toBeNull();
+    expect(screen.queryByTestId("workspace-document-error")).toBeNull();
+  });
+
   it("never resurrects cleared citation target on A (doc 12, page 5) -> B -> A (doc 12) transition", async () => {
     const workspaces = [
       { id: 1, name: "Workspace A", created_by: 1, created_at: "", updated_at: "" },

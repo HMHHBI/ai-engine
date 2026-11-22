@@ -28,6 +28,11 @@ export function useResolvedWorkspaceDocument(
 ): DocumentResolutionState {
   const activeChatId = useChatStore((state) => state.activeChatId);
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const activeWorkspaceDocuments = useWorkspaceStore((state) =>
+    activeWorkspaceId !== null
+      ? state.documentsByWorkspace[activeWorkspaceId]
+      : undefined,
+  );
 
   const chatDocuments = useDocumentStore((state) =>
     activeChatId === null
@@ -35,9 +40,18 @@ export function useResolvedWorkspaceDocument(
       : state.documentsByChat[activeChatId] ?? EMPTY_DOCS,
   );
 
+  // Authoritative membership check whenever workspace documents are loaded in store
+  const excludedByAuthoritativeWorkspaceList =
+    candidateDocId !== null &&
+    activeWorkspaceId !== null &&
+    Array.isArray(activeWorkspaceDocuments) &&
+    !activeWorkspaceDocuments.some((d) => d.document_id === candidateDocId);
+
   // In-memory cache for chat context
   const cachedDoc: Document | null =
-    candidateDocId !== null && activeChatId !== null
+    candidateDocId !== null &&
+    activeChatId !== null &&
+    !excludedByAuthoritativeWorkspaceList
       ? (chatDocuments.find(
           (item) =>
             item.id === candidateDocId &&
@@ -63,7 +77,11 @@ export function useResolvedWorkspaceDocument(
   });
 
   useEffect(() => {
-    if (candidateDocId === null || cachedDoc !== null) {
+    if (
+      candidateDocId === null ||
+      cachedDoc !== null ||
+      excludedByAuthoritativeWorkspaceList
+    ) {
       return;
     }
 
@@ -86,7 +104,7 @@ export function useResolvedWorkspaceDocument(
           let wsDocs =
             useWorkspaceStore.getState().documentsByWorkspace[activeWorkspaceId];
 
-          if (!wsDocs || wsDocs.length === 0) {
+          if (!wsDocs) {
             try {
               wsDocs = await workspaceService.listDocuments(activeWorkspaceId);
               if (!isCancelled) {
@@ -187,13 +205,27 @@ export function useResolvedWorkspaceDocument(
       isCancelled = true;
       controller.abort();
     };
-  }, [candidateDocId, activeChatId, activeWorkspaceId, cachedDoc]);
+  }, [
+    candidateDocId,
+    activeChatId,
+    activeWorkspaceId,
+    cachedDoc,
+    excludedByAuthoritativeWorkspaceList,
+  ]);
 
   if (candidateDocId === null) {
     return {
       status: "idle",
       document: null,
       error: null,
+    };
+  }
+
+  if (excludedByAuthoritativeWorkspaceList) {
+    return {
+      status: "not_found",
+      document: null,
+      error: "Document does not belong to the active workspace.",
     };
   }
 

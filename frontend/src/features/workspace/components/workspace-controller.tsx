@@ -33,6 +33,11 @@ export function WorkspaceController() {
   const workspaceTransitionEpoch = useWorkspaceStore(
     (state) => state.workspaceTransitionEpoch,
   );
+  const activeWorkspaceDocuments = useWorkspaceStore((state) =>
+    activeWorkspaceId !== null
+      ? state.documentsByWorkspace[activeWorkspaceId]
+      : undefined,
+  );
 
   const candidateDocId = parseCandidateDocId(searchParams);
 
@@ -43,33 +48,46 @@ export function WorkspaceController() {
     useState<ScopedNavigationTarget | null>(null);
   const navigationRequestIdRef = useRef<number>(0);
 
-  // Reconcile stale URL docId when activeWorkspaceId changes (e.g., via store or session reconciliation)
+  // Reconcile stale URL docId when activeWorkspaceId transitions or when authoritative
+  // workspace document associations refresh and exclude candidateDocId.
   const previousWorkspaceIdRef = useRef<number | null>(activeWorkspaceId);
+  const pendingPostSwitchReconcileRef = useRef<boolean>(false);
+
   useEffect(() => {
     const prevWorkspaceId = previousWorkspaceIdRef.current;
     previousWorkspaceIdRef.current = activeWorkspaceId;
 
+    if (prevWorkspaceId !== activeWorkspaceId) {
+      pendingPostSwitchReconcileRef.current = candidateDocId !== null;
+    }
+
     if (
-      prevWorkspaceId === activeWorkspaceId ||
       activeWorkspaceId === null ||
-      candidateDocId === null
+      candidateDocId === null ||
+      !pendingPostSwitchReconcileRef.current
     ) {
       return;
     }
 
-    const knownDocs =
-      useWorkspaceStore.getState().documentsByWorkspace[activeWorkspaceId];
     const isRetainedInDestination =
-      Array.isArray(knownDocs) &&
-      knownDocs.some((doc) => doc.document_id === candidateDocId);
+      Array.isArray(activeWorkspaceDocuments) &&
+      activeWorkspaceDocuments.some((doc) => doc.document_id === candidateDocId);
 
     if (!isRetainedInDestination) {
+      pendingPostSwitchReconcileRef.current = false;
       const params = new URLSearchParams(searchParams?.toString() ?? "");
       params.delete("docId");
       const query = params.toString();
       router.replace(query ? `${pathname}?${query}` : pathname);
     }
-  }, [activeWorkspaceId, candidateDocId, pathname, router, searchParams]);
+  }, [
+    activeWorkspaceId,
+    activeWorkspaceDocuments,
+    candidateDocId,
+    pathname,
+    router,
+    searchParams,
+  ]);
 
   const effectiveNavigationTarget =
     scopedNavigationTarget &&

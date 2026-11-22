@@ -78,12 +78,15 @@ export function WorkspaceSwitcher({ collapsed = false }: WorkspaceSwitcherProps)
     }
   }
 
-  function handleSelectWorkspace(workspaceId: number) {
+  async function handleSelectWorkspace(workspaceId: number) {
+    setOpen(false);
     if (workspaceId !== activeWorkspaceId) {
       reconcileRouteForWorkspace(workspaceId);
-      void workspaceActions.selectWorkspace(workspaceId);
+      await workspaceActions.selectWorkspace(workspaceId);
+      if (useWorkspaceStore.getState().activeWorkspaceId === workspaceId) {
+        reconcileRouteForWorkspace(workspaceId);
+      }
     }
-    setOpen(false);
   }
 
   async function handleCreate(e: React.FormEvent) {
@@ -165,7 +168,7 @@ export function WorkspaceSwitcher({ collapsed = false }: WorkspaceSwitcherProps)
                   <button
                     key={ws.id}
                     type="button"
-                    onClick={() => handleSelectWorkspace(ws.id)}
+                    onClick={() => void handleSelectWorkspace(ws.id)}
                     className={cn(
                       "flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-xs text-left transition-colors",
                       isSelected
