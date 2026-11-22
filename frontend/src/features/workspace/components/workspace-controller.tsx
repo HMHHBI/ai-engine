@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPdfNavigationTarget } from "@/features/pdf/utils/pdf-navigation-utils";
 import type { RetrievedSource } from "@/types/api";
 import { Sparkles, ArrowLeft, AlertTriangle } from "lucide-react";
@@ -18,6 +18,11 @@ import { selectDocument } from "@/features/documents/document-actions";
 import { useChatStore } from "@/features/chat/store/chat-store";
 import type { PdfNavigationTarget } from "@/features/pdf/types/navigation";
 
+interface ScopedNavigationTarget {
+  epoch: number;
+  target: PdfNavigationTarget;
+}
+
 export function WorkspaceController() {
   const router = useRouter();
   const pathname = usePathname();
@@ -25,16 +30,72 @@ export function WorkspaceController() {
 
   const isResearchView = searchParams?.get("view") === "research";
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const workspaceTransitionEpoch = useWorkspaceStore(
+    (state) => state.workspaceTransitionEpoch,
+  );
+  const activeWorkspaceDocuments = useWorkspaceStore((state) =>
+    activeWorkspaceId !== null
+      ? state.documentsByWorkspace[activeWorkspaceId]
+      : undefined,
+  );
 
   const candidateDocId = parseCandidateDocId(searchParams);
 
   const { status, document: resolvedDocument } =
     useResolvedWorkspaceDocument(candidateDocId);
 
-
-  const [pendingNavigationTarget, setPendingNavigationTarget] =
-    useState<PdfNavigationTarget | null>(null);
+  const [scopedNavigationTarget, setScopedNavigationTarget] =
+    useState<ScopedNavigationTarget | null>(null);
   const navigationRequestIdRef = useRef<number>(0);
+
+  // Reconcile stale URL docId when activeWorkspaceId transitions or when authoritative
+  // workspace document associations refresh and exclude candidateDocId.
+  const previousWorkspaceIdRef = useRef<number | null>(activeWorkspaceId);
+  const pendingPostSwitchReconcileRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    const prevWorkspaceId = previousWorkspaceIdRef.current;
+    previousWorkspaceIdRef.current = activeWorkspaceId;
+
+    if (prevWorkspaceId !== activeWorkspaceId) {
+      pendingPostSwitchReconcileRef.current = candidateDocId !== null;
+    }
+
+    if (
+      activeWorkspaceId === null ||
+      candidateDocId === null ||
+      !pendingPostSwitchReconcileRef.current
+    ) {
+      return;
+    }
+
+    const isRetainedInDestination =
+      Array.isArray(activeWorkspaceDocuments) &&
+      activeWorkspaceDocuments.some((doc) => doc.document_id === candidateDocId);
+
+    if (!isRetainedInDestination) {
+      pendingPostSwitchReconcileRef.current = false;
+      const params = new URLSearchParams(searchParams?.toString() ?? "");
+      params.delete("docId");
+      const query = params.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname);
+    }
+  }, [
+    activeWorkspaceId,
+    activeWorkspaceDocuments,
+    candidateDocId,
+    pathname,
+    router,
+    searchParams,
+  ]);
+
+  const effectiveNavigationTarget =
+    scopedNavigationTarget &&
+    scopedNavigationTarget.epoch === workspaceTransitionEpoch &&
+    candidateDocId !== null &&
+    scopedNavigationTarget.target.documentId === candidateDocId
+      ? scopedNavigationTarget.target
+      : null;
 
   const handleCloseDocument = useCallback(() => {
     const currentChatId = useChatStore.getState().activeChatId;
@@ -43,7 +104,7 @@ export function WorkspaceController() {
       selectDocument(currentChatId, null);
     }
 
-    setPendingNavigationTarget(null);
+    setScopedNavigationTarget(null);
 
     const params = new URLSearchParams(searchParams?.toString() ?? "");
     params.delete("docId");
@@ -54,7 +115,10 @@ export function WorkspaceController() {
 
   const handleDocumentNavigation = useCallback(
     (target: PdfNavigationTarget) => {
-      setPendingNavigationTarget(target);
+      setScopedNavigationTarget({
+        epoch: useWorkspaceStore.getState().workspaceTransitionEpoch,
+        target,
+      });
 
       const params = new URLSearchParams(searchParams?.toString() ?? "");
       params.set("docId", String(target.documentId));
@@ -128,7 +192,7 @@ export function WorkspaceController() {
             <WorkspaceResearchSynthesisPanel key={activeWorkspaceId} workspaceId={activeWorkspaceId} onCitationNavigate={handleDocumentNavigation} />
           </div>
           <div className="w-full lg:w-80 shrink-0 bg-card/20 overflow-y-auto">
-            <WorkspaceDocumentManager workspaceId={activeWorkspaceId} />
+            <WorkspaceDocumentManager key={activeWorkspaceId} workspaceId={activeWorkspaceId} />
           </div>
         </div>
       </div>
@@ -139,9 +203,10 @@ export function WorkspaceController() {
   if (status === "resolved" && resolvedDocument) {
     return (
       <ResearchWorkspace
+        key={`${activeWorkspaceId ?? "chat"}-${resolvedDocument.id}`}
         document={resolvedDocument}
         onClose={handleCloseDocument}
-        navigationTarget={pendingNavigationTarget}
+        navigationTarget={effectiveNavigationTarget}
         onDocumentNavigation={handleDocumentNavigation}
       />
     );

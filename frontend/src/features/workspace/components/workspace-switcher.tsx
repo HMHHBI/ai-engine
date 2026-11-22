@@ -2,9 +2,11 @@
 
 import { Check, ChevronDown, FolderPlus, Layers, Loader2, AlertCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { useWorkspaceStore } from "../store/workspace-store";
 import { workspaceActions } from "../actions/workspace-actions";
+import { parseCandidateDocId } from "../utils/workspace-url";
 import { cn } from "@/lib/utils";
 
 interface WorkspaceSwitcherProps {
@@ -12,6 +14,10 @@ interface WorkspaceSwitcherProps {
 }
 
 export function WorkspaceSwitcher({ collapsed = false }: WorkspaceSwitcherProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
   const workspaces = useWorkspaceStore((state) => state.workspaces);
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const isLoading = useWorkspaceStore((state) => state.isLoading);
@@ -52,12 +58,44 @@ export function WorkspaceSwitcher({ collapsed = false }: WorkspaceSwitcherProps)
 
   const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId) ?? workspaces[0];
 
+  function reconcileRouteForWorkspace(targetWorkspaceId: number) {
+    const candidateDocId = parseCandidateDocId(searchParams);
+    if (candidateDocId === null) {
+      return;
+    }
+
+    const knownDocs =
+      useWorkspaceStore.getState().documentsByWorkspace[targetWorkspaceId];
+    const isRetainedInTarget =
+      Array.isArray(knownDocs) &&
+      knownDocs.some((doc) => doc.document_id === candidateDocId);
+
+    if (!isRetainedInTarget) {
+      const params = new URLSearchParams(searchParams?.toString() ?? "");
+      params.delete("docId");
+      const query = params.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname);
+    }
+  }
+
+  async function handleSelectWorkspace(workspaceId: number) {
+    setOpen(false);
+    if (workspaceId !== activeWorkspaceId) {
+      reconcileRouteForWorkspace(workspaceId);
+      await workspaceActions.selectWorkspace(workspaceId);
+      if (useWorkspaceStore.getState().activeWorkspaceId === workspaceId) {
+        reconcileRouteForWorkspace(workspaceId);
+      }
+    }
+  }
+
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     const name = newWorkspaceName.trim();
     if (!name) return;
     const id = await workspaceActions.createWorkspace(name);
     if (id) {
+      reconcileRouteForWorkspace(id);
       setNewWorkspaceName("");
       setCreating(false);
       setOpen(false);
@@ -130,10 +168,7 @@ export function WorkspaceSwitcher({ collapsed = false }: WorkspaceSwitcherProps)
                   <button
                     key={ws.id}
                     type="button"
-                    onClick={() => {
-                      void workspaceActions.selectWorkspace(ws.id);
-                      setOpen(false);
-                    }}
+                    onClick={() => void handleSelectWorkspace(ws.id)}
                     className={cn(
                       "flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-xs text-left transition-colors",
                       isSelected
