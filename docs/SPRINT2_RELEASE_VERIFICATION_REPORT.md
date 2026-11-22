@@ -1,7 +1,8 @@
 # Sprint 2 Release Verification Report
 
 - **Repository:** `HMHHBI/ai-engine` (Hassan AI Engine)
-- **Baseline Commit Verified:** `356bb34` (`main`)
+- **Sprint 2 Implementation Baseline:** `356bb34` (`main`, after Phase 2D merge)
+- **Phase 2E Release Verification:** PR #160 (`feat/phase-2e-ci-gates-release-report`, CI verified on `73861c1` and updated report commit)
 - **Verification Date:** 2026-11-22
 - **Release Gate Status:** **PASSED (All Backend, Frontend, Security, and Preview Deployment Gates Green)**
 
@@ -9,7 +10,7 @@
 
 ## 1. Executive Summary
 
-Sprint 2 delivered end-to-end multi-document research synthesis, workspace role-based access control (RBAC) & IDOR hardening, performance characterization & pgvector query tuning, in-place workspace transition state/route reconciliation, deterministic text-bearing PDF fixtures with citation provenance verification, and automated CI quality gates.
+Sprint 2 delivered end-to-end verification and hardening across the multi-document research synthesis workflow: deterministic synthesis evaluation contracts (Phase 2A), an isolated research workflow smoke profile (Phase 2B), cross-workspace and cross-tenant IDOR authorization coverage (Phase 2C), in-place workspace transition state/route reconciliation with text-bearing PDF fixtures and citation provenance verification (Phase 2D), and automated CI quality gates (Phase 2E).
 
 All automated test suites pass with zero failures:
 - **Backend (`pytest`):** **675 passed**, 0 failed (including `smoke_research` and PDF provenance gates).
@@ -22,31 +23,32 @@ All automated test suites pass with zero failures:
 
 | Sprint 2 Phase | Deliverable Scope | Key Artifacts & Verification Coverage | Status |
 | :--- | :--- | :--- | :--- |
-| **Phase 2A** | Performance Characterization & `pgvector` Retrieval Optimization | `scripts/benchmarks/`, concurrency sweeps (`C=1, 2, 4`), corpus scaling (`50`–`5,000` chunks), `EXPLAIN (ANALYZE, BUFFERS)` HNSW/IVFFlat analysis, `httpx.AsyncClient` connection reuse | **Verified** |
-| **Phase 2B** | Multi-Document Research Synthesis & Citation Provenance | `multi_doc_retrieval.py`, structured facet validation (`test_research_synthesis_validation.py`), retrieval/synthesis evaluation harness (`test_research_synthesis_eval.py`), export controls (`test_research_exports.py`) | **Verified** |
-| **Phase 2C** | Workspace RBAC, IDOR Security Matrix & Isolation | `test_workspace_rbac.py`, `test_workspace_rbac_matrix.py`, `test_research_authorization_matrix.py`, `test_vector_idor.py` (PR #139, #140, #141) | **Verified** |
-| **Phase 2D** | In-Place Workspace Transitions & Text-Bearing PDF Fixtures | `workspace-actions.ts`, `workspace-controller.tsx`, `workspace-switcher.tsx`, `use-resolved-workspace-document.ts`, `workspace-transitions.test.tsx` (5 tests), `backend/tests/fixtures/pdf_fixtures.py`, `test_pdf_fixtures_and_provenance.py` (9 tests) (PR #159, `356bb34`) | **Verified** |
-| **Phase 2E** | CI Quality Gates & Release Verification Report | `.github/workflows/ci.yml`, `.github/workflows/security.yml`, `backend/pytest.ini`, `docs/SPRINT2_RELEASE_VERIFICATION_REPORT.md` | **Verified** |
+| **Phase 2A** | Academic Synthesis Benchmark Contract | `research_synthesis_dataset_v1.json`, `research_synthesis_eval.py`, `test_research_synthesis_eval.py`; benchmark metrics, deterministic evaluation, and threshold contracts (PR #139) | **Verified** |
+| **Phase 2B** | Isolated Research Workflow Smoke Profile | `test_research_workflow_smoke.py`, `pytest.ini`; seeded synthesis execution, facet contract, citation/passage provenance, workspace isolation and unready-document guards (PR #140) | **Verified** |
+| **Phase 2C** | Research & Document IDOR Authorization Matrix | `test_research_authorization_matrix.py`; cross-workspace run/export isolation, foreign-document injection guards, RBAC and tenant isolation (PR #141) | **Verified** |
+| **Phase 2D** | In-Place Workspace Transitions & Text-Bearing PDF Fixtures | `workspace-transitions.test.tsx`, workspace state/route reconciliation, `backend/tests/fixtures/pdf_fixtures.py`, `test_pdf_fixtures_and_provenance.py` (PR #159, `356bb34`) | **Verified** |
+| **Phase 2E** | CI Quality Gates & Release Verification Report | `.github/workflows/ci.yml`, `.github/workflows/security.yml`, `backend/pytest.ini`, `docs/SPRINT2_RELEASE_VERIFICATION_REPORT.md` (PR #160) | **Verified (PR #160)** |
 
 ---
 
 ## 3. Critical Invariants & Regression Guarantees
 
-1. **Cross-Workspace & Cross-Tenant Isolation:**
+1. **Cross-Workspace & Cross-Tenant Isolation (Phases 2B–2D):**
    - Workspace roles (`viewer`, `researcher`, `admin`, `owner`) are enforced across workspace mutations, document attachments, member invitations, and research run execution/export endpoints.
+   - Foreign or unassociated document IDs injected into multi-document synthesis requests are deterministically rejected; non-members cannot read or export workspace research runs.
    - `useResolvedWorkspaceDocument` validates `candidateDocId` against authoritative `documentsByWorkspace[activeWorkspaceId]` state in real time, preventing stale cached memberships from exposing detached documents.
-2. **In-Place Workspace Transition & Route Reconciliation:**
+2. **In-Place Workspace Transition & Route Reconciliation (Phase 2D):**
    - Switching workspaces via `WorkspaceSwitcher` reconciles stale `docId` query parameters both optimistically and after authoritative `loadDocuments()` completion while preserving unrelated query parameters (`filter`, `view`, etc.).
    - Monotonic `workspaceTransitionEpoch` invalidates `scopedNavigationTarget` across `A -> B -> A` workspace transitions so citation page jumps never resurrect on return.
    - Reference-counted loading (`beginLoading`/`endLoading`) and monotonic request tokens (`latestWorkspacesRequestSeq`, `latestDocRequestByWorkspace`, `latestRunsRequestByWorkspace`) prevent overlapping async responses from clobbering state or clearing loading indicators prematurely.
-3. **Deterministic PDF Extraction & Citation Provenance:**
+3. **Deterministic PDF Extraction, Evaluation & Citation Provenance (Phases 2A, 2B, 2D):**
    - `extract_text_from_pdf` preserves true 1-based physical page numbers across sparse/blank intermediate pages, extracts two-column layouts, and deterministically rejects invalid, corrupted, image-only, and encrypted PDFs with `PDFExtractionError`.
    - `EmbeddingService.chunk_text` strictly respects page boundaries; no chunk spans multiple pages or leaks cross-page content.
-   - End-to-end ingestion and `retrieve_multi_document_candidates` preserve exact `document_id`, `page_number`, `chunk_index`, and source `content` provenance.
+   - End-to-end ingestion, `retrieve_multi_document_candidates`, and `research_synthesis_eval` preserve and verify exact `document_id`, `page_number`, `chunk_index`, and source `content` provenance.
 
 ---
 
-## 4. Automated CI Quality Gates
+## 4. Automated CI Quality Gates (Phase 2E)
 
 ### Workflow 1: `.github/workflows/ci.yml` (Triggers: `pull_request` on `main`/`feat/**`, `push` on `main`)
 1. **Backend Service Containers:** PostgreSQL 16 (`pgvector/pgvector:pg16`) and Redis 7 (`redis:7-alpine`) with health checks.
