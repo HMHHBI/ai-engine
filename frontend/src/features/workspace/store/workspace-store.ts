@@ -5,6 +5,7 @@ import type { ResearchRun } from "@/types/research";
 interface WorkspaceState {
   workspaces: Workspace[];
   activeWorkspaceId: number | null;
+  workspaceTransitionEpoch: number;
   documentsByWorkspace: Record<number, WorkspaceDocument[]>;
   researchRunsByWorkspace: Record<number, ResearchRun[]>;
   isLoading: boolean;
@@ -23,13 +24,21 @@ interface WorkspaceState {
 export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   workspaces: [],
   activeWorkspaceId: null,
+  workspaceTransitionEpoch: 0,
   documentsByWorkspace: {},
   researchRunsByWorkspace: {},
   isLoading: false,
   error: null,
 
   setWorkspaces: (workspaces) => set({ workspaces }),
-  setActiveWorkspaceId: (activeWorkspaceId) => set({ activeWorkspaceId }),
+  setActiveWorkspaceId: (activeWorkspaceId) =>
+    set((state) => ({
+      activeWorkspaceId,
+      workspaceTransitionEpoch:
+        state.activeWorkspaceId !== activeWorkspaceId
+          ? state.workspaceTransitionEpoch + 1
+          : state.workspaceTransitionEpoch,
+    })),
   setWorkspaceDocuments: (workspaceId, documents) =>
     set((state) => ({
       documentsByWorkspace: {
@@ -57,6 +66,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
     set({
       workspaces: [],
       activeWorkspaceId: null,
+      workspaceTransitionEpoch: 0,
       documentsByWorkspace: {},
       researchRunsByWorkspace: {},
       isLoading: false,

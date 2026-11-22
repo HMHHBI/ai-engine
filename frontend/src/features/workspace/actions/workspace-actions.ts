@@ -6,16 +6,34 @@ import type { WorkspaceDocument } from "@/types/workspace";
 import type { Document as ApiDocument } from "@/types/api";
 
 const latestDocRequestByWorkspace = new Map<number, number>();
+const inFlightDocWorkspaces = new Set<number>();
 const latestRunsRequestByWorkspace = new Map<number, number>();
-let workspaceSelectionSeq = 0;
+let latestWorkspacesRequestSeq = 0;
+let activeLoadingOperations = 0;
+
+function beginLoading(): void {
+  activeLoadingOperations += 1;
+  useWorkspaceStore.getState().setLoading(true);
+}
+
+function endLoading(): void {
+  activeLoadingOperations = Math.max(0, activeLoadingOperations - 1);
+  if (activeLoadingOperations === 0) {
+    useWorkspaceStore.getState().setLoading(false);
+  }
+}
 
 export const workspaceActions = {
   async loadWorkspaces(): Promise<void> {
+    const requestId = ++latestWorkspacesRequestSeq;
     const store = useWorkspaceStore.getState();
-    store.setLoading(true);
+    beginLoading();
     store.setError(null);
     try {
       const list = await workspaceService.listWorkspaces();
+      if (latestWorkspacesRequestSeq !== requestId) {
+        return;
+      }
       store.setWorkspaces(list);
 
       const currentActiveId = useWorkspaceStore.getState().activeWorkspaceId;
@@ -24,25 +42,26 @@ export const workspaceActions = {
       if (!isCurrentValid) {
         const nextId = list.length > 0 ? list[0].id : null;
         store.setActiveWorkspaceId(nextId);
-        if (nextId !== null) {
+        if (nextId !== null && !inFlightDocWorkspaces.has(nextId)) {
           void this.loadDocuments(nextId);
         }
-      } else if (currentActiveId !== null) {
+      } else if (currentActiveId !== null && !inFlightDocWorkspaces.has(currentActiveId)) {
         void this.loadDocuments(currentActiveId);
       }
     } catch (err) {
-      store.setError(err instanceof Error ? err.message : "Failed to load workspaces.");
+      if (latestWorkspacesRequestSeq === requestId) {
+        store.setError(err instanceof Error ? err.message : "Failed to load workspaces.");
+      }
     } finally {
-      store.setLoading(false);
+      endLoading();
     }
   },
 
   async selectWorkspace(workspaceId: number): Promise<void> {
-    const selectionToken = ++workspaceSelectionSeq;
     const store = useWorkspaceStore.getState();
     store.setError(null);
     store.setActiveWorkspaceId(workspaceId);
-    store.setLoading(true);
+    beginLoading();
 
     try {
       await Promise.all([
@@ -50,15 +69,14 @@ export const workspaceActions = {
         this.loadResearchRuns(workspaceId),
       ]);
     } finally {
-      if (workspaceSelectionSeq === selectionToken) {
-        useWorkspaceStore.getState().setLoading(false);
-      }
+      endLoading();
     }
   },
 
   async loadDocuments(workspaceId: number): Promise<void> {
     const requestId = (latestDocRequestByWorkspace.get(workspaceId) ?? 0) + 1;
     latestDocRequestByWorkspace.set(workspaceId, requestId);
+    inFlightDocWorkspaces.add(workspaceId);
 
     try {
       const docs = await workspaceService.listDocuments(workspaceId);
@@ -69,6 +87,10 @@ export const workspaceActions = {
     } catch (err) {
       // Do not pollute global store error to prevent cascading re-render loops
       console.warn("loadDocuments warning:", err);
+    } finally {
+      if (latestDocRequestByWorkspace.get(workspaceId) === requestId) {
+        inFlightDocWorkspaces.delete(workspaceId);
+      }
     }
   },
 
@@ -78,7 +100,7 @@ export const workspaceActions = {
 
   async attachDocuments(workspaceId: number, documentIds: number[]): Promise<void> {
     const store = useWorkspaceStore.getState();
-    store.setLoading(true);
+    beginLoading();
     store.setError(null);
     try {
       const updated = await workspaceService.attachDocuments(workspaceId, documentIds);
@@ -87,13 +109,13 @@ export const workspaceActions = {
       store.setError(err instanceof Error ? err.message : "Failed to attach documents.");
       throw err;
     } finally {
-      store.setLoading(false);
+      endLoading();
     }
   },
 
   async detachDocument(workspaceId: number, documentId: number): Promise<void> {
     const store = useWorkspaceStore.getState();
-    store.setLoading(true);
+    beginLoading();
     store.setError(null);
     try {
       await workspaceService.detachDocument(workspaceId, documentId);
@@ -106,13 +128,13 @@ export const workspaceActions = {
       store.setError(err instanceof Error ? err.message : "Failed to detach document.");
       throw err;
     } finally {
-      store.setLoading(false);
+      endLoading();
     }
   },
 
   async createWorkspace(name: string): Promise<number | null> {
     const store = useWorkspaceStore.getState();
-    store.setLoading(true);
+    beginLoading();
     store.setError(null);
     try {
       const workspace = await workspaceService.createWorkspace(name);
@@ -125,7 +147,7 @@ export const workspaceActions = {
       );
       return null;
     } finally {
-      store.setLoading(false);
+      endLoading();
     }
   },
 
@@ -150,7 +172,7 @@ export const workspaceActions = {
     input: CreateResearchRunInput,
   ) {
     const store = useWorkspaceStore.getState();
-    store.setLoading(true);
+    beginLoading();
     store.setError(null);
     try {
       const run = await workspaceService.createResearchRun(workspaceId, input);
@@ -160,7 +182,7 @@ export const workspaceActions = {
       // Do not corrupt global store error; allow caller to handle local UI state
       throw err;
     } finally {
-      store.setLoading(false);
+      endLoading();
     }
   },
 };

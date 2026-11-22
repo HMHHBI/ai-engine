@@ -108,18 +108,46 @@ def test_rejects_unreadable_or_invalid_pdfs_deterministically(
 
 
 def test_chunk_text_from_extracted_pdf_never_crosses_page_boundaries() -> None:
-    fixture = build_academic_paper_pdf()
+    fixture = build_academic_paper_pdf(
+        paper_id="BOUNDARY-CHECK",
+        title="PAGE1_EXCLUSIVE_TITLE_MARKER",
+        methodology_phrase="PAGE2_EXCLUSIVE_METHODOLOGY_MARKER",
+        findings_phrase="PAGE3_EXCLUSIVE_FINDINGS_MARKER",
+    )
     pages = extract_text_from_pdf(fixture.pdf_bytes)
 
     chunks = EmbeddingService.chunk_text(pages, chunk_size=140, overlap=20)
     assert len(chunks) >= 3
 
     text_by_page = {p.page_number: _normalize_ws(p.text) for p in pages}
+    exclusive_markers = {
+        1: "PAGE1_EXCLUSIVE_TITLE_MARKER",
+        2: "PAGE2_EXCLUSIVE_METHODOLOGY_MARKER",
+        3: "PAGE3_EXCLUSIVE_FINDINGS_MARKER",
+    }
+
+    # Verify every page produced at least one chunk
+    assert {chunk.page_number for chunk in chunks} == {1, 2, 3}
+
     for idx, chunk in enumerate(chunks):
         assert chunk.chunk_index == idx
         assert chunk.page_number in text_by_page
-        first_word = chunk.text.split()[0]
-        assert first_word in text_by_page[chunk.page_number]
+
+        normalized_chunk = _normalize_ws(chunk.text)
+        source_page_text = text_by_page[chunk.page_number]
+
+        # Complete chunk content must belong strictly to its attributed source page
+        assert normalized_chunk in source_page_text
+
+        # No chunk may contain markers or text from any other page
+        for other_page, other_marker in exclusive_markers.items():
+            if other_page != chunk.page_number:
+                assert other_marker not in normalized_chunk
+
+    # Verify page-specific exclusive markers appear ONLY on their true page's chunks
+    for page_num, marker in exclusive_markers.items():
+        page_chunks = [_normalize_ws(c.text) for c in chunks if c.page_number == page_num]
+        assert any(marker in c_text for c_text in page_chunks)
 
 
 @pytest.mark.asyncio

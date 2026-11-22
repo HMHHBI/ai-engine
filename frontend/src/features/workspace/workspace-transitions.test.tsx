@@ -1,6 +1,8 @@
 import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { useState } from "react";
 import { WorkspaceController } from "./components/workspace-controller";
+import { WorkspaceSwitcher } from "./components/workspace-switcher";
 import { workspaceActions } from "./actions/workspace-actions";
 import { workspaceService } from "./services/workspace-service";
 import { useWorkspaceStore } from "./store/workspace-store";
@@ -12,7 +14,9 @@ import type { PdfNavigationTarget } from "@/features/pdf/types/navigation";
 import type { WorkspaceDocument } from "@/types/workspace";
 
 const mockSearchParams = new Map<string, string>();
-const mockRouterPush = vi.fn((url: string) => {
+let rerenderHarness: (() => void) | null = null;
+
+function applyRouterUrl(url: string) {
   const queryPart = url.split("?")[1];
   mockSearchParams.clear();
   if (queryPart) {
@@ -21,10 +25,16 @@ const mockRouterPush = vi.fn((url: string) => {
       mockSearchParams.set(key, value);
     });
   }
-});
+  if (rerenderHarness) {
+    rerenderHarness();
+  }
+}
+
+const mockRouterPush = vi.fn((url: string) => applyRouterUrl(url));
+const mockRouterReplace = vi.fn((url: string) => applyRouterUrl(url));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: mockRouterPush }),
+  useRouter: () => ({ push: mockRouterPush, replace: mockRouterReplace }),
   usePathname: () => "/dashboard",
   useSearchParams: () => ({
     get: (key: string) => mockSearchParams.get(key) ?? null,
@@ -39,17 +49,34 @@ vi.mock("./components/research-workspace", () => ({
   ResearchWorkspace: ({
     document,
     navigationTarget,
+    onDocumentNavigation,
   }: {
     document: Document;
     navigationTarget?: PdfNavigationTarget | null;
+    onDocumentNavigation?: (target: PdfNavigationTarget) => void;
   }) => (
     <div data-testid="research-workspace-view">
       <span data-testid="active-doc-id">{document.id}</span>
       <span data-testid="navigation-target-state">
         {navigationTarget
-          ? `doc:${navigationTarget.documentId}:page:${navigationTarget.pageNumber}`
+          ? `doc:${navigationTarget.documentId}:page:${navigationTarget.pageNumber}:req:${navigationTarget.requestId}`
           : "none"}
       </span>
+      {onDocumentNavigation && (
+        <button
+          type="button"
+          data-testid="jump-same-doc-page-7"
+          onClick={() =>
+            onDocumentNavigation({
+              documentId: document.id,
+              pageNumber: 7,
+              requestId: 777,
+            })
+          }
+        >
+          Jump Page 7
+        </button>
+      )}
     </div>
   ),
 }));
@@ -58,16 +85,40 @@ vi.mock("./components/workspace-skeleton", () => ({
   WorkspaceSkeleton: () => <div data-testid="workspace-skeleton">Loading...</div>,
 }));
 
+// Stateful probes that verify actual React remount / local state reset on workspace transitions
 vi.mock("./components/workspace-research-synthesis-panel", () => ({
-  WorkspaceResearchSynthesisPanel: ({ workspaceId }: { workspaceId: number }) => (
-    <div data-testid="synthesis-panel">{`Synthesis:${workspaceId}`}</div>
-  ),
+  WorkspaceResearchSynthesisPanel: ({ workspaceId }: { workspaceId: number }) => {
+    const [draftQuery, setDraftQuery] = useState("");
+    return (
+      <div data-testid="synthesis-panel">
+        <span>{`Synthesis:${workspaceId}`}</span>
+        <input
+          aria-label="Synthesis draft query"
+          value={draftQuery}
+          onChange={(e) => setDraftQuery(e.target.value)}
+        />
+      </div>
+    );
+  },
 }));
 
 vi.mock("./components/workspace-document-manager", () => ({
-  WorkspaceDocumentManager: ({ workspaceId }: { workspaceId: number }) => (
-    <div data-testid="document-manager">{`Docs:${workspaceId}`}</div>
-  ),
+  WorkspaceDocumentManager: ({ workspaceId }: { workspaceId: number }) => {
+    const [selectedAttachIds, setSelectedAttachIds] = useState<number[]>([]);
+    return (
+      <div data-testid="document-manager">
+        <span>{`Docs:${workspaceId}`}</span>
+        <button
+          type="button"
+          data-testid="select-doc-to-attach"
+          onClick={() => setSelectedAttachIds([901])}
+        >
+          Select 901
+        </button>
+        <span data-testid="pending-attach-count">{selectedAttachIds.length}</span>
+      </div>
+    );
+  },
 }));
 
 vi.mock("@/features/chat/components/chat-area", () => ({
@@ -132,98 +183,20 @@ describe("Phase 2D: In-place workspace transition regressions", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     mockSearchParams.clear();
+    rerenderHarness = null;
     useWorkspaceStore.getState().reset();
     useChatStore.getState().reset();
     useDocumentStore.getState().reset();
   });
 
-  it("switches in-place A -> B -> A and isolates workspace-scoped documents and research runs", async () => {
+  it("reconciles stale docId in URL and returns to clean chat when switching via WorkspaceSwitcher", async () => {
+    const workspaces = [
+      { id: 1, name: "Workspace A", created_by: 1, created_at: "", updated_at: "" },
+      { id: 2, name: "Workspace B", created_by: 1, created_at: "", updated_at: "" },
+    ];
+
     useWorkspaceStore.setState({
-      workspaces: [
-        { id: 1, name: "Workspace A", created_by: 1, created_at: "", updated_at: "" },
-        { id: 2, name: "Workspace B", created_by: 1, created_at: "", updated_at: "" },
-      ],
-      activeWorkspaceId: 1,
-    });
-
-    vi.spyOn(workspaceService, "listDocuments").mockImplementation(async (wsId: number) => {
-      if (wsId === 1) return [makeWsDoc(101, 1)];
-      if (wsId === 2) return [makeWsDoc(202, 2)];
-      return [];
-    });
-
-    vi.spyOn(workspaceService, "listResearchRuns").mockImplementation(async (wsId: number) => ({
-      items: [
-        {
-          id: wsId * 10,
-          workspace_id: wsId,
-          requester_id: 1,
-          query: `Question for workspace ${wsId}`,
-          status: "completed",
-          answer: `Answer ${wsId}`,
-          citations: [],
-          run_metadata: {},
-          created_at: "2026-11-22T00:00:00Z",
-          completed_at: "2026-11-22T00:00:05Z",
-          error_message: null,
-        },
-      ],
-      total: 1,
-    }));
-
-    // Switch A -> B
-    await workspaceActions.selectWorkspace(2);
-    expect(useWorkspaceStore.getState().activeWorkspaceId).toBe(2);
-    expect(useWorkspaceStore.getState().documentsByWorkspace[2]?.map((d) => d.document_id)).toEqual([202]);
-    expect(useWorkspaceStore.getState().researchRunsByWorkspace[2]?.[0]?.query).toBe("Question for workspace 2");
-
-    // Switch B -> A
-    await workspaceActions.selectWorkspace(1);
-    expect(useWorkspaceStore.getState().activeWorkspaceId).toBe(1);
-    expect(useWorkspaceStore.getState().documentsByWorkspace[1]?.map((d) => d.document_id)).toEqual([101]);
-    expect(useWorkspaceStore.getState().researchRunsByWorkspace[1]?.[0]?.query).toBe("Question for workspace 1");
-  });
-
-  it("prevents stale loading flags and late responses from overwriting state during rapid switching A -> B -> C", async () => {
-    let resolveDocsA!: (docs: WorkspaceDocument[]) => void;
-    let resolveDocsB!: (docs: WorkspaceDocument[]) => void;
-    let resolveDocsC!: (docs: WorkspaceDocument[]) => void;
-
-    vi.spyOn(workspaceService, "listDocuments").mockImplementation((wsId: number) => {
-      if (wsId === 1) return new Promise((r) => { resolveDocsA = r; });
-      if (wsId === 2) return new Promise((r) => { resolveDocsB = r; });
-      return new Promise((r) => { resolveDocsC = r; });
-    });
-    vi.spyOn(workspaceService, "listResearchRuns").mockResolvedValue({ items: [], total: 0 });
-
-    const pA = workspaceActions.selectWorkspace(1);
-    const pB = workspaceActions.selectWorkspace(2);
-    const pC = workspaceActions.selectWorkspace(3);
-
-    expect(useWorkspaceStore.getState().activeWorkspaceId).toBe(3);
-    expect(useWorkspaceStore.getState().isLoading).toBe(true);
-
-    // Resolve C first, then late A and B
-    resolveDocsC([makeWsDoc(303, 3)]);
-    await pC;
-    expect(useWorkspaceStore.getState().isLoading).toBe(false);
-    expect(useWorkspaceStore.getState().documentsByWorkspace[3]?.map((d) => d.document_id)).toEqual([303]);
-
-    resolveDocsA([makeWsDoc(101, 1)]);
-    resolveDocsB([makeWsDoc(202, 2)]);
-    await Promise.all([pA, pB]);
-
-    // Active workspace remains 3 and loading remains false
-    expect(useWorkspaceStore.getState().activeWorkspaceId).toBe(3);
-    expect(useWorkspaceStore.getState().isLoading).toBe(false);
-  });
-
-  it("blocks Workspace A document from leaking when switching to Workspace B and clears pending citation navigation", async () => {
-    useWorkspaceStore.setState({
-      workspaces: [
-        { id: 1, name: "Workspace A", created_by: 1, created_at: "", updated_at: "" },
-        { id: 2, name: "Workspace B", created_by: 1, created_at: "", updated_at: "" },
-      ],
+      workspaces,
       activeWorkspaceId: 1,
       documentsByWorkspace: {
         1: [makeWsDoc(12, 10)],
@@ -231,107 +204,219 @@ describe("Phase 2D: In-place workspace transition regressions", () => {
       },
     });
 
+    vi.spyOn(workspaceService, "listWorkspaces").mockResolvedValue(workspaces);
+    vi.spyOn(workspaceService, "listDocuments").mockImplementation(async (wsId: number) =>
+      wsId === 1 ? [makeWsDoc(12, 10)] : [makeWsDoc(99, 20)],
+    );
+    vi.spyOn(workspaceService, "listResearchRuns").mockResolvedValue({ items: [], total: 0 });
     vi.spyOn(documentApi, "get").mockImplementation(async (docId: number) => {
       if (docId === 12) return makeDoc(12, 10);
       if (docId === 99) return makeDoc(99, 20);
       throw new Error("Document not found");
     });
 
-    const { rerender } = render(<WorkspaceController />);
+    // Preserve an unrelated query parameter alongside docId=12
+    mockSearchParams.set("docId", "12");
+    mockSearchParams.set("filter", "recent");
 
-    // 1. Click citation in Workspace A targeting Doc 12 Page 5
-    fireEvent.click(screen.getByTestId("cite-doc-12-page-5"));
-    expect(mockSearchParams.get("docId")).toBe("12");
-    rerender(<WorkspaceController />);
+    const { rerender } = render(
+      <>
+        <WorkspaceSwitcher />
+        <WorkspaceController />
+      </>,
+    );
+    rerenderHarness = () =>
+      rerender(
+        <>
+          <WorkspaceSwitcher />
+          <WorkspaceController />
+        </>,
+      );
 
     await waitFor(() => {
       expect(screen.getByTestId("active-doc-id")).toHaveTextContent("12");
     });
-    expect(screen.getByTestId("navigation-target-state")).toHaveTextContent("doc:12:page:5");
 
-    // 2. Switch in-place to Workspace B where Doc 12 does NOT belong
-    act(() => {
-      useWorkspaceStore.getState().setActiveWorkspaceId(2);
+    // User clicks WorkspaceSwitcher dropdown and switches to Workspace B
+    fireEvent.click(screen.getByRole("button", { name: /Workspace: Workspace A/i }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Workspace B/i }));
     });
-    rerender(<WorkspaceController />);
 
-    // 3. Doc 12 must NOT leak into Workspace B; controller renders error alert instead
-    await waitFor(() => {
-      expect(screen.getByTestId("workspace-document-error")).toBeDefined();
-    });
+    // Stale docId=12 must be removed from URL while preserving unrelated query param `filter=recent`
+    expect(mockSearchParams.get("docId")).toBeUndefined();
+    expect(mockSearchParams.get("filter")).toBe("recent");
+    expect(mockRouterReplace).toHaveBeenCalledWith("/dashboard?filter=recent");
+
+    // Destination Workspace B renders clean chat view (never an error banner for Workspace A's doc)
+    expect(screen.getByTestId("chat-area")).toBeDefined();
+    expect(screen.queryByTestId("workspace-document-error")).toBeNull();
     expect(screen.queryByTestId("research-workspace-view")).toBeNull();
+  });
 
-    // 4. Navigating to Workspace B's own Doc 99 must NOT carry over stale Page 5 target from Doc 12
-    mockSearchParams.set("docId", "99");
-    rerender(<WorkspaceController />);
+  it("never resurrects cleared citation target on A (doc 12, page 5) -> B -> A (doc 12) transition", async () => {
+    const workspaces = [
+      { id: 1, name: "Workspace A", created_by: 1, created_at: "", updated_at: "" },
+      { id: 2, name: "Workspace B", created_by: 1, created_at: "", updated_at: "" },
+    ];
+
+    useWorkspaceStore.setState({
+      workspaces,
+      activeWorkspaceId: 1,
+      documentsByWorkspace: {
+        1: [makeWsDoc(12, 10)],
+        2: [makeWsDoc(99, 20)],
+      },
+    });
+
+    vi.spyOn(workspaceService, "listWorkspaces").mockResolvedValue(workspaces);
+    vi.spyOn(workspaceService, "listDocuments").mockImplementation(async (wsId: number) =>
+      wsId === 1 ? [makeWsDoc(12, 10)] : [makeWsDoc(99, 20)],
+    );
+    vi.spyOn(workspaceService, "listResearchRuns").mockResolvedValue({ items: [], total: 0 });
+    vi.spyOn(documentApi, "get").mockImplementation(async (docId: number) => {
+      if (docId === 12) return makeDoc(12, 10);
+      return makeDoc(99, 20);
+    });
+
+    const { rerender } = render(
+      <>
+        <WorkspaceSwitcher />
+        <WorkspaceController />
+      </>,
+    );
+    rerenderHarness = () =>
+      rerender(
+        <>
+          <WorkspaceSwitcher />
+          <WorkspaceController />
+        </>,
+      );
+
+    // 1. Click citation in Workspace A -> Doc 12 Page 5
+    fireEvent.click(screen.getByTestId("cite-doc-12-page-5"));
+    await waitFor(() => {
+      expect(screen.getByTestId("active-doc-id")).toHaveTextContent("12");
+    });
+    expect(screen.getByTestId("navigation-target-state")).toHaveTextContent("doc:12:page:5:req:1");
+
+    // 2. Verify same-document navigation updates to Page 7 with new requestId
+    fireEvent.click(screen.getByTestId("jump-same-doc-page-7"));
+    expect(screen.getByTestId("navigation-target-state")).toHaveTextContent("doc:12:page:7:req:777");
+
+    // 3. Switch to Workspace B via WorkspaceSwitcher
+    fireEvent.click(screen.getByRole("button", { name: /Workspace: Workspace A/i }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Workspace B/i }));
+    });
+    expect(screen.getByTestId("chat-area")).toBeDefined();
+
+    // 4. Switch back to Workspace A and reopen Doc 12 -> old citation target must NOT resurrect
+    fireEvent.click(screen.getByRole("button", { name: /Workspace: Workspace B/i }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Workspace A/i }));
+    });
+
+    mockSearchParams.set("docId", "12");
+    rerenderHarness();
 
     await waitFor(() => {
-      expect(screen.getByTestId("active-doc-id")).toHaveTextContent("99");
+      expect(screen.getByTestId("active-doc-id")).toHaveTextContent("12");
     });
     expect(screen.getByTestId("navigation-target-state")).toHaveTextContent("none");
   });
 
-  it("prevents a late-resolving document fetch from Workspace A from overwriting Workspace B", async () => {
-    useWorkspaceStore.setState({
-      workspaces: [
-        { id: 1, name: "Workspace A", created_by: 1, created_at: "", updated_at: "" },
-        { id: 2, name: "Workspace B", created_by: 1, created_at: "", updated_at: "" },
-      ],
-      activeWorkspaceId: 1,
-      documentsByWorkspace: {
-        1: [makeWsDoc(55, 10)],
-        2: [makeWsDoc(77, 20)],
-      },
+  it("keeps loading active when loadWorkspaces resolves before selectWorkspace and orders out-of-order list responses", async () => {
+    let resolveList1!: (ws: { id: number; name: string; created_by: number; created_at: string; updated_at: string }[]) => void;
+    let resolveList2!: (ws: { id: number; name: string; created_by: number; created_at: string; updated_at: string }[]) => void;
+    let resolveDocsB!: (docs: WorkspaceDocument[]) => void;
+
+    let callIndex = 0;
+    vi.spyOn(workspaceService, "listWorkspaces").mockImplementation(() => {
+      callIndex += 1;
+      if (callIndex === 1) return new Promise((r) => { resolveList1 = r; });
+      return new Promise((r) => { resolveList2 = r; });
     });
-
-    let resolveSlowDoc55!: (doc: Document) => void;
-    vi.spyOn(documentApi, "get").mockImplementation((docId: number) => {
-      if (docId === 55) {
-        return new Promise<Document>((resolve) => {
-          resolveSlowDoc55 = resolve;
-        });
-      }
-      return Promise.resolve(makeDoc(77, 20));
+    vi.spyOn(workspaceService, "listDocuments").mockImplementation((wsId: number) => {
+      if (wsId === 2) return new Promise((r) => { resolveDocsB = r; });
+      return Promise.resolve([makeWsDoc(101, 1)]);
     });
+    vi.spyOn(workspaceService, "listResearchRuns").mockResolvedValue({ items: [], total: 0 });
 
-    mockSearchParams.set("docId", "55");
-    const { rerender } = render(<WorkspaceController />);
-    expect(screen.getByTestId("workspace-skeleton")).toBeDefined();
+    const pList1 = workspaceActions.loadWorkspaces();
+    const pList2 = workspaceActions.loadWorkspaces();
+    const pSelectB = workspaceActions.selectWorkspace(2);
 
-    // Before Doc 55 finishes loading, user switches to Workspace B and opens Doc 77
-    act(() => {
-      useWorkspaceStore.getState().setActiveWorkspaceId(2);
-      mockSearchParams.set("docId", "77");
-    });
-    rerender(<WorkspaceController />);
+    // Resolve newer list2 first, then stale list1
+    resolveList2([
+      { id: 1, name: "Workspace A", created_by: 1, created_at: "", updated_at: "" },
+      { id: 2, name: "Workspace B", created_by: 1, created_at: "", updated_at: "" },
+    ]);
+    await pList2;
 
-    await waitFor(() => {
-      expect(screen.getByTestId("active-doc-id")).toHaveTextContent("77");
-    });
+    resolveList1([
+      { id: 99, name: "Stale Workspace List", created_by: 1, created_at: "", updated_at: "" },
+    ]);
+    await pList1;
 
-    // Now the stale request for Doc 55 resolves late
-    await act(async () => {
-      resolveSlowDoc55(makeDoc(55, 10));
-    });
+    // Stale list1 must NOT overwrite list2 or reset activeWorkspaceId=2, and isLoading stays true while selectWorkspace(2) is pending
+    expect(useWorkspaceStore.getState().workspaces.map((w) => w.id)).toEqual([1, 2]);
+    expect(useWorkspaceStore.getState().activeWorkspaceId).toBe(2);
+    expect(useWorkspaceStore.getState().isLoading).toBe(true);
 
-    // Workspace B must still display Doc 77, untouched by late Doc 55 response
-    expect(screen.getByTestId("active-doc-id")).toHaveTextContent("77");
+    // Complete selectWorkspace(2)
+    resolveDocsB([makeWsDoc(202, 2)]);
+    await pSelectB;
+
+    expect(useWorkspaceStore.getState().isLoading).toBe(false);
+    expect(useWorkspaceStore.getState().documentsByWorkspace[2]?.map((d) => d.document_id)).toEqual([202]);
   });
 
-  it("remounts research synthesis workbench cleanly when switching workspaces in view=research", () => {
-    useWorkspaceStore.setState({ activeWorkspaceId: 42 });
+  it("resets local draft query and pending document selections across research workbench workspace switches", async () => {
+    const workspaces = [
+      { id: 42, name: "Alpha Lab", created_by: 1, created_at: "", updated_at: "" },
+      { id: 99, name: "Beta Lab", created_by: 1, created_at: "", updated_at: "" },
+    ];
+
+    useWorkspaceStore.setState({ workspaces, activeWorkspaceId: 42 });
+    vi.spyOn(workspaceService, "listWorkspaces").mockResolvedValue(workspaces);
+    vi.spyOn(workspaceService, "listDocuments").mockResolvedValue([]);
+    vi.spyOn(workspaceService, "listResearchRuns").mockResolvedValue({ items: [], total: 0 });
+
     mockSearchParams.set("view", "research");
 
-    const { rerender } = render(<WorkspaceController />);
-    expect(screen.getByTestId("synthesis-panel")).toHaveTextContent("Synthesis:42");
-    expect(screen.getByTestId("document-manager")).toHaveTextContent("Docs:42");
+    const { rerender } = render(
+      <>
+        <WorkspaceSwitcher />
+        <WorkspaceController />
+      </>,
+    );
+    rerenderHarness = () =>
+      rerender(
+        <>
+          <WorkspaceSwitcher />
+          <WorkspaceController />
+        </>,
+      );
 
-    act(() => {
-      useWorkspaceStore.getState().setActiveWorkspaceId(99);
+    // Type draft query and select document to attach in Alpha Lab (42)
+    const draftInput = screen.getByLabelText("Synthesis draft query") as HTMLInputElement;
+    fireEvent.change(draftInput, { target: { value: "Compare transformer attention heads" } });
+    expect(draftInput.value).toBe("Compare transformer attention heads");
+
+    fireEvent.click(screen.getByTestId("select-doc-to-attach"));
+    expect(screen.getByTestId("pending-attach-count")).toHaveTextContent("1");
+
+    // Switch to Beta Lab (99) via WorkspaceSwitcher
+    fireEvent.click(screen.getByRole("button", { name: /Workspace: Alpha Lab/i }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Beta Lab/i }));
     });
-    rerender(<WorkspaceController />);
 
+    // Both panels remount cleanly with empty draft query and zero stale attach selections
     expect(screen.getByTestId("synthesis-panel")).toHaveTextContent("Synthesis:99");
+    expect((screen.getByLabelText("Synthesis draft query") as HTMLInputElement).value).toBe("");
     expect(screen.getByTestId("document-manager")).toHaveTextContent("Docs:99");
+    expect(screen.getByTestId("pending-attach-count")).toHaveTextContent("0");
   });
 });

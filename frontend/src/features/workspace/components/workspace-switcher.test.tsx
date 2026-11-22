@@ -4,6 +4,17 @@ import { WorkspaceSwitcher } from "./workspace-switcher";
 import { useWorkspaceStore } from "../store/workspace-store";
 import { workspaceActions } from "../actions/workspace-actions";
 
+const mockRouterReplace = vi.fn();
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: mockRouterReplace }),
+  usePathname: () => "/dashboard",
+  useSearchParams: () => ({
+    get: () => null,
+    toString: () => "",
+  }),
+}));
+
 vi.mock("../actions/workspace-actions", () => ({
   workspaceActions: {
     loadWorkspaces: vi.fn(),
