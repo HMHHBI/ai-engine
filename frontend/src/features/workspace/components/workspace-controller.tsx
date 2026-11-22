@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { createPdfNavigationTarget } from "@/features/pdf/utils/pdf-navigation-utils";
 import type { RetrievedSource } from "@/types/api";
 import { Sparkles, ArrowLeft, AlertTriangle } from "lucide-react";
@@ -18,6 +18,11 @@ import { selectDocument } from "@/features/documents/document-actions";
 import { useChatStore } from "@/features/chat/store/chat-store";
 import type { PdfNavigationTarget } from "@/features/pdf/types/navigation";
 
+interface ScopedNavigationTarget {
+  workspaceId: number | null;
+  target: PdfNavigationTarget;
+}
+
 export function WorkspaceController() {
   const router = useRouter();
   const pathname = usePathname();
@@ -31,20 +36,16 @@ export function WorkspaceController() {
   const { status, document: resolvedDocument } =
     useResolvedWorkspaceDocument(candidateDocId);
 
-  const [pendingNavigationTarget, setPendingNavigationTarget] =
-    useState<PdfNavigationTarget | null>(null);
+  const [scopedNavigationTarget, setScopedNavigationTarget] =
+    useState<ScopedNavigationTarget | null>(null);
   const navigationRequestIdRef = useRef<number>(0);
 
-  // Clear stale pending citation/PDF navigation targets when switching workspaces
-  useEffect(() => {
-    setPendingNavigationTarget(null);
-  }, [activeWorkspaceId]);
-
   const effectiveNavigationTarget =
-    pendingNavigationTarget &&
+    scopedNavigationTarget &&
+    scopedNavigationTarget.workspaceId === activeWorkspaceId &&
     candidateDocId !== null &&
-    pendingNavigationTarget.documentId === candidateDocId
-      ? pendingNavigationTarget
+    scopedNavigationTarget.target.documentId === candidateDocId
+      ? scopedNavigationTarget.target
       : null;
 
   const handleCloseDocument = useCallback(() => {
@@ -54,7 +55,7 @@ export function WorkspaceController() {
       selectDocument(currentChatId, null);
     }
 
-    setPendingNavigationTarget(null);
+    setScopedNavigationTarget(null);
 
     const params = new URLSearchParams(searchParams?.toString() ?? "");
     params.delete("docId");
@@ -65,7 +66,10 @@ export function WorkspaceController() {
 
   const handleDocumentNavigation = useCallback(
     (target: PdfNavigationTarget) => {
-      setPendingNavigationTarget(target);
+      setScopedNavigationTarget({
+        workspaceId: useWorkspaceStore.getState().activeWorkspaceId,
+        target,
+      });
 
       const params = new URLSearchParams(searchParams?.toString() ?? "");
       params.set("docId", String(target.documentId));

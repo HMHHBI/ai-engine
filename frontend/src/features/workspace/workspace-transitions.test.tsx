@@ -116,14 +116,15 @@ function makeDoc(id: number, chatId = 1, status: Document["status"] = "ready"): 
   };
 }
 
-function makeWsDoc(workspaceId: number, documentId: number): WorkspaceDocument {
+function makeWsDoc(documentId: number, chatId = 1): WorkspaceDocument {
   return {
-    id: workspaceId * 100 + documentId,
-    workspace_id: workspaceId,
     document_id: documentId,
+    chat_id: chatId,
+    filename: `paper-${documentId}.pdf`,
+    mime_type: "application/pdf",
+    status: "ready",
     added_by: 1,
     added_at: "2026-11-22T00:00:00Z",
-    document: makeDoc(documentId),
   };
 }
 
@@ -146,8 +147,8 @@ describe("Phase 2D: In-place workspace transition regressions", () => {
     });
 
     vi.spyOn(workspaceService, "listDocuments").mockImplementation(async (wsId: number) => {
-      if (wsId === 1) return [makeWsDoc(1, 101)];
-      if (wsId === 2) return [makeWsDoc(2, 202)];
+      if (wsId === 1) return [makeWsDoc(101, 1)];
+      if (wsId === 2) return [makeWsDoc(202, 2)];
       return [];
     });
 
@@ -156,14 +157,15 @@ describe("Phase 2D: In-place workspace transition regressions", () => {
         {
           id: wsId * 10,
           workspace_id: wsId,
-          created_by: 1,
-          question: `Question for workspace ${wsId}`,
+          requester_id: 1,
+          query: `Question for workspace ${wsId}`,
           status: "completed",
-          selected_document_ids: [wsId === 1 ? 101 : 202],
-          final_answer: `Answer ${wsId}`,
-          error_message: null,
+          answer: `Answer ${wsId}`,
+          citations: [],
+          run_metadata: {},
           created_at: "2026-11-22T00:00:00Z",
-          updated_at: "2026-11-22T00:00:00Z",
+          completed_at: "2026-11-22T00:00:05Z",
+          error_message: null,
         },
       ],
       total: 1,
@@ -173,13 +175,13 @@ describe("Phase 2D: In-place workspace transition regressions", () => {
     await workspaceActions.selectWorkspace(2);
     expect(useWorkspaceStore.getState().activeWorkspaceId).toBe(2);
     expect(useWorkspaceStore.getState().documentsByWorkspace[2]?.map((d) => d.document_id)).toEqual([202]);
-    expect(useWorkspaceStore.getState().researchRunsByWorkspace[2]?.[0]?.question).toBe("Question for workspace 2");
+    expect(useWorkspaceStore.getState().researchRunsByWorkspace[2]?.[0]?.query).toBe("Question for workspace 2");
 
     // Switch B -> A
     await workspaceActions.selectWorkspace(1);
     expect(useWorkspaceStore.getState().activeWorkspaceId).toBe(1);
     expect(useWorkspaceStore.getState().documentsByWorkspace[1]?.map((d) => d.document_id)).toEqual([101]);
-    expect(useWorkspaceStore.getState().researchRunsByWorkspace[1]?.[0]?.question).toBe("Question for workspace 1");
+    expect(useWorkspaceStore.getState().researchRunsByWorkspace[1]?.[0]?.query).toBe("Question for workspace 1");
   });
 
   it("prevents stale loading flags and late responses from overwriting state during rapid switching A -> B -> C", async () => {
@@ -202,13 +204,13 @@ describe("Phase 2D: In-place workspace transition regressions", () => {
     expect(useWorkspaceStore.getState().isLoading).toBe(true);
 
     // Resolve C first, then late A and B
-    resolveDocsC([makeWsDoc(3, 303)]);
+    resolveDocsC([makeWsDoc(303, 3)]);
     await pC;
     expect(useWorkspaceStore.getState().isLoading).toBe(false);
     expect(useWorkspaceStore.getState().documentsByWorkspace[3]?.map((d) => d.document_id)).toEqual([303]);
 
-    resolveDocsA([makeWsDoc(1, 101)]);
-    resolveDocsB([makeWsDoc(2, 202)]);
+    resolveDocsA([makeWsDoc(101, 1)]);
+    resolveDocsB([makeWsDoc(202, 2)]);
     await Promise.all([pA, pB]);
 
     // Active workspace remains 3 and loading remains false
@@ -224,8 +226,8 @@ describe("Phase 2D: In-place workspace transition regressions", () => {
       ],
       activeWorkspaceId: 1,
       documentsByWorkspace: {
-        1: [makeWsDoc(1, 12)],
-        2: [makeWsDoc(2, 99)],
+        1: [makeWsDoc(12, 10)],
+        2: [makeWsDoc(99, 20)],
       },
     });
 
@@ -277,8 +279,8 @@ describe("Phase 2D: In-place workspace transition regressions", () => {
       ],
       activeWorkspaceId: 1,
       documentsByWorkspace: {
-        1: [makeWsDoc(1, 55)],
-        2: [makeWsDoc(2, 77)],
+        1: [makeWsDoc(55, 10)],
+        2: [makeWsDoc(77, 20)],
       },
     });
 
