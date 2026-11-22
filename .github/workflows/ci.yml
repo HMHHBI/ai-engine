@@ -5,6 +5,9 @@ on:
     branches:
       - main
       - 'feat/**'
+  push:
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -77,7 +80,32 @@ jobs:
           DOCUMENT_ENCRYPTION_KEY: ci-test-encryption-key-32byteslong!
         run: alembic upgrade head
 
-      - name: Run backend tests
+      - name: Run Sprint 2 research & provenance smoke gates
+        working-directory: backend
+        env:
+          PYTHONPATH: .
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/hassan_ai_test
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/hassan_ai_test
+          REDIS_URL: redis://localhost:6379
+          FRONTEND_URL: http://localhost:3000
+          ALLOWED_ORIGINS: http://localhost:3000
+          SECRET_KEY: ci-test-secret-key
+          CLOUDINARY_NAME: ci-placeholder
+          CLOUDINARY_API_KEY: ci-placeholder
+          CLOUDINARY_API_SECRET: ci-placeholder
+          MAIL_USERNAME: ci-placeholder@example.com
+          MAIL_PASSWORD: ci-placeholder-password
+          MAIL_FROM: ci-placeholder@example.com
+          MAIL_PORT: 587
+          MAIL_SERVER: smtp.example.com
+          STORAGE_BACKEND: local
+          LOCAL_STORAGE_ROOT: /tmp/ai_engine_docs
+          DOCUMENT_ENCRYPTION_KEY: ci-test-encryption-key-32byteslong!
+        run: |
+          pytest -m smoke_research -v
+          pytest tests/test_pdf_fixtures_and_provenance.py -v
+
+      - name: Run full backend test suite
         working-directory: backend
         env:
           PYTHONPATH: .
@@ -122,7 +150,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run tests
+      - name: Run Sprint 2 workspace & citation regression gates
+        run: npm test -- --run src/features/workspace/workspace-transitions.test.tsx src/features/chat/integration/chat-citation-lifecycle.test.tsx
+
+      - name: Run full frontend test suite
         run: npm test
 
       - name: Run lint
