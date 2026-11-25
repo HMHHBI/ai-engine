@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio
 from app.workers.document_worker import DocumentIngestionWorker
+from app.workers.research_worker import ResearchRunWorker
 from app.core.metrics import metrics_response
 from app.services.embedding_service import EmbeddingService
 import httpx
@@ -57,17 +58,20 @@ async def lifespan(app: FastAPI):
     http_client = httpx.AsyncClient(timeout=30.0)
     EmbeddingService.set_client(http_client)
 
-    # Ingestion worker for single-instance / Render deployment
+    # Background workers for single-instance / Render deployment
     document_worker = DocumentIngestionWorker()
     worker_task = asyncio.create_task(document_worker.run())
-    logger.info("document_worker_started_in_lifespan")
+    research_worker = ResearchRunWorker()
+    research_worker_task = asyncio.create_task(research_worker.run())
+    logger.info("background_workers_started_in_lifespan")
 
     yield
 
     # Shutdown: bounded graceful draining
     worker_task.cancel()
+    research_worker_task.cancel()
     try:
-        done, pending = await asyncio.wait([worker_task], timeout=10.0)
+        done, pending = await asyncio.wait([worker_task, research_worker_task], timeout=10.0)
         if pending:
             logger.error(
                 "document_worker_shutdown_hard_deadline_exceeded",

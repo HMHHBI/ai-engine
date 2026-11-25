@@ -1,7 +1,7 @@
 import { workspaceService } from "../services/workspace-service";
 import { useWorkspaceStore } from "../store/workspace-store";
 import { apiClient } from "@/lib/api/client";
-import type { CreateResearchRunInput } from "@/types/research";
+import type { CreateResearchRunInput, ResearchRun } from "@/types/research";
 import type { WorkspaceDocument } from "@/types/workspace";
 import type { Document as ApiDocument } from "@/types/api";
 
@@ -85,7 +85,6 @@ export const workspaceActions = {
       }
       useWorkspaceStore.getState().setWorkspaceDocuments(workspaceId, docs);
     } catch (err) {
-      // Do not pollute global store error to prevent cascading re-render loops
       console.warn("loadDocuments warning:", err);
     } finally {
       if (latestDocRequestByWorkspace.get(workspaceId) === requestId) {
@@ -167,6 +166,19 @@ export const workspaceActions = {
     }
   },
 
+  async refreshResearchRun(
+    workspaceId: number,
+    runId: number,
+  ): Promise<ResearchRun | null> {
+    try {
+      const updated = await workspaceService.getResearchRun(workspaceId, runId);
+      useWorkspaceStore.getState().addResearchRun(workspaceId, updated);
+      return updated;
+    } catch {
+      return null;
+    }
+  },
+
   async triggerResearchSynthesis(
     workspaceId: number,
     input: CreateResearchRunInput,
@@ -175,14 +187,19 @@ export const workspaceActions = {
     beginLoading();
     store.setError(null);
     try {
-      const run = await workspaceService.createResearchRun(workspaceId, input);
+      const run = await workspaceService.createResearchRun(workspaceId, input, { asyncMode: true });
       store.addResearchRun(workspaceId, run);
       return run;
     } catch (err) {
-      // Do not corrupt global store error; allow caller to handle local UI state
       throw err;
     } finally {
       endLoading();
     }
+  },
+
+  async cancelResearchRun(workspaceId: number, runId: number) {
+    const response = await workspaceService.cancelResearchRun(workspaceId, runId);
+    const refreshed = await this.refreshResearchRun(workspaceId, runId);
+    return { response, run: refreshed };
   },
 };

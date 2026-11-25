@@ -1132,7 +1132,7 @@ class ResearchRun(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "status IN ('queued', 'running', 'completed', 'failed')",
+            "status IN ('queued', 'running', 'retrieving', 'synthesizing', 'validating', 'completed', 'failed', 'cancelled')",
             name="ck_research_runs_valid_status",
         ),
         CheckConstraint(
