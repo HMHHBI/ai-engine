@@ -579,16 +579,23 @@ async def _lease_heartbeat_loop(
         try:
             def _renew() -> bool:
                 if session_factory is not None:
-                    hb_db = session_factory()
+                    lock = getattr(session_factory, "lock", None)
+                    if lock is not None:
+                        lock.acquire()
                     try:
-                        return renew_research_run_lease(
-                            hb_db,
-                            run_id=run_id,
-                            worker_id=worker_id,
-                            lease_seconds=lease_seconds,
-                        )
+                        hb_db = session_factory()
+                        try:
+                            return renew_research_run_lease(
+                                hb_db,
+                                run_id=run_id,
+                                worker_id=worker_id,
+                                lease_seconds=lease_seconds,
+                            )
+                        finally:
+                            hb_db.close()
                     finally:
-                        hb_db.close()
+                        if lock is not None:
+                            lock.release()
                 with session_scope() as hb_db:
                     return renew_research_run_lease(
                         hb_db,

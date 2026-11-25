@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import logging
+
 import asyncio
 import json
+import logging
 from typing import Any, Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request, Response, status
@@ -50,8 +53,11 @@ from app.services.research_synthesis import SynthesisValidationError
 from app.services.workspace_auth import require_workspace_role
 from app.workers.research_worker import (
     ResearchRunDispatcher,
+    create_research_run_outbox,
     run_research_job_in_background,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["research"])
 
@@ -147,23 +153,36 @@ async def create_research_run(
         },
     )
     db.add(run)
-    db.commit()
-    db.refresh(run)
-
     if is_async:
+        db.flush()
+        outbox = create_research_run_outbox(
+            db,
+            run=run,
+            correlation_id=cid,
+        )
+        db.commit()
+        db.refresh(run)
+        db.refresh(outbox)
         response.status_code = status.HTTP_202_ACCEPTED
         try:
-            await ResearchRunDispatcher.enqueue(
-                run_id=run.id,
-                correlation_id=cid,
+            await ResearchRunDispatcher.publish_outbox_event(
+                db,
+                outbox_id=outbox.id,
             )
         except Exception:
-            background_tasks.add_task(
-                run_research_job_in_background,
-                run_id=run.id,
-                correlation_id=cid,
+            # Outbox record remains safely persisted as `pending` for worker sweep
+            logger.warning(
+                "research_run_immediate_publish_deferred",
+                extra={
+                    "event": "research_run_immediate_publish_deferred",
+                    "run_id": run.id,
+                    "outbox_id": outbox.id,
+                },
             )
         return _run_response(run)
+
+    db.commit()
+    db.refresh(run)
 
     # Default synchronous execution mode (backward-compatible contract)
     try:

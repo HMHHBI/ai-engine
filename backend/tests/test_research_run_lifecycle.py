@@ -368,15 +368,24 @@ def test_lease_heartbeat_renews_during_long_running_synthesis(
     db_session.commit()
     db_session.refresh(run)
 
+    import threading
+
+    _session_lock = threading.Lock()
+
     class _SharedSessionProxy:
         def __init__(self, session: Session):
             self._session = session
-        def __getattr__(self, name: str):
-            return getattr(self._session, name)
+        def query(self, *args, **kwargs):
+            return self._session.query(*args, **kwargs)
+        def commit(self) -> None:
+            self._session.commit()
+        def rollback(self) -> None:
+            self._session.rollback()
         def close(self) -> None:
             pass
 
     hb_session_factory = lambda: _SharedSessionProxy(db_session)
+    hb_session_factory.lock = _session_lock
 
     recovery_called_mid_synthesis: list[list[int]] = []
 
@@ -395,12 +404,9 @@ def test_lease_heartbeat_renews_during_long_running_synthesis(
     async def slow_synthesize(*, query: str, candidates: list[dict]):
         # Sleep longer than the 0.35s lease TTL so heartbeat must renew it
         await asyncio.sleep(0.55)
-        check_db = hb_session_factory()
-        try:
-            requeued = recover_abandoned_research_runs(check_db)
+        with _session_lock:
+            requeued = recover_abandoned_research_runs(db_session)
             recovery_called_mid_synthesis.append(requeued)
-        finally:
-            check_db.close()
         await asyncio.sleep(0.25)
         return {
             "answer": "## Findings\nHeartbeat kept lease alive [C1].",
@@ -578,3 +584,221 @@ def test_stale_worker_fenced_when_lease_lost_mid_synthesis(
     assert fresh.answer is None
     assert ((fresh.run_metadata or {}).get("lifecycle") or {}).get("worker_id") == "worker-b"
     assert execute_research_run_result is not None
+
+
+def test_transactional_outbox_persists_and_recovers_when_redis_unavailable(
+    client: TestClient,
+    db_session: Session,
+):
+    from app.db.models import ResearchRunOutbox
+    from app.workers.research_worker import (
+        ResearchRunDispatcher,
+        reconcile_stranded_queued_runs,
+    )
+
+    owner = create_user_fixture(db_session, "owner-outbox@phase3a.test")
+    ws, doc1, doc2 = _seed_workspace_with_two_docs(
+        db_session, owner=owner, prefix="outbox"
+    )
+
+    with patch(
+        "app.api.research.ResearchRunDispatcher.enqueue",
+        new=AsyncMock(side_effect=RuntimeError("redis-connection-refused")),
+    ):
+        res = client.post(
+            f"/workspaces/{ws.id}/research/runs?async_mode=true",
+            headers=auth_header(owner),
+            json={
+                "query": "Durable outbox creation test",
+                "document_ids": [doc1.id, doc2.id],
+            },
+        )
+
+    assert res.status_code == 202, res.text
+    run_id = res.json()["id"]
+
+    db_session.expire_all()
+    outbox = (
+        db_session.query(ResearchRunOutbox)
+        .filter(ResearchRunOutbox.research_run_id == run_id)
+        .first()
+    )
+    assert outbox is not None
+    assert outbox.status == "pending"
+    assert outbox.attempts == 1
+    assert "redis-connection-refused" in (outbox.last_error or "")
+
+    class _FakeRedis:
+        def __init__(self):
+            self.added: list[tuple[str, dict]] = []
+
+        async def xgroup_create(self, **kwargs):
+            return True
+
+        async def xadd(self, stream, fields):
+            self.added.append((stream, fields))
+            return "1700000000000-0"
+
+    fake_redis = _FakeRedis()
+    published = asyncio.run(
+        ResearchRunDispatcher.flush_pending_outbox(db_session, redis=fake_redis)
+    )
+    assert published == 1
+    assert len(fake_redis.added) == 1
+
+    db_session.expire_all()
+    refreshed_outbox = (
+        db_session.query(ResearchRunOutbox)
+        .filter(ResearchRunOutbox.id == outbox.id)
+        .first()
+    )
+    assert refreshed_outbox.status == "published"
+    assert refreshed_outbox.published_at is not None
+
+    run = db_session.query(ResearchRun).filter(ResearchRun.id == run_id).first()
+    run.created_at = datetime.now(timezone.utc) - timedelta(seconds=30)
+    db_session.commit()
+    reconciled = reconcile_stranded_queued_runs(db_session, grace_seconds=5.0)
+    assert run_id in reconciled
+
+
+def test_worker_reclaims_abandoned_pending_messages_via_xautoclaim(
+    db_session: Session,
+):
+    from app.workers.research_worker import (
+        RESEARCH_RUN_CONSUMER_GROUP,
+        RESEARCH_RUN_PAYLOAD_FIELD,
+        RESEARCH_RUN_QUEUE,
+        ResearchRunWorker,
+    )
+
+    owner = create_user_fixture(db_session, "owner-xautoclaim@phase3a.test")
+    ws, doc1, doc2 = _seed_workspace_with_two_docs(
+        db_session, owner=owner, prefix="xautoclaim"
+    )
+    chunk = (
+        db_session.query(DocumentChunk)
+        .filter(DocumentChunk.document_id == doc1.id)
+        .first()
+    )
+
+    run = ResearchRun(
+        workspace_id=ws.id,
+        requester_id=owner.id,
+        query="Pending entry reclamation after worker crash",
+        status="queued",
+        run_metadata={"selected_document_ids": [doc1.id, doc2.id]},
+    )
+    db_session.add(run)
+    db_session.commit()
+    db_session.refresh(run)
+
+    import json
+
+    pending_msg_id = "1700000000001-0"
+    pending_fields = {
+        RESEARCH_RUN_PAYLOAD_FIELD: json.dumps(
+            {"run_id": run.id, "correlation_id": "cid-xautoclaim-1"}
+        )
+    }
+
+    class _FakeRedisStream:
+        def __init__(self):
+            self.pending = [(pending_msg_id, pending_fields)]
+            self.acked: list[tuple[str, str, str]] = []
+
+        async def xgroup_create(self, **kwargs):
+            return True
+
+        async def xautoclaim(
+            self,
+            *,
+            name: str,
+            groupname: str,
+            consumername: str,
+            min_idle_time: int,
+            start_id: str,
+            count: int,
+        ):
+            assert name == RESEARCH_RUN_QUEUE
+            assert groupname == RESEARCH_RUN_CONSUMER_GROUP
+            claimed = list(self.pending)
+            self.pending.clear()
+            return ("0-0", claimed, [])
+
+        async def xack(self, stream: str, group: str, message_id: str):
+            self.acked.append((stream, group, message_id))
+            return 1
+
+    class _SharedSessionScope:
+        def __enter__(self):
+            return db_session
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    async def fake_retrieve(db, **kwargs):
+        return [
+            {
+                "document_id": doc1.id,
+                "filename": doc1.filename,
+                "chunk_id": chunk.id,
+                "page_number": 1,
+                "score": 0.95,
+                "content": chunk.content,
+            }
+        ]
+
+    async def fake_synthesize(*, query: str, candidates: list[dict]):
+        return {
+            "answer": "## Findings\nRecovered via XAUTOCLAIM [C1].",
+            "facets": {
+                "methodology": "XAUTOCLAIM recovery [C1].",
+                "datasets": "Synthetic [C1].",
+                "metrics": "Zero lost deliveries [C1].",
+                "findings": "Recovered via XAUTOCLAIM [C1].",
+                "limitations": "None [C1].",
+            },
+            "citations": [
+                {
+                    "citation_id": "C1",
+                    "document_id": doc1.id,
+                    "filename": doc1.filename,
+                    "chunk_id": chunk.id,
+                    "page_number": 1,
+                    "excerpt": chunk.content[:80],
+                }
+            ],
+            "evidence": candidates,
+            "provider": "mock",
+            "model": "mock-model",
+        }
+
+    fake_redis = _FakeRedisStream()
+    worker = ResearchRunWorker(
+        worker_id="worker-recovery-2",
+        redis=fake_redis,
+        pending_idle_ms=1000,
+    )
+
+    with (
+        patch("app.workers.research_worker.session_scope", return_value=_SharedSessionScope()),
+        patch(
+            "app.services.research_execution.retrieve_multi_document_candidates",
+            side_effect=fake_retrieve,
+        ),
+        patch(
+            "app.services.research_execution.synthesize_research_answer",
+            side_effect=fake_synthesize,
+        ),
+    ):
+        reclaimed = asyncio.run(worker.reclaim_abandoned_messages())
+
+    assert reclaimed == 1
+    assert fake_redis.acked == [
+        (RESEARCH_RUN_QUEUE, RESEARCH_RUN_CONSUMER_GROUP, pending_msg_id)
+    ]
+    db_session.expire_all()
+    finished = db_session.query(ResearchRun).filter(ResearchRun.id == run.id).first()
+    assert finished.status == "completed"
+    assert finished.answer is not None
