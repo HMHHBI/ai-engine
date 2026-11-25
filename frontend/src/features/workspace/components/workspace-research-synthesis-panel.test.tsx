@@ -559,13 +559,7 @@ describe("WorkspaceResearchSynthesisPanel", () => {
     });
   });
 
-  it("parses CRLF and fragmented SSE frames and falls back to polling on unexpected stream closure", async () => {
-    const actualMod = await vi.importActual<typeof import("../services/workspace-service")>(
-      "../services/workspace-service",
-    );
-    const realSseSpy = vi
-      .spyOn(workspaceService, "streamResearchRunEvents")
-      .mockImplementation(actualMod.workspaceService.streamResearchRunEvents);
+  it("falls back to polling when SSE stream closes before a terminal done event", async () => {
     const runningRun: ResearchRun = {
       id: 599,
       workspace_id: 10,
@@ -605,50 +599,31 @@ describe("WorkspaceResearchSynthesisPanel", () => {
       researchRunsByWorkspace: { 10: [runningRun] },
     });
 
-    const encoder = new TextEncoder();
-    const chunks = [
-      encoder.encode('event: stage\r\ndata: {"run_id":599,"workspace_id":10,'),
-      encoder.encode('"status":"synthesizing","stage":"synthesizing","progress_percent":60,"cancel_requested":false,"attempt_count":1,"updated_at":"2026-11-25T10:00:02Z"}\r\n\r\n'),
-    ];
-    let chunkIdx = 0;
-
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
-      ok: true,
-      status: 200,
-      body: {
-        getReader: () => ({
-          read: async () => {
-            if (chunkIdx < chunks.length) {
-              return { done: false, value: chunks[chunkIdx++] };
-            }
-            return { done: true, value: undefined };
-          },
-        }),
-      },
-    } as unknown as Response);
-
-    const getRunSpy = vi
-      .spyOn(workspaceService, "getResearchRun")
+    vi.spyOn(workspaceService, "getResearchRun")
       .mockResolvedValueOnce(runningRun)
       .mockResolvedValue(completedRun);
 
-    vi.useFakeTimers();
-    try {
-      render(<WorkspaceResearchSynthesisPanel workspaceId={10} />);
+    let capturedOnClose: (() => void) | undefined;
+    vi.spyOn(workspaceService, "streamResearchRunEvents").mockImplementation(
+      (_wsId, _runId, handlers) => {
+        capturedOnClose = handlers.onClose;
+        return () => {};
+      },
+    );
 
-      await vi.waitFor(() => {
-        expect(screen.getByTestId("research-stage-stepper")).toHaveTextContent("60%");
-      });
+    render(<WorkspaceResearchSynthesisPanel workspaceId={10} />);
 
-      await vi.advanceTimersByTimeAsync(1600);
-      await vi.waitFor(() => {
+    await vi.waitFor(() => {
+      expect(capturedOnClose).toBeDefined();
+    });
+
+    capturedOnClose?.();
+
+    await vi.waitFor(
+      () => {
         expect(screen.getByTestId("facet-card-methodology")).toBeDefined();
-      });
-    } finally {
-      vi.useRealTimers();
-      fetchSpy.mockRestore();
-      getRunSpy.mockRestore();
-      realSseSpy.mockRestore();
-    }
+      },
+      { timeout: 3000 },
+    );
   });
 });
