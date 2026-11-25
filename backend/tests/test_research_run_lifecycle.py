@@ -802,3 +802,250 @@ def test_worker_reclaims_abandoned_pending_messages_via_xautoclaim(
     finished = db_session.query(ResearchRun).filter(ResearchRun.id == run.id).first()
     assert finished.status == "completed"
     assert finished.answer is not None
+
+
+def test_worker_crash_recovery_across_all_stages(
+    db_session: Session,
+):
+    from app.db.models import ResearchRunDocument
+
+    owner = create_user_fixture(db_session, "owner-crash-stages@phase3a.test")
+    ws, doc1, doc2 = _seed_workspace_with_two_docs(
+        db_session, owner=owner, prefix="crash-stages"
+    )
+    chunk = (
+        db_session.query(DocumentChunk)
+        .filter(DocumentChunk.document_id == doc1.id)
+        .first()
+    )
+
+    for stage_to_crash in ("retrieving", "synthesizing", "validating"):
+        run = ResearchRun(
+            workspace_id=ws.id,
+            requester_id=owner.id,
+            query=f"Crash recovery test during {stage_to_crash}",
+            status="queued",
+            run_metadata={"selected_document_ids": [doc1.id, doc2.id]},
+        )
+        db_session.add(run)
+        db_session.commit()
+        db_session.refresh(run)
+
+        crashed = {"done": False}
+
+        async def fake_retrieve(db, **kwargs):
+            if stage_to_crash == "retrieving" and not crashed["done"]:
+                crashed["done"] = True
+                # Simulate hard process crash by leaving expired lease in `retrieving`
+                target = db.query(ResearchRun).filter(ResearchRun.id == run.id).first()
+                meta = dict(target.run_metadata or {})
+                lc = dict(meta.get("lifecycle") or {})
+                lc["lease_expires_at"] = (
+                    datetime.now(timezone.utc) - timedelta(seconds=60)
+                ).isoformat()
+                meta["lifecycle"] = lc
+                target.run_metadata = meta
+                db.commit()
+                raise RuntimeError("simulated-worker-sigkill-during-retrieving")
+            return [
+                {
+                    "document_id": doc1.id,
+                    "filename": doc1.filename,
+                    "chunk_id": chunk.id,
+                    "page_number": 1,
+                    "score": 0.93,
+                    "content": chunk.content,
+                }
+            ]
+
+        async def fake_synthesize(*, query: str, candidates: list[dict]):
+            if stage_to_crash == "synthesizing" and not crashed["done"]:
+                crashed["done"] = True
+                target = (
+                    db_session.query(ResearchRun).filter(ResearchRun.id == run.id).first()
+                )
+                meta = dict(target.run_metadata or {})
+                lc = dict(meta.get("lifecycle") or {})
+                lc["lease_expires_at"] = (
+                    datetime.now(timezone.utc) - timedelta(seconds=60)
+                ).isoformat()
+                meta["lifecycle"] = lc
+                target.run_metadata = meta
+                db_session.commit()
+                raise RuntimeError("simulated-worker-sigkill-during-synthesizing")
+            return {
+                "answer": f"## Findings\nRecovered after crash in {stage_to_crash} [C1].",
+                "facets": {
+                    "methodology": "Crash test [C1].",
+                    "datasets": "Synthetic [C1].",
+                    "metrics": "Stage durability [C1].",
+                    "findings": f"Recovered after crash in {stage_to_crash} [C1].",
+                    "limitations": "None [C1].",
+                },
+                "citations": [
+                    {
+                        "citation_id": "C1",
+                        "document_id": doc1.id,
+                        "filename": doc1.filename,
+                        "chunk_id": chunk.id,
+                        "page_number": 1,
+                        "excerpt": chunk.content[:80],
+                    }
+                ],
+                "evidence": candidates,
+                "provider": "mock",
+                "model": "mock-model",
+            }
+
+        def fake_persist(db, *, run, document_ids, candidates, citations):
+            if stage_to_crash == "validating" and not crashed["done"]:
+                crashed["done"] = True
+                # Insert partial provenance row to verify idempotent cleanup on retry
+                db.add(
+                    ResearchRunDocument(
+                        research_run_id=run.id,
+                        document_id=doc1.id,
+                        provenance={"partial": True},
+                    )
+                )
+                meta = dict(run.run_metadata or {})
+                lc = dict(meta.get("lifecycle") or {})
+                lc["lease_expires_at"] = (
+                    datetime.now(timezone.utc) - timedelta(seconds=60)
+                ).isoformat()
+                meta["lifecycle"] = lc
+                run.run_metadata = meta
+                db.commit()
+                raise RuntimeError("simulated-worker-sigkill-during-validating")
+            from app.services.research_execution import _ORIG_PERSIST
+
+            return _ORIG_PERSIST(
+                db,
+                run=run,
+                document_ids=document_ids,
+                candidates=candidates,
+                citations=citations,
+            )
+
+        with (
+            patch(
+                "app.services.research_execution.retrieve_multi_document_candidates",
+                side_effect=fake_retrieve,
+            ),
+            patch(
+                "app.services.research_execution.synthesize_research_answer",
+                side_effect=fake_synthesize,
+            ),
+            patch(
+                "app.services.research_execution.persist_document_provenance",
+                side_effect=fake_persist,
+            ),
+        ):
+            # Attempt 1 crashes and marks failed/expired; reset status to the crashed stage
+            # to simulate SIGKILL before _finalize_failed could run
+            asyncio.run(
+                execute_research_run(
+                    db_session,
+                    run_id=run.id,
+                    worker_id="crashed-worker-1",
+                )
+            )
+            row = db_session.query(ResearchRun).filter(ResearchRun.id == run.id).first()
+            row.status = stage_to_crash
+            row.completed_at = None
+            row.error_message = None
+            meta = dict(row.run_metadata or {})
+            lc = dict(meta.get("lifecycle") or {})
+            lc["lease_expires_at"] = (
+                datetime.now(timezone.utc) - timedelta(seconds=60)
+            ).isoformat()
+            meta["lifecycle"] = lc
+            row.run_metadata = meta
+            db_session.commit()
+
+            requeued = recover_abandoned_research_runs(db_session)
+            assert run.id in requeued
+
+            # Attempt 2 recovers cleanly and replaces any partial provenance
+            recovered = asyncio.run(
+                execute_research_run(
+                    db_session,
+                    run_id=run.id,
+                    worker_id="healthy-worker-2",
+                )
+            )
+
+        assert recovered is not None
+        assert recovered.status == "completed"
+        prov_rows = (
+            db_session.query(ResearchRunDocument)
+            .filter(ResearchRunDocument.research_run_id == run.id)
+            .all()
+        )
+        assert len(prov_rows) == 2
+
+
+def test_worker_graceful_shutdown_drains_and_leaves_unfinished_unacked():
+    from app.workers.research_worker import (
+        RESEARCH_RUN_CONSUMER_GROUP,
+        RESEARCH_RUN_PAYLOAD_FIELD,
+        RESEARCH_RUN_QUEUE,
+        ResearchRunWorker,
+    )
+    import json
+
+    class _FakeRedis:
+        def __init__(self):
+            self.acked: list[str] = []
+
+        async def xack(self, stream: str, group: str, message_id: str):
+            assert stream == RESEARCH_RUN_QUEUE
+            assert group == RESEARCH_RUN_CONSUMER_GROUP
+            self.acked.append(message_id)
+            return 1
+
+    fake_redis = _FakeRedis()
+    worker = ResearchRunWorker(
+        worker_id="worker-shutdown-test",
+        redis=fake_redis,
+        concurrency=2,
+        shutdown_grace_seconds=0.25,
+    )
+
+    async def fake_execute(db, *, run_id: int, **kwargs):
+        if run_id == 101:
+            # Completes inside the 0.25s grace period
+            await asyncio.sleep(0.05)
+            return None
+        # Exceeds the 0.25s grace period and must be cancelled without XACK
+        await asyncio.sleep(2.0)
+        return None
+
+    class _NoopScope:
+        def __enter__(self):
+            return None
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    async def _exercise_shutdown():
+        with (
+            patch("app.workers.research_worker.session_scope", return_value=_NoopScope()),
+            patch("app.workers.research_worker.execute_research_run", side_effect=fake_execute),
+        ):
+            worker.spawn_message_task(
+                "1700000000101-0",
+                {RESEARCH_RUN_PAYLOAD_FIELD: json.dumps({"run_id": 101})},
+            )
+            worker.spawn_message_task(
+                "1700000000102-0",
+                {RESEARCH_RUN_PAYLOAD_FIELD: json.dumps({"run_id": 102})},
+            )
+            await asyncio.sleep(0.01)
+            assert len(worker._active_tasks) == 2
+            summary = await worker.shutdown(timeout=0.25)
+            assert summary == {"drained": 1, "cancelled": 1}
+            assert len(worker._active_tasks) == 0
+
+    asyncio.run(_exercise_shutdown())
+    assert fake_redis.acked == ["1700000000101-0"]

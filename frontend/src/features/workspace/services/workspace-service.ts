@@ -131,6 +131,7 @@ export const workspaceService = {
       onStage: (event: ResearchRunStageEvent) => void;
       onDone: (event: ResearchRunStageEvent) => void;
       onError?: (err: unknown) => void;
+      onClose?: () => void;
     },
   ): () => void {
     const controller = new AbortController();
@@ -138,7 +139,35 @@ export const workspaceService = {
     const url = `${baseUrl}/workspaces/${workspaceId}/research/runs/${runId}/events`;
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
 
+    const dispatchFrame = (rawFrame: string): boolean => {
+      const lines = rawFrame.split("\n");
+      let eventType = "message";
+      const dataLines: string[] = [];
+      for (const line of lines) {
+        if (line.startsWith(":")) {
+          continue;
+        }
+        if (line.startsWith("event:")) {
+          eventType = line.slice(6).trim();
+        } else if (line.startsWith("data:")) {
+          dataLines.push(line.slice(5).trimStart());
+        }
+      }
+      const dataStr = dataLines.join("\n").trim();
+      if (!dataStr) return false;
+      const parsed = JSON.parse(dataStr) as ResearchRunStageEvent;
+      if (eventType === "done") {
+        handlers.onDone(parsed);
+        return true;
+      }
+      if (eventType === "stage") {
+        handlers.onStage(parsed);
+      }
+      return false;
+    };
+
     void (async () => {
+      let sawDone = false;
       try {
         const response = await fetch(url, {
           headers: {
@@ -158,31 +187,31 @@ export const workspaceService = {
 
         while (!controller.signal.aborted) {
           const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
+          if (done) {
+            buffer += decoder.decode();
+            break;
+          }
+          buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
 
           const frames = buffer.split("\n\n");
           buffer = frames.pop() ?? "";
 
           for (const frame of frames) {
-            const lines = frame.split("\n");
-            let eventType = "message";
-            let dataStr = "";
-            for (const line of lines) {
-              if (line.startsWith("event:")) {
-                eventType = line.slice(6).trim();
-              } else if (line.startsWith("data:")) {
-                dataStr += line.slice(5).trim();
-              }
-            }
-            if (!dataStr) continue;
-            const parsed = JSON.parse(dataStr) as ResearchRunStageEvent;
-            if (eventType === "done") {
-              handlers.onDone(parsed);
-            } else if (eventType === "stage") {
-              handlers.onStage(parsed);
+            if (dispatchFrame(frame)) {
+              sawDone = true;
             }
           }
+        }
+
+        const trailing = buffer.replace(/\r\n/g, "\n").trim();
+        if (trailing && !controller.signal.aborted) {
+          if (dispatchFrame(trailing)) {
+            sawDone = true;
+          }
+        }
+
+        if (!controller.signal.aborted && !sawDone) {
+          handlers.onClose?.();
         }
       } catch (err) {
         if (!controller.signal.aborted) {

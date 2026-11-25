@@ -312,6 +312,9 @@ export function WorkspaceResearchSynthesisPanel({
             onError: () => {
               startPollingFallback();
             },
+            onClose: () => {
+              startPollingFallback();
+            },
           })
         : () => {};
 

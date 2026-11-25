@@ -69,6 +69,7 @@ async def lifespan(app: FastAPI):
 
     # Shutdown: bounded graceful draining
     worker_task.cancel()
+    await research_worker.shutdown(timeout=8.0)
     research_worker_task.cancel()
     try:
         done, pending = await asyncio.wait([worker_task, research_worker_task], timeout=10.0)

@@ -304,14 +304,18 @@ class ResearchRunWorker:
         recovery_interval_seconds: float = 15.0,
         pending_idle_ms: int = DEFAULT_PENDING_IDLE_MS,
         queued_grace_seconds: float = DEFAULT_QUEUED_GRACE_SECONDS,
+        shutdown_grace_seconds: float = 8.0,
     ) -> None:
         self.worker_id = worker_id or build_research_worker_id()
         self._redis = redis
-        self._semaphore = asyncio.Semaphore(concurrency)
+        self.concurrency = max(1, int(concurrency))
+        self._semaphore = asyncio.Semaphore(self.concurrency)
         self.recovery_interval_seconds = recovery_interval_seconds
         self.pending_idle_ms = pending_idle_ms
         self.queued_grace_seconds = queued_grace_seconds
+        self.shutdown_grace_seconds = shutdown_grace_seconds
         self._running = False
+        self._active_tasks: set[asyncio.Task] = set()
 
     @property
     def redis(self):
@@ -468,20 +472,23 @@ class ResearchRunWorker:
 
             while self._running:
                 try:
+                    available_slots = self.concurrency - len(self._active_tasks)
+                    if available_slots <= 0:
+                        await asyncio.sleep(0.05)
+                        continue
+
                     entries = await self.redis.xreadgroup(
                         groupname=RESEARCH_RUN_CONSUMER_GROUP,
                         consumername=self.worker_id,
                         streams={RESEARCH_RUN_QUEUE: ">"},
-                        count=4,
+                        count=available_slots,
                         block=2000,
                     )
                     if not entries:
                         continue
                     for _stream_name, messages in entries:
                         for message_id, fields in messages:
-                            asyncio.create_task(
-                                self.process_message(message_id, fields)
-                            )
+                            self.spawn_message_task(message_id, fields)
                 except asyncio.CancelledError:
                     break
                 except Exception:
@@ -494,3 +501,30 @@ class ResearchRunWorker:
             if recovery_task is not None:
                 recovery_task.cancel()
                 await asyncio.gather(recovery_task, return_exceptions=True)
+            await self.drain_active_tasks(timeout=self.shutdown_grace_seconds)
+
+    def spawn_message_task(self, message_id: str, fields: dict[str, Any]) -> asyncio.Task:
+        task = asyncio.create_task(self.process_message(message_id, fields))
+        self._active_tasks.add(task)
+        task.add_done_callback(self._active_tasks.discard)
+        return task
+
+    async def drain_active_tasks(self, timeout: float | None = None) -> dict[str, int]:
+        grace = self.shutdown_grace_seconds if timeout is None else float(timeout)
+        tasks = list(self._active_tasks)
+        if not tasks:
+            return {"drained": 0, "cancelled": 0}
+
+        done, pending = await asyncio.wait(tasks, timeout=grace)
+        cancelled_count = 0
+        if pending:
+            cancelled_count = len(pending)
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+
+        return {"drained": len(done), "cancelled": cancelled_count}
+
+    async def shutdown(self, timeout: float | None = None) -> dict[str, int]:
+        self._running = False
+        return await self.drain_active_tasks(timeout=timeout)
