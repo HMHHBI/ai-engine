@@ -253,13 +253,16 @@ export function WorkspaceResearchSynthesisPanel({
     activeRun && ACTIVE_RESEARCH_STATUSES.has(activeRun.status),
   );
 
+  const activeRunId = activeRun?.id ?? null;
+  const activeRunStatus = activeRun?.status ?? null;
+
   // Stream SSE stage updates with polling fallback while an async run is active
   useEffect(() => {
-    if (!activeRun || !ACTIVE_RESEARCH_STATUSES.has(activeRun.status)) {
+    if (activeRunId === null || activeRunStatus === null || !ACTIVE_RESEARCH_STATUSES.has(activeRunStatus)) {
       return;
     }
 
-    const trackedRunId = activeRun.id;
+    const trackedRunId = activeRunId;
     let closed = false;
     let pollTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -334,7 +337,7 @@ export function WorkspaceResearchSynthesisPanel({
         clearInterval(pollTimer);
       }
     };
-  }, [workspaceId, activeRun?.id, activeRun?.status]);
+  }, [workspaceId, activeRunId, activeRunStatus]);
 
   // Sync form inputs when an explicit valid run is active
   useEffect(() => {

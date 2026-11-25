@@ -525,7 +525,14 @@ async def execute_research_run(
         )
         db.commit()
 
-        candidates = await retrieve_multi_document_candidates(
+        import app.api.research as _research_api
+        _api_retrieve = getattr(_research_api, "retrieve_multi_document_candidates", _ORIG_RETRIEVE)
+        _retrieve_fn = (
+            _api_retrieve
+            if _api_retrieve is not _ORIG_RETRIEVE
+            else retrieve_multi_document_candidates
+        )
+        candidates = await _retrieve_fn(
             db,
             workspace_id=workspace_id,
             requester_id=requester_id,
@@ -549,7 +556,13 @@ async def execute_research_run(
         )
         db.commit()
 
-        result = await synthesize_research_answer(
+        _api_synth = getattr(_research_api, "synthesize_research_answer", _ORIG_SYNTH)
+        _synth_fn = (
+            _api_synth
+            if _api_synth is not _ORIG_SYNTH
+            else synthesize_research_answer
+        )
+        result = await _synth_fn(
             query=query_text,
             candidates=candidates,
         )
@@ -570,7 +583,13 @@ async def execute_research_run(
         db.commit()
 
         citation_payloads = result["citations"]
-        persist_document_provenance(
+        _api_persist = getattr(_research_api, "_persist_document_provenance", _ORIG_PERSIST)
+        _persist_fn = (
+            _api_persist
+            if _api_persist is not _ORIG_PERSIST
+            else persist_document_provenance
+        )
+        _persist_fn(
             db,
             run=claimed,
             document_ids=document_ids,
@@ -658,3 +677,8 @@ async def execute_research_run(
         if raise_on_error:
             raise
         return db.query(ResearchRun).filter(ResearchRun.id == run_id).first()
+
+
+_ORIG_RETRIEVE = retrieve_multi_document_candidates
+_ORIG_SYNTH = synthesize_research_answer
+_ORIG_PERSIST = persist_document_provenance

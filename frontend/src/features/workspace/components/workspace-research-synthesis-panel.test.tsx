@@ -1,4 +1,4 @@
-import type { ResearchRun } from "@/types/research";
+import type { ResearchRun, ResearchRunStageEvent } from "@/types/research";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { WorkspaceResearchSynthesisPanel } from "./workspace-research-synthesis-panel";
@@ -462,8 +462,8 @@ describe("WorkspaceResearchSynthesisPanel", () => {
 
     vi.spyOn(workspaceService, "getResearchRun").mockResolvedValue(queuedRun);
     let capturedHandlers: {
-      onStage: (evt: any) => void;
-      onDone: (evt: any) => void;
+      onStage: (evt: ResearchRunStageEvent) => void;
+      onDone: (evt: ResearchRunStageEvent) => void;
     } | null = null;
 
     vi.spyOn(workspaceService, "streamResearchRunEvents").mockImplementation(

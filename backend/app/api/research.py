@@ -32,6 +32,9 @@ from app.services.multi_doc_retrieval import (
     validate_document_selection,
 )
 from app.services.research_execution import (
+    persist_document_provenance as _persist_document_provenance,
+    retrieve_multi_document_candidates,
+    synthesize_research_answer,
     ResearchRunTerminalError,
     execute_research_run,
     get_lifecycle_snapshot,
