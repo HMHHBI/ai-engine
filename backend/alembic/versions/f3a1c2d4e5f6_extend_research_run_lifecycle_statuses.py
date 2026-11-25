@@ -35,6 +35,15 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.execute(
+        "UPDATE research_runs SET status = 'running' "
+        "WHERE status IN ('retrieving', 'synthesizing', 'validating')"
+    )
+    op.execute(
+        "UPDATE research_runs SET status = 'failed', "
+        "error_message = COALESCE(error_message, 'Normalized from cancelled during downgrade.') "
+        "WHERE status = 'cancelled'"
+    )
     op.drop_constraint(
         "ck_research_runs_valid_status",
         "research_runs",

@@ -342,3 +342,239 @@ def test_idempotent_lease_claim_and_abandoned_run_recovery(db_session: Session):
     assert failed_run.status == "failed"
     assert failed_run.run_metadata["lifecycle"]["error_code"] == "RUN_LEASE_EXPIRED"
     assert failed_run.completed_at is not None
+
+
+def test_lease_heartbeat_renews_during_long_running_synthesis(
+    db_session: Session,
+):
+    owner = create_user_fixture(db_session, "owner-heartbeat@phase3a.test")
+    ws, doc1, doc2 = _seed_workspace_with_two_docs(
+        db_session, owner=owner, prefix="heartbeat"
+    )
+    chunk = (
+        db_session.query(DocumentChunk)
+        .filter(DocumentChunk.document_id == doc1.id)
+        .first()
+    )
+
+    run = ResearchRun(
+        workspace_id=ws.id,
+        requester_id=owner.id,
+        query="Long synthesis exceeding initial lease TTL",
+        status="queued",
+        run_metadata={"selected_document_ids": [doc1.id, doc2.id]},
+    )
+    db_session.add(run)
+    db_session.commit()
+    db_session.refresh(run)
+
+    class _SharedSessionProxy:
+        def __init__(self, session: Session):
+            self._session = session
+        def __getattr__(self, name: str):
+            return getattr(self._session, name)
+        def close(self) -> None:
+            pass
+
+    hb_session_factory = lambda: _SharedSessionProxy(db_session)
+
+    recovery_called_mid_synthesis: list[list[int]] = []
+
+    async def fake_retrieve(db, **kwargs):
+        return [
+            {
+                "document_id": doc1.id,
+                "filename": doc1.filename,
+                "chunk_id": chunk.id,
+                "page_number": 1,
+                "score": 0.92,
+                "content": chunk.content,
+            }
+        ]
+
+    async def slow_synthesize(*, query: str, candidates: list[dict]):
+        # Sleep longer than the 0.35s lease TTL so heartbeat must renew it
+        await asyncio.sleep(0.55)
+        check_db = hb_session_factory()
+        try:
+            requeued = recover_abandoned_research_runs(check_db)
+            recovery_called_mid_synthesis.append(requeued)
+        finally:
+            check_db.close()
+        await asyncio.sleep(0.25)
+        return {
+            "answer": "## Findings\nHeartbeat kept lease alive [C1].",
+            "facets": {
+                "methodology": "Heartbeat test [C1].",
+                "datasets": "Synthetic [C1].",
+                "metrics": "Lease renewal [C1].",
+                "findings": "Heartbeat kept lease alive [C1].",
+                "limitations": "None [C1].",
+            },
+            "citations": [
+                {
+                    "citation_id": "C1",
+                    "document_id": doc1.id,
+                    "filename": doc1.filename,
+                    "chunk_id": chunk.id,
+                    "page_number": 1,
+                    "excerpt": chunk.content[:80],
+                }
+            ],
+            "evidence": candidates,
+            "provider": "mock",
+            "model": "mock-model",
+        }
+
+    with (
+        patch(
+            "app.services.research_execution.retrieve_multi_document_candidates",
+            side_effect=fake_retrieve,
+        ),
+        patch(
+            "app.services.research_execution.synthesize_research_answer",
+            side_effect=slow_synthesize,
+        ),
+    ):
+        completed = asyncio.run(
+            execute_research_run(
+                db_session,
+                run_id=run.id,
+                worker_id="worker-heartbeat-1",
+                lease_seconds=0.35,
+                heartbeat_interval_seconds=0.1,
+                heartbeat_session_factory=hb_session_factory,
+            )
+        )
+
+    assert completed is not None
+    assert completed.status == "completed"
+    assert recovery_called_mid_synthesis == [[]]
+    lifecycle = (completed.run_metadata or {}).get("lifecycle") or {}
+    assert lifecycle.get("lease_renewed_at") is not None
+
+
+def test_stale_worker_fenced_when_lease_lost_mid_synthesis(
+    db_session: Session,
+):
+    owner = create_user_fixture(db_session, "owner-fence@phase3a.test")
+    ws, doc1, doc2 = _seed_workspace_with_two_docs(
+        db_session, owner=owner, prefix="fence"
+    )
+    chunk = (
+        db_session.query(DocumentChunk)
+        .filter(DocumentChunk.document_id == doc1.id)
+        .first()
+    )
+
+    run = ResearchRun(
+        workspace_id=ws.id,
+        requester_id=owner.id,
+        query="Concurrent ownership steal test",
+        status="queued",
+        run_metadata={"selected_document_ids": [doc1.id, doc2.id]},
+    )
+    db_session.add(run)
+    db_session.commit()
+    db_session.refresh(run)
+
+    class _SharedSessionProxy:
+        def __init__(self, session: Session):
+            self._session = session
+        def __getattr__(self, name: str):
+            return getattr(self._session, name)
+        def close(self) -> None:
+            pass
+
+    other_session_factory = lambda: _SharedSessionProxy(db_session)
+
+    async def fake_retrieve(db, **kwargs):
+        return [
+            {
+                "document_id": doc1.id,
+                "filename": doc1.filename,
+                "chunk_id": chunk.id,
+                "page_number": 1,
+                "score": 0.90,
+                "content": chunk.content,
+            }
+        ]
+
+    async def hijacked_synthesize(*, query: str, candidates: list[dict]):
+        # Simulate Worker A stalling and Worker B reclaiming the run
+        other_db = other_session_factory()
+        try:
+            target = other_db.query(ResearchRun).filter(ResearchRun.id == run.id).first()
+            meta = dict(target.run_metadata or {})
+            lifecycle = dict(meta.get("lifecycle") or {})
+            lifecycle["lease_expires_at"] = (
+                datetime.now(timezone.utc) - timedelta(seconds=30)
+            ).isoformat()
+            meta["lifecycle"] = lifecycle
+            target.run_metadata = meta
+            other_db.commit()
+
+            requeued = recover_abandoned_research_runs(other_db)
+            assert run.id in requeued
+
+            claimed_b = claim_research_run(
+                other_db,
+                run_id=run.id,
+                worker_id="worker-b",
+                lease_seconds=120,
+            )
+            assert claimed_b is not None
+        finally:
+            other_db.close()
+
+        return {
+            "answer": "## Findings\nStale worker output that must NOT commit [C1].",
+            "facets": {
+                "methodology": "Stale [C1].",
+                "datasets": "Stale [C1].",
+                "metrics": "Stale [C1].",
+                "findings": "Stale [C1].",
+                "limitations": "Stale [C1].",
+            },
+            "citations": [
+                {
+                    "citation_id": "C1",
+                    "document_id": doc1.id,
+                    "filename": doc1.filename,
+                    "chunk_id": chunk.id,
+                    "page_number": 1,
+                    "excerpt": chunk.content[:80],
+                }
+            ],
+            "evidence": candidates,
+            "provider": "mock",
+            "model": "mock-model",
+        }
+
+    with (
+        patch(
+            "app.services.research_execution.retrieve_multi_document_candidates",
+            side_effect=fake_retrieve,
+        ),
+        patch(
+            "app.services.research_execution.synthesize_research_answer",
+            side_effect=hijacked_synthesize,
+        ),
+    ):
+        execute_research_run_result = asyncio.run(
+            execute_research_run(
+                db_session,
+                run_id=run.id,
+                worker_id="worker-a",
+                lease_seconds=120,
+                heartbeat_interval_seconds=60.0,
+            )
+        )
+
+    db_session.expire_all()
+    fresh = db_session.query(ResearchRun).filter(ResearchRun.id == run.id).first()
+    assert fresh is not None
+    assert fresh.status == "running"
+    assert fresh.answer is None
+    assert ((fresh.run_metadata or {}).get("lifecycle") or {}).get("worker_id") == "worker-b"
+    assert execute_research_run_result is not None
