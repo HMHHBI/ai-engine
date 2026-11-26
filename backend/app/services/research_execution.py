@@ -300,10 +300,10 @@ def claim_research_run(
         lease_seconds=lease_seconds,
         correlation_id=correlation_id,
         increment_attempt=True)
-    lease_token = uuid.uuid4().hex
-    lifecycle["lease_token"] = lease_token
     meta = dict(run.run_metadata or {})
-    meta["lifecycle"] = lifecycle
+    updated_lifecycle = dict(meta.get("lifecycle") or {})
+    updated_lifecycle["lease_token"] = uuid.uuid4().hex
+    meta["lifecycle"] = updated_lifecycle
     run.run_metadata = meta
     db.commit()
     db.refresh(run)
