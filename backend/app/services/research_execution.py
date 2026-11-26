@@ -13,21 +13,17 @@ from app.db.models import (
     Document,
     ResearchRun,
     ResearchRunDocument,
-    WorkspaceDocument,
-)
+    WorkspaceDocument)
 from app.db.session import session_scope
 from app.schemas.research_schema import (
     ACTIVE_RESEARCH_STATUSES,
-    TERMINAL_RESEARCH_STATUSES,
-)
+    TERMINAL_RESEARCH_STATUSES)
 from app.services.multi_doc_retrieval import (
     DocumentSelectionError,
-    retrieve_multi_document_candidates,
-)
+    retrieve_multi_document_candidates)
 from app.services.research_synthesis import (
     SynthesisValidationError,
-    synthesize_research_answer,
-)
+    synthesize_research_answer)
 
 logger = logging.getLogger(__name__)
 
@@ -106,8 +102,7 @@ def _update_lifecycle(
     correlation_id: str | None = None,
     error_code: str | None = None,
     increment_attempt: bool = False,
-    clear_lease: bool = False,
-) -> None:
+    clear_lease: bool = False) -> None:
     now = _utc_now()
     now_iso = now.isoformat()
     meta = dict(run.run_metadata or {})
@@ -134,6 +129,7 @@ def _update_lifecycle(
     if clear_lease:
         lifecycle["lease_expires_at"] = None
         lifecycle["worker_id"] = None
+        lifecycle["lease_token"] = None
     elif lease_seconds is not None:
         lifecycle["lease_expires_at"] = (
             now + timedelta(seconds=float(lease_seconds))
@@ -168,18 +164,18 @@ def renew_research_run_lease(
     *,
     run_id: int,
     worker_id: str,
-    lease_seconds: float = RESEARCH_RUN_LEASE_SECONDS,
-) -> bool:
+    lease_token: str | None = None,
+    lease_seconds: float = RESEARCH_RUN_LEASE_SECONDS) -> bool:
     """
-    Conditionally renew an active research run lease iff `worker_id` still owns it
-    and the run has not entered a terminal or queued state.
+    Conditionally renew an active research run lease iff `worker_id` (and
+    `lease_token` when provided) still owns it and the run has not entered a
+    terminal or queued state.
     """
     run = (
         db.query(ResearchRun)
         .filter(
             ResearchRun.id == run_id,
-            ResearchRun.status.in_(tuple(ACTIVE_RESEARCH_STATUSES - {"queued"})),
-        )
+            ResearchRun.status.in_(tuple(ACTIVE_RESEARCH_STATUSES - {"queued"})))
         .with_for_update()
         .first()
     )
@@ -189,6 +185,8 @@ def renew_research_run_lease(
     meta = dict(run.run_metadata or {})
     lifecycle = dict(meta.get("lifecycle") or {})
     if lifecycle.get("worker_id") != worker_id:
+        return False
+    if lease_token is not None and lifecycle.get("lease_token") != lease_token:
         return False
 
     now = _utc_now()
@@ -209,10 +207,11 @@ def _lock_owned_run(
     *,
     run_id: int,
     worker_id: str,
-) -> ResearchRun:
+    lease_token: str | None = None) -> ResearchRun:
     """
-    Acquire row lock and verify that `worker_id` still owns the non-terminal run.
-    Raises ResearchRunOwnershipLostError if another worker claimed the run.
+    Acquire row lock and verify that `worker_id` (and `lease_token` when
+    provided) still owns the non-terminal run.
+    Raises ResearchRunOwnershipLostError if another execution claimed the run.
     """
     run = (
         db.query(ResearchRun)
@@ -229,6 +228,10 @@ def _lock_owned_run(
         raise ResearchRunOwnershipLostError(
             f"Worker {worker_id} lost lease ownership of research run {run_id}."
         )
+    if lease_token is not None and lifecycle.get("lease_token") != lease_token:
+        raise ResearchRunOwnershipLostError(
+            f"Execution lease for research run {run_id} has been superseded."
+        )
     return run
 
 
@@ -238,8 +241,7 @@ def claim_research_run(
     run_id: int,
     worker_id: str,
     lease_seconds: float = RESEARCH_RUN_LEASE_SECONDS,
-    correlation_id: str | None = None,
-) -> ResearchRun | None:
+    correlation_id: str | None = None) -> ResearchRun | None:
     """
     Atomically claim a non-terminal research run if unleased or if its lease expired.
     Prevents duplicate execution across concurrent workers/requests.
@@ -261,8 +263,7 @@ def claim_research_run(
             run,
             status="cancelled",
             correlation_id=correlation_id,
-            clear_lease=True,
-        )
+            clear_lease=True)
         run.completed_at = now
         db.commit()
         return None
@@ -272,7 +273,7 @@ def claim_research_run(
 
     if (
         current_owner
-        and current_owner != worker_id
+
         and lease_expires is not None
         and lease_expires > now
     ):
@@ -286,8 +287,7 @@ def claim_research_run(
             status="failed",
             correlation_id=correlation_id,
             error_code="MAX_ATTEMPTS_EXCEEDED",
-            clear_lease=True,
-        )
+            clear_lease=True)
         run.error_message = "Research synthesis exceeded maximum recovery attempts."
         run.completed_at = now
         db.commit()
@@ -299,8 +299,12 @@ def claim_research_run(
         worker_id=worker_id,
         lease_seconds=lease_seconds,
         correlation_id=correlation_id,
-        increment_attempt=True,
-    )
+        increment_attempt=True)
+    lease_token = uuid.uuid4().hex
+    lifecycle["lease_token"] = lease_token
+    meta = dict(run.run_metadata or {})
+    meta["lifecycle"] = lifecycle
+    run.run_metadata = meta
     db.commit()
     db.refresh(run)
     return run
@@ -310,8 +314,7 @@ def request_research_run_cancellation(
     db: Session,
     *,
     workspace_id: int,
-    run_id: int,
-) -> tuple[ResearchRun, bool]:
+    run_id: int) -> tuple[ResearchRun, bool]:
     """
     Cancel a queued run immediately or mark an in-flight run for cooperative cancellation.
     Raises ResearchRunTerminalError if already completed/failed/cancelled.
@@ -320,8 +323,7 @@ def request_research_run_cancellation(
         db.query(ResearchRun)
         .filter(
             ResearchRun.id == run_id,
-            ResearchRun.workspace_id == workspace_id,
-        )
+            ResearchRun.workspace_id == workspace_id)
         .with_for_update()
         .first()
     )
@@ -381,8 +383,7 @@ def recover_abandoned_research_runs(db: Session) -> list[int]:
             db.query(ResearchRun)
             .filter(
                 ResearchRun.id == run.id,
-                ResearchRun.status.in_(tuple(ACTIVE_RESEARCH_STATUSES)),
-            )
+                ResearchRun.status.in_(tuple(ACTIVE_RESEARCH_STATUSES)))
             .with_for_update()
             .first()
         )
@@ -417,8 +418,7 @@ def recover_abandoned_research_runs(db: Session) -> list[int]:
                 locked,
                 status="failed",
                 error_code="RUN_LEASE_EXPIRED",
-                clear_lease=True,
-            )
+                clear_lease=True)
             locked.error_message = (
                 "Research run lease expired after worker interruption."
             )
@@ -434,8 +434,7 @@ def persist_document_provenance(
     run: ResearchRun,
     document_ids: list[int],
     candidates: list[dict[str, Any]],
-    citations: list[dict[str, Any]],
-) -> None:
+    citations: list[dict[str, Any]]) -> None:
     # Idempotency guard: clear any partial provenance rows from an interrupted attempt
     db.query(ResearchRunDocument).filter(
         ResearchRunDocument.research_run_id == run.id
@@ -465,8 +464,7 @@ def persist_document_provenance(
         .join(WorkspaceDocument, WorkspaceDocument.document_id == Document.id)
         .filter(
             WorkspaceDocument.workspace_id == run.workspace_id,
-            Document.id.in_(document_ids),
-        )
+            Document.id.in_(document_ids))
         .all()
     )
     documents_by_id = {document.id: document for document in documents}
@@ -485,8 +483,7 @@ def persist_document_provenance(
                     "filename": documents_by_id[document_id].filename,
                     "candidate_chunks": chunks_by_document.get(document_id, []),
                     "citations": citations_by_document.get(document_id, []),
-                },
-            )
+                })
         )
 
 
@@ -497,31 +494,39 @@ def _finalize_cancelled(
     workspace_id: int,
     worker_id: str,
     correlation_id: str | None,
-) -> ResearchRun | None:
+    lease_token: str | None = None) -> ResearchRun | None:
     db.rollback()
     run = (
         db.query(ResearchRun)
         .filter(
             ResearchRun.id == run_id,
-            ResearchRun.workspace_id == workspace_id,
-        )
+            ResearchRun.workspace_id == workspace_id)
         .with_for_update()
         .first()
     )
     if run is None:
         return None
     lifecycle = dict((run.run_metadata or {}).get("lifecycle") or {})
-    if run.status not in TERMINAL_RESEARCH_STATUSES and lifecycle.get("worker_id") == worker_id:
-        _update_lifecycle(
-            run,
-            status="cancelled",
-            correlation_id=correlation_id,
-            clear_lease=True,
+
+    if run.status in TERMINAL_RESEARCH_STATUSES:
+        return run
+    if lifecycle.get("worker_id") != worker_id:
+        raise ResearchRunOwnershipLostError(
+            f"Worker {worker_id} lost lease ownership of research run {run_id}."
         )
-        run.error_message = "Cancelled by user."
-        run.completed_at = _utc_now()
-        db.commit()
-        db.refresh(run)
+    if lease_token is not None and lifecycle.get("lease_token") != lease_token:
+        raise ResearchRunOwnershipLostError(
+            f"Execution lease for research run {run_id} has been superseded."
+        )
+    _update_lifecycle(
+        run,
+        status="cancelled",
+        correlation_id=correlation_id,
+        clear_lease=True)
+    run.error_message = "Cancelled by user."
+    run.completed_at = _utc_now()
+    db.commit()
+    db.refresh(run)
     return run
 
 
@@ -534,32 +539,40 @@ def _finalize_failed(
     error_message: str,
     error_code: str,
     correlation_id: str | None,
-) -> ResearchRun | None:
+    lease_token: str | None = None) -> ResearchRun | None:
     db.rollback()
     run = (
         db.query(ResearchRun)
         .filter(
             ResearchRun.id == run_id,
-            ResearchRun.workspace_id == workspace_id,
-        )
+            ResearchRun.workspace_id == workspace_id)
         .with_for_update()
         .first()
     )
     if run is None:
         return None
     lifecycle = dict((run.run_metadata or {}).get("lifecycle") or {})
-    if run.status not in TERMINAL_RESEARCH_STATUSES and lifecycle.get("worker_id") == worker_id:
-        _update_lifecycle(
-            run,
-            status="failed",
-            correlation_id=correlation_id,
-            error_code=error_code,
-            clear_lease=True,
+
+    if run.status in TERMINAL_RESEARCH_STATUSES:
+        return run
+    if lifecycle.get("worker_id") != worker_id:
+        raise ResearchRunOwnershipLostError(
+            f"Worker {worker_id} lost lease ownership of research run {run_id}."
         )
-        run.error_message = error_message[:1000]
-        run.completed_at = _utc_now()
-        db.commit()
-        db.refresh(run)
+    if lease_token is not None and lifecycle.get("lease_token") != lease_token:
+        raise ResearchRunOwnershipLostError(
+            f"Execution lease for research run {run_id} has been superseded."
+        )
+    _update_lifecycle(
+        run,
+        status="failed",
+        correlation_id=correlation_id,
+        error_code=error_code,
+        clear_lease=True)
+    run.error_message = error_message[:1000]
+    run.completed_at = _utc_now()
+    db.commit()
+    db.refresh(run)
     return run
 
 
@@ -570,8 +583,7 @@ async def _lease_heartbeat_loop(
     lease_seconds: float,
     interval_seconds: float,
     ownership_lost: asyncio.Event,
-    session_factory: Any = None,
-) -> None:
+    session_factory: Any = None) -> None:
     while not ownership_lost.is_set():
         await asyncio.sleep(interval_seconds)
         if ownership_lost.is_set():
@@ -589,8 +601,7 @@ async def _lease_heartbeat_loop(
                                 hb_db,
                                 run_id=run_id,
                                 worker_id=worker_id,
-                                lease_seconds=lease_seconds,
-                            )
+                                lease_seconds=lease_seconds)
                         finally:
                             hb_db.close()
                     finally:
@@ -601,8 +612,7 @@ async def _lease_heartbeat_loop(
                         hb_db,
                         run_id=run_id,
                         worker_id=worker_id,
-                        lease_seconds=lease_seconds,
-                    )
+                        lease_seconds=lease_seconds)
 
             renewed = await asyncio.to_thread(_renew)
             if not renewed:
@@ -613,16 +623,14 @@ async def _lease_heartbeat_loop(
                         "event": "research_run_lease_lost_in_heartbeat",
                         "run_id": run_id,
                         "worker_id": worker_id,
-                    },
-                )
+                    })
                 break
         except asyncio.CancelledError:
             break
         except Exception:
             logger.exception(
                 "research_run_lease_heartbeat_error",
-                extra={"run_id": run_id, "worker_id": worker_id},
-            )
+                extra={"run_id": run_id, "worker_id": worker_id})
 
 
 async def execute_research_run(
@@ -634,8 +642,7 @@ async def execute_research_run(
     raise_on_error: bool = False,
     lease_seconds: float = RESEARCH_RUN_LEASE_SECONDS,
     heartbeat_interval_seconds: float | None = None,
-    heartbeat_session_factory: Any = None,
-) -> ResearchRun | None:
+    heartbeat_session_factory: Any = None) -> ResearchRun | None:
     """
     Execute a research run through durable, stage-persisted transitions:
     queued -> running -> retrieving -> synthesizing -> validating -> completed|failed|cancelled.
@@ -654,10 +661,16 @@ async def execute_research_run(
         run_id=run_id,
         worker_id=effective_worker,
         lease_seconds=lease_seconds,
-        correlation_id=effective_cid,
-    )
+        correlation_id=effective_cid)
     if claimed is None:
         return db.query(ResearchRun).filter(ResearchRun.id == run_id).first()
+
+    claimed_lifecycle = dict((claimed.run_metadata or {}).get("lifecycle") or {})
+    lease_token = claimed_lifecycle.get("lease_token")
+    if not lease_token:
+        raise ResearchRunOwnershipLostError(
+            f"Research run {run_id} was claimed without an execution lease token."
+        )
 
     workspace_id = claimed.workspace_id
     requester_id = claimed.requester_id
@@ -675,8 +688,7 @@ async def execute_research_run(
             lease_seconds=lease_seconds,
             interval_seconds=effective_heartbeat,
             ownership_lost=ownership_lost,
-            session_factory=heartbeat_session_factory,
-        )
+            session_factory=heartbeat_session_factory)
     )
 
     try:
@@ -686,18 +698,16 @@ async def execute_research_run(
                 db,
                 run_id=run_id,
                 workspace_id=workspace_id,
-                worker_id=effective_worker,
-                correlation_id=effective_cid,
-            )
+                worker_id=effective_worker, lease_token=lease_token,
+                correlation_id=effective_cid)
 
-        locked_run = _lock_owned_run(db, run_id=run_id, worker_id=effective_worker)
+        locked_run = _lock_owned_run(db, run_id=run_id, worker_id=effective_worker, lease_token=lease_token)
         _update_lifecycle(
             locked_run,
             status="retrieving",
             worker_id=effective_worker,
             lease_seconds=lease_seconds,
-            correlation_id=effective_cid,
-        )
+            correlation_id=effective_cid)
         db.commit()
 
         import app.api.research as _research_api
@@ -716,8 +726,7 @@ async def execute_research_run(
             requester_id=requester_id,
             document_ids=document_ids,
             query=query_text,
-            candidate_limit=40,
-        )
+            candidate_limit=40)
 
         # Stage 2: Synthesizing
         if ownership_lost.is_set():
@@ -729,18 +738,16 @@ async def execute_research_run(
                 db,
                 run_id=run_id,
                 workspace_id=workspace_id,
-                worker_id=effective_worker,
-                correlation_id=effective_cid,
-            )
+                worker_id=effective_worker, lease_token=lease_token,
+                correlation_id=effective_cid)
 
-        locked_run = _lock_owned_run(db, run_id=run_id, worker_id=effective_worker)
+        locked_run = _lock_owned_run(db, run_id=run_id, worker_id=effective_worker, lease_token=lease_token)
         _update_lifecycle(
             locked_run,
             status="synthesizing",
             worker_id=effective_worker,
             lease_seconds=lease_seconds,
-            correlation_id=effective_cid,
-        )
+            correlation_id=effective_cid)
         db.commit()
 
         _api_synth = getattr(
@@ -753,8 +760,7 @@ async def execute_research_run(
         )
         result = await _synth_fn(
             query=query_text,
-            candidates=candidates,
-        )
+            candidates=candidates)
 
         # Stage 3: Validating & Persisting Provenance
         if ownership_lost.is_set():
@@ -766,22 +772,20 @@ async def execute_research_run(
                 db,
                 run_id=run_id,
                 workspace_id=workspace_id,
-                worker_id=effective_worker,
-                correlation_id=effective_cid,
-            )
+                worker_id=effective_worker, lease_token=lease_token,
+                correlation_id=effective_cid)
 
-        locked_run = _lock_owned_run(db, run_id=run_id, worker_id=effective_worker)
+        locked_run = _lock_owned_run(db, run_id=run_id, worker_id=effective_worker, lease_token=lease_token)
         _update_lifecycle(
             locked_run,
             status="validating",
             worker_id=effective_worker,
             lease_seconds=lease_seconds,
-            correlation_id=effective_cid,
-        )
+            correlation_id=effective_cid)
         db.commit()
 
         # Final atomic fenced commit of provenance + answer + completed status
-        locked_run = _lock_owned_run(db, run_id=run_id, worker_id=effective_worker)
+        locked_run = _lock_owned_run(db, run_id=run_id, worker_id=effective_worker, lease_token=lease_token)
         citation_payloads = result["citations"]
         _api_persist = getattr(
             _research_api, "_persist_document_provenance", _ORIG_PERSIST
@@ -796,17 +800,15 @@ async def execute_research_run(
             run=locked_run,
             document_ids=document_ids,
             candidates=result["evidence"],
-            citations=citation_payloads,
-        )
+            citations=citation_payloads)
 
         if _is_cancel_requested(db, run_id):
             return _finalize_cancelled(
                 db,
                 run_id=run_id,
                 workspace_id=workspace_id,
-                worker_id=effective_worker,
-                correlation_id=effective_cid,
-            )
+                worker_id=effective_worker, lease_token=lease_token,
+                correlation_id=effective_cid)
 
         locked_run.answer = {
             "answer": result["answer"],
@@ -827,8 +829,7 @@ async def execute_research_run(
             locked_run,
             status="completed",
             correlation_id=effective_cid,
-            clear_lease=True,
-        )
+            clear_lease=True)
         locked_run.error_message = None
         locked_run.completed_at = _utc_now()
 
@@ -846,8 +847,7 @@ async def execute_research_run(
                 "workspace_id": workspace_id,
                 "worker_id": effective_worker,
                 "correlation_id": effective_cid,
-            },
-        )
+            })
         return db.query(ResearchRun).filter(ResearchRun.id == run_id).first()
 
     except DocumentSelectionError as exc:
@@ -855,11 +855,10 @@ async def execute_research_run(
             db,
             run_id=run_id,
             workspace_id=workspace_id,
-            worker_id=effective_worker,
+            worker_id=effective_worker, lease_token=lease_token,
             error_message=str(exc),
             error_code="INVALID_DOCUMENT_SELECTION",
-            correlation_id=effective_cid,
-        )
+            correlation_id=effective_cid)
         if raise_on_error:
             raise
         return db.query(ResearchRun).filter(ResearchRun.id == run_id).first()
@@ -869,11 +868,10 @@ async def execute_research_run(
             db,
             run_id=run_id,
             workspace_id=workspace_id,
-            worker_id=effective_worker,
+            worker_id=effective_worker, lease_token=lease_token,
             error_message=str(exc),
             error_code="SYNTHESIS_VALIDATION_FAILED",
-            correlation_id=effective_cid,
-        )
+            correlation_id=effective_cid)
         if raise_on_error:
             raise
         return db.query(ResearchRun).filter(ResearchRun.id == run_id).first()
@@ -886,17 +884,15 @@ async def execute_research_run(
                 "run_id": run_id,
                 "workspace_id": workspace_id,
                 "correlation_id": effective_cid,
-            },
-        )
+            })
         _finalize_failed(
             db,
             run_id=run_id,
             workspace_id=workspace_id,
-            worker_id=effective_worker,
+            worker_id=effective_worker, lease_token=lease_token,
             error_message="Research synthesis failed.",
             error_code="RESEARCH_SYNTHESIS_FAILED",
-            correlation_id=effective_cid,
-        )
+            correlation_id=effective_cid)
         if raise_on_error:
             raise
         return db.query(ResearchRun).filter(ResearchRun.id == run_id).first()

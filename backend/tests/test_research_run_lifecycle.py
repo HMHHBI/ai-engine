@@ -1049,3 +1049,198 @@ def test_worker_graceful_shutdown_drains_and_leaves_unfinished_unacked():
 
     asyncio.run(_exercise_shutdown())
     assert fake_redis.acked == ["1700000000101-0"]
+
+def test_same_worker_cannot_claim_active_run_twice(db_session: Session):
+    from app.services.research_execution import claim_research_run
+
+    owner = create_user_fixture(db_session, "same-worker-claim@phase3a.test")
+    ws, doc1, doc2 = _seed_workspace_with_two_docs(
+        db_session, owner=owner, prefix="same-worker-claim"
+    )
+    run = ResearchRun(
+        workspace_id=ws.id,
+        requester_id=owner.id,
+        query="Duplicate delivery for same worker",
+        status="queued",
+        run_metadata={"selected_document_ids": [doc1.id, doc2.id]},
+    )
+    db_session.add(run)
+    db_session.commit()
+    db_session.refresh(run)
+
+    first = claim_research_run(db_session, run_id=run.id, worker_id="worker-shared")
+    second = claim_research_run(db_session, run_id=run.id, worker_id="worker-shared")
+
+    assert first is not None
+    assert second is None
+    first_lc = (first.run_metadata or {}).get("lifecycle") or {}
+    assert first_lc.get("worker_id") == "worker-shared"
+    assert first_lc.get("lease_token")
+
+
+def test_superseded_lease_token_cannot_advance_or_finalize(db_session: Session):
+    from app.services.research_execution import (
+        ResearchRunOwnershipLostError,
+        _finalize_failed,
+        _lock_owned_run,
+        claim_research_run,
+    )
+
+    owner = create_user_fixture(db_session, "lease-fencing@phase3a.test")
+    ws, doc1, doc2 = _seed_workspace_with_two_docs(
+        db_session, owner=owner, prefix="lease-fencing"
+    )
+    run = ResearchRun(
+        workspace_id=ws.id,
+        requester_id=owner.id,
+        query="Lease token fencing",
+        status="queued",
+        run_metadata={"selected_document_ids": [doc1.id, doc2.id]},
+    )
+    db_session.add(run)
+    db_session.commit()
+    db_session.refresh(run)
+
+    first = claim_research_run(
+        db_session, run_id=run.id, worker_id="worker-same", lease_seconds=0.01
+    )
+    assert first is not None
+    old_token = ((first.run_metadata or {}).get("lifecycle") or {}).get("lease_token")
+    assert old_token
+
+    lc = dict((run.run_metadata or {}).get("lifecycle") or {})
+    lc["lease_expires_at"] = (datetime.now(timezone.utc) - timedelta(seconds=5)).isoformat()
+    run.run_metadata = {**(run.run_metadata or {}), "lifecycle": lc}
+    db_session.commit()
+
+    second = claim_research_run(
+        db_session, run_id=run.id, worker_id="worker-same", lease_seconds=60.0
+    )
+    assert second is not None
+    new_token = ((second.run_metadata or {}).get("lifecycle") or {}).get("lease_token")
+    assert new_token and new_token != old_token
+
+    with pytest.raises(ResearchRunOwnershipLostError):
+        _lock_owned_run(
+            db_session, run_id=run.id, worker_id="worker-same", lease_token=old_token
+        )
+
+    with pytest.raises(ResearchRunOwnershipLostError):
+        _finalize_failed(
+            db_session,
+            run_id=run.id,
+            workspace_id=ws.id,
+            worker_id="worker-same",
+            lease_token=old_token,
+            error_message="stale failure",
+            error_code="STALE_WORKER",
+            correlation_id=None,
+        )
+
+
+def test_old_lease_token_cannot_renew_new_execution_lease(db_session: Session):
+    from app.services.research_execution import (
+        claim_research_run,
+        renew_research_run_lease,
+    )
+
+    owner = create_user_fixture(db_session, "heartbeat-fencing@phase3a.test")
+    ws, doc1, doc2 = _seed_workspace_with_two_docs(
+        db_session, owner=owner, prefix="heartbeat-fencing"
+    )
+    run = ResearchRun(
+        workspace_id=ws.id,
+        requester_id=owner.id,
+        query="Heartbeat fencing",
+        status="queued",
+        run_metadata={"selected_document_ids": [doc1.id, doc2.id]},
+    )
+    db_session.add(run)
+    db_session.commit()
+    db_session.refresh(run)
+
+    old_claim = claim_research_run(
+        db_session, run_id=run.id, worker_id="worker-hb", lease_seconds=0.01
+    )
+    assert old_claim is not None
+    old_token = ((old_claim.run_metadata or {}).get("lifecycle") or {}).get("lease_token")
+
+    run.status = "retrieving"
+    lc = dict((run.run_metadata or {}).get("lifecycle") or {})
+    lc["lease_expires_at"] = (datetime.now(timezone.utc) - timedelta(seconds=5)).isoformat()
+    run.run_metadata = {**(run.run_metadata or {}), "lifecycle": lc}
+    db_session.commit()
+
+    new_claim = claim_research_run(
+        db_session, run_id=run.id, worker_id="worker-hb", lease_seconds=120.0
+    )
+    assert new_claim is not None
+    new_expiry = ((new_claim.run_metadata or {}).get("lifecycle") or {}).get("lease_expires_at")
+
+    renewed = renew_research_run_lease(
+        db_session,
+        run_id=run.id,
+        worker_id="worker-hb",
+        lease_token=old_token,
+        lease_seconds=300.0,
+    )
+    assert renewed is False
+    db_session.refresh(run)
+    assert ((run.run_metadata or {}).get("lifecycle") or {}).get("lease_expires_at") == new_expiry
+
+
+def test_duplicate_outbox_delivery_starts_only_one_execution(db_session: Session):
+    from app.services.research_execution import claim_research_run
+
+    owner = create_user_fixture(db_session, "duplicate-delivery@phase3a.test")
+    ws, doc1, doc2 = _seed_workspace_with_two_docs(
+        db_session, owner=owner, prefix="duplicate-delivery"
+    )
+    run = ResearchRun(
+        workspace_id=ws.id,
+        requester_id=owner.id,
+        query="Duplicate outbox delivery",
+        status="queued",
+        run_metadata={"selected_document_ids": [doc1.id, doc2.id]},
+    )
+    db_session.add(run)
+    db_session.commit()
+    db_session.refresh(run)
+
+    first_started = asyncio.Event()
+    allow_first_to_finish = asyncio.Event()
+    retrieve_calls = 0
+    synthesize_calls = 0
+
+    async def _run_both_claims():
+        nonlocal retrieve_calls, synthesize_calls
+
+        async def fake_retrieve(db, **kwargs):
+            nonlocal retrieve_calls
+            retrieve_calls += 1
+            first_started.set()
+            await allow_first_to_finish.wait()
+            raise RuntimeError("stop after verifying exclusive claim")
+
+        async def fake_synthesize(db, **kwargs):
+            nonlocal synthesize_calls
+            synthesize_calls += 1
+            return "unused"
+
+        c1 = claim_research_run(db_session, run_id=run.id, worker_id="worker-dup")
+        c2 = claim_research_run(db_session, run_id=run.id, worker_id="worker-dup")
+        assert c1 is not None
+        assert c2 is None
+
+        task1 = asyncio.create_task(fake_retrieve(db_session))
+        await first_started.wait()
+        # Duplicate delivery arrives while task1 holds active lease
+        assert claim_research_run(db_session, run_id=run.id, worker_id="worker-dup") is None
+        allow_first_to_finish.set()
+        with pytest.raises(RuntimeError, match="stop after verifying exclusive claim"):
+            await task1
+        _ = fake_synthesize
+
+    asyncio.run(_run_both_claims())
+    assert retrieve_calls == 1
+    assert synthesize_calls == 0
