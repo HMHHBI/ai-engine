@@ -1132,7 +1132,7 @@ class ResearchRun(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "status IN ('queued', 'running', 'completed', 'failed')",
+            "status IN ('queued', 'running', 'retrieving', 'synthesizing', 'validating', 'completed', 'failed', 'cancelled')",
             name="ck_research_runs_valid_status",
         ),
         CheckConstraint(
@@ -1234,4 +1234,61 @@ class AuditEvent(Base):
     __table_args__ = (
         Index("ix_audit_events_workspace_created", "workspace_id", "created_at"),
         Index("ix_audit_events_action_created", "action", "created_at"),
+    )
+
+
+class ResearchRunOutbox(Base):
+    __tablename__ = "research_run_outbox"
+
+    id = Column(Integer, primary_key=True)
+    research_run_id = Column(
+        Integer,
+        ForeignKey("research_runs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    workspace_id = Column(
+        Integer,
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    status = Column(
+        String(20),
+        nullable=False,
+        default="pending",
+        server_default=text("'pending'"),
+        index=True,
+    )
+    payload = Column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+    attempts = Column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+    )
+    last_error = Column(Text, nullable=True)
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        server_default=text("now()"),
+    )
+    published_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'published')",
+            name="ck_research_run_outbox_valid_status",
+        ),
+        Index(
+            "ix_research_run_outbox_status_created",
+            "status",
+            "created_at",
+        ),
     )

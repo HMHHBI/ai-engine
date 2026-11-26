@@ -127,4 +127,46 @@ describe("workspaceService", () => {
       ).rejects.toThrow("Export download failed with status 404");
     });
   });
+
+  describe("streamResearchRunEvents", () => {
+    it("parses CRLF and fragmented SSE frames and fires onClose when stream ends before done", async () => {
+      const encoder = new TextEncoder();
+      const chunks = [
+        encoder.encode('event: stage\r\ndata: {"run_id":7,"workspace_id":2,'),
+        encoder.encode('"status":"retrieving","stage":"retrieving","progress_percent":40,"cancel_requested":false,"attempt_count":1,"updated_at":"2026-11-25T10:00:00Z"}\r\n\r\n'),
+      ];
+      let idx = 0;
+
+      global.fetch = vi.fn().mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        body: {
+          getReader: () => ({
+            read: async () => {
+              if (idx < chunks.length) {
+                return { done: false, value: chunks[idx++] };
+              }
+              return { done: true, value: undefined };
+            },
+          }),
+        },
+      });
+
+      const stages: number[] = [];
+      const onDone = vi.fn();
+      const onClose = vi.fn();
+
+      workspaceService.streamResearchRunEvents(2, 7, {
+        onStage: (evt) => stages.push(evt.progress_percent),
+        onDone,
+        onClose,
+      });
+
+      await vi.waitFor(() => {
+        expect(stages).toEqual([40]);
+        expect(onClose).toHaveBeenCalledTimes(1);
+      });
+      expect(onDone).not.toHaveBeenCalled();
+    });
+  });
 });

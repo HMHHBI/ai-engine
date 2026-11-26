@@ -1,3 +1,4 @@
+import type { ResearchRun, ResearchRunStageEvent } from "@/types/research";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { WorkspaceResearchSynthesisPanel } from "./workspace-research-synthesis-panel";
@@ -8,6 +9,18 @@ import { workspaceService } from "../services/workspace-service";
 vi.mock("../actions/workspace-actions", () => ({
   workspaceActions: {
     triggerResearchSynthesis: vi.fn(),
+    refreshResearchRun: vi.fn(async (workspaceId: number, runId: number) => {
+      const updated = await workspaceService.getResearchRun(workspaceId, runId);
+      if (updated) {
+        useWorkspaceStore.getState().addResearchRun(workspaceId, updated);
+      }
+      return updated ?? null;
+    }),
+    cancelResearchRun: vi.fn(async (workspaceId: number, runId: number) => {
+      const response = await workspaceService.cancelResearchRun(workspaceId, runId);
+      const refreshed = await workspaceService.getResearchRun(workspaceId, runId);
+      return { response, run: refreshed ?? null };
+    }),
     loadResearchRuns: vi.fn().mockResolvedValue(undefined),
   },
 }));
@@ -15,6 +28,9 @@ vi.mock("../actions/workspace-actions", () => ({
 vi.mock("../services/workspace-service", () => ({
   workspaceService: {
     downloadResearchExport: vi.fn(),
+    getResearchRun: vi.fn(),
+    cancelResearchRun: vi.fn(),
+    streamResearchRunEvents: vi.fn(() => () => {}),
   },
 }));
 
@@ -403,5 +419,211 @@ describe("WorkspaceResearchSynthesisPanel", () => {
     expect(screen.getByText(/0 \/ 1 ready papers selected/i)).toBeDefined();
     expect(screen.getByLabelText(/PaperReady\.pdf/i)).toBeDefined();
     expect(screen.queryByLabelText(/PaperProcessing\.pdf/i)).toBeNull();
+  });
+
+  it("renders live stage progress stepper and streams stage transitions to completion", async () => {
+    const queuedRun: ResearchRun = {
+      id: 501,
+      workspace_id: 10,
+      requester_id: 1,
+      query: "Compare async architectures",
+      status: "queued",
+      answer: null,
+      facets: null,
+      citations: [],
+      run_metadata: { selected_document_ids: [1, 2] },
+      created_at: new Date().toISOString(),
+      completed_at: null,
+    };
+
+    const completedRun: ResearchRun = {
+      ...queuedRun,
+      status: "completed",
+      answer: "## Methodology\nAsync comparison [C1].",
+      facets: {
+        methodology: "Async comparison [C1].",
+        datasets: "Benchmarks [C1].",
+        metrics: "p95 latency [C1].",
+        findings: "Significant improvement [C1].",
+        limitations: "Single node [C1].",
+      },
+      completed_at: new Date().toISOString(),
+    };
+
+    useWorkspaceStore.setState({
+      documentsByWorkspace: {
+        10: [
+          { document_id: 1, chat_id: null, filename: "Paper1.pdf", mime_type: "application/pdf", status: "ready", added_by: 1, added_at: "" },
+          { document_id: 2, chat_id: null, filename: "Paper2.pdf", mime_type: "application/pdf", status: "ready", added_by: 1, added_at: "" },
+        ],
+      },
+      researchRunsByWorkspace: { 10: [queuedRun] },
+    });
+
+    vi.spyOn(workspaceService, "getResearchRun").mockResolvedValue(queuedRun);
+    let capturedHandlers: {
+      onStage: (evt: ResearchRunStageEvent) => void;
+      onDone: (evt: ResearchRunStageEvent) => void;
+    } | null = null;
+
+    vi.spyOn(workspaceService, "streamResearchRunEvents").mockImplementation(
+      (_wsId, _runId, handlers) => {
+        capturedHandlers = handlers;
+        return () => {};
+      },
+    );
+
+    render(<WorkspaceResearchSynthesisPanel workspaceId={10} />);
+
+    expect(screen.getByTestId("research-stage-stepper")).toBeDefined();
+    expect(screen.getByTestId("cancel-research-run-btn")).toBeDefined();
+
+    await vi.waitFor(() => {
+      expect(capturedHandlers).not.toBeNull();
+    });
+
+    capturedHandlers!.onStage({
+      run_id: 501,
+      workspace_id: 10,
+      status: "synthesizing",
+      stage: "synthesizing",
+      progress_percent: 60,
+      cancel_requested: false,
+      attempt_count: 1,
+      updated_at: new Date().toISOString(),
+    });
+
+    await vi.waitFor(() => {
+      expect(screen.getByText(/Stage: Synthesizing/i)).toBeDefined();
+    });
+
+    vi.spyOn(workspaceService, "getResearchRun").mockResolvedValue(completedRun);
+    await capturedHandlers!.onDone({
+      run_id: 501,
+      workspace_id: 10,
+      status: "completed",
+      stage: "completed",
+      progress_percent: 100,
+      cancel_requested: false,
+      attempt_count: 1,
+      updated_at: new Date().toISOString(),
+    });
+
+    await vi.waitFor(() => {
+      expect(screen.getByTestId("facet-card-methodology")).toBeDefined();
+    });
+  });
+
+  it("supports cancelling an active run and retrying a cancelled run", async () => {
+    const activeRun: ResearchRun = {
+      id: 502,
+      workspace_id: 10,
+      requester_id: 1,
+      query: "Cancel and retry query",
+      status: "synthesizing",
+      answer: null,
+      facets: null,
+      citations: [],
+      run_metadata: { selected_document_ids: [1, 2] },
+      created_at: new Date().toISOString(),
+      completed_at: null,
+    };
+
+    useWorkspaceStore.setState({
+      documentsByWorkspace: {
+        10: [
+          { document_id: 1, chat_id: null, filename: "Paper1.pdf", mime_type: "application/pdf", status: "ready", added_by: 1, added_at: "" },
+          { document_id: 2, chat_id: null, filename: "Paper2.pdf", mime_type: "application/pdf", status: "ready", added_by: 1, added_at: "" },
+        ],
+      },
+      researchRunsByWorkspace: { 10: [activeRun] },
+    });
+
+    vi.spyOn(workspaceService, "streamResearchRunEvents").mockImplementation(() => () => {});
+    vi.spyOn(workspaceService, "getResearchRun").mockResolvedValue(activeRun);
+    const cancelSpy = vi.spyOn(workspaceService, "cancelResearchRun").mockResolvedValue({
+      id: 502,
+      workspace_id: 10,
+      status: "synthesizing",
+      cancel_requested: true,
+      message: "Cancellation requested; run will stop at the next safe checkpoint.",
+    });
+
+    render(<WorkspaceResearchSynthesisPanel workspaceId={10} />);
+
+    fireEvent.click(screen.getByTestId("cancel-research-run-btn"));
+
+    await vi.waitFor(() => {
+      expect(cancelSpy).toHaveBeenCalledWith(10, 502);
+      expect(screen.getByText(/Cancelling\.\.\./i)).toBeDefined();
+    });
+  });
+
+  it("falls back to polling when SSE stream closes before a terminal done event", async () => {
+    const runningRun: ResearchRun = {
+      id: 599,
+      workspace_id: 10,
+      requester_id: 1,
+      query: "Compare distributed consensus protocols",
+      status: "queued",
+      answer: null,
+      facets: null,
+      citations: [],
+      run_metadata: { selected_document_ids: [1, 2] },
+      created_at: new Date().toISOString(),
+      completed_at: null,
+    };
+
+    const completedRun: ResearchRun = {
+      ...runningRun,
+      status: "completed",
+      answer: "Consensus synthesis completed [C1].",
+      facets: {
+        methodology: "Raft vs Paxos comparison [C1].",
+        datasets: "Cluster traces [C1].",
+        metrics: "Commit latency [C1].",
+        findings: "Consensus synthesis completed [C1].",
+        limitations: "Synthetic fault injection [C1].",
+      },
+      citations: [],
+      completed_at: new Date().toISOString(),
+    };
+
+    useWorkspaceStore.setState({
+      documentsByWorkspace: {
+        10: [
+          { document_id: 1, chat_id: null, filename: "Paper1.pdf", mime_type: "application/pdf", status: "ready", added_by: 1, added_at: "" },
+          { document_id: 2, chat_id: null, filename: "Paper2.pdf", mime_type: "application/pdf", status: "ready", added_by: 1, added_at: "" },
+        ],
+      },
+      researchRunsByWorkspace: { 10: [runningRun] },
+    });
+
+    vi.spyOn(workspaceService, "getResearchRun")
+      .mockResolvedValueOnce(runningRun)
+      .mockResolvedValue(completedRun);
+
+    let capturedOnClose: (() => void) | undefined;
+    vi.spyOn(workspaceService, "streamResearchRunEvents").mockImplementation(
+      (_wsId, _runId, handlers) => {
+        capturedOnClose = handlers.onClose;
+        return () => {};
+      },
+    );
+
+    render(<WorkspaceResearchSynthesisPanel workspaceId={10} />);
+
+    await vi.waitFor(() => {
+      expect(capturedOnClose).toBeDefined();
+    });
+
+    capturedOnClose?.();
+
+    await vi.waitFor(
+      () => {
+        expect(screen.getByTestId("facet-card-methodology")).toBeDefined();
+      },
+      { timeout: 3000 },
+    );
   });
 });

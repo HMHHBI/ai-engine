@@ -16,12 +16,15 @@ import {
   Search,
   AlertTriangle,
   Lightbulb,
+  RotateCcw,
+  Square,
+  Ban,
 } from "lucide-react";
 
 import { useWorkspaceStore } from "../store/workspace-store";
 import { workspaceActions } from "../actions/workspace-actions";
 import { workspaceService } from "../services/workspace-service";
-import type { ResearchRun, ResearchStatus, ResearchFacets } from "@/types/research";
+import { ACTIVE_RESEARCH_STATUSES, type ResearchRun, type ResearchStatus, type ResearchFacets } from "@/types/research";
 import type { WorkspaceDocument } from "@/types/workspace";
 import type { PdfNavigationTarget } from "@/features/pdf/types/navigation";
 import { ExternalLink } from "lucide-react";
@@ -35,6 +38,28 @@ interface WorkspaceResearchSynthesisPanelProps {
 
 const EMPTY_DOCS: WorkspaceDocument[] = [];
 const EMPTY_RUNS: ResearchRun[] = [];
+
+const LIFECYCLE_STAGES: ReadonlyArray<{
+  key: ResearchStatus;
+  label: string;
+}> = [
+  { key: "queued", label: "Queued" },
+  { key: "retrieving", label: "Retrieving" },
+  { key: "synthesizing", label: "Synthesizing" },
+  { key: "validating", label: "Validating" },
+  { key: "completed", label: "Completed" },
+];
+
+const STAGE_ORDER: Record<ResearchStatus, number> = {
+  queued: 0,
+  running: 1,
+  retrieving: 1,
+  synthesizing: 2,
+  validating: 3,
+  completed: 4,
+  failed: 4,
+  cancelled: 4,
+};
 
 const FACET_CONFIG: Array<{
   key: keyof ResearchFacets;
@@ -128,6 +153,14 @@ export function WorkspaceResearchSynthesisPanel({
   const [exportingFormat, setExportingFormat] = useState<"markdown" | "json" | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [syncedRunId, setSyncedRunId] = useState<number | null>(null);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [liveStageOverride, setLiveStageOverride] = useState<{
+    runId: number;
+    status: ResearchStatus;
+    progressPercent: number;
+    cancelRequested: boolean;
+    errorMessage?: string | null;
+  } | null>(null);
   const prevWorkspaceIdRef = useRef(workspaceId);
 
   // Reset form inputs and local state when workspaceId prop changes on the same instance
@@ -138,6 +171,7 @@ export function WorkspaceResearchSynthesisPanel({
       setRawSelectedDocIds([]);
       setLatestRun(null);
       setSyncedRunId(null);
+      setLiveStageOverride(null);
       setSelectedRunId(getPersistedRunId(workspaceId));
     }
   }, [workspaceId]);
@@ -191,10 +225,122 @@ export function WorkspaceResearchSynthesisPanel({
     selectedDocIds.length <= 20;
 
   // Derive active run safely: selected history run > newly triggered run > fallback to head
-  const activeRun: ResearchRun | null =
+  const rawActiveRun: ResearchRun | null =
     (latestRun && latestRun.workspace_id === workspaceId && (selectedRunId === null || selectedRunId === latestRun.id) ? latestRun : null) ??
     (selectedRunId !== null ? runs.find((r) => r.id === selectedRunId) : null) ??
     (runs[0] ?? null);
+
+  const activeRun: ResearchRun | null =
+    rawActiveRun &&
+    liveStageOverride &&
+    liveStageOverride.runId === rawActiveRun.id
+      ? {
+          ...rawActiveRun,
+          status: liveStageOverride.status,
+          error_message:
+            liveStageOverride.errorMessage ?? rawActiveRun.error_message,
+          run_metadata: {
+            ...rawActiveRun.run_metadata,
+            lifecycle: {
+              ...(rawActiveRun.run_metadata?.lifecycle ?? {}),
+              cancel_requested: liveStageOverride.cancelRequested,
+            },
+          },
+        }
+      : rawActiveRun;
+
+  const isRunActive = Boolean(
+    activeRun && ACTIVE_RESEARCH_STATUSES.has(activeRun.status),
+  );
+
+  const activeRunId = activeRun?.id ?? null;
+  const activeRunStatus = activeRun?.status ?? null;
+
+  // Stream SSE stage updates with polling fallback while an async run is active
+  useEffect(() => {
+    if (activeRunId === null || activeRunStatus === null || !ACTIVE_RESEARCH_STATUSES.has(activeRunStatus)) {
+      return;
+    }
+
+    const trackedRunId = activeRunId;
+    let closed = false;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+    const startPollingFallback = () => {
+      if (pollTimer !== null || closed) return;
+      pollTimer = setInterval(async () => {
+        if (closed) return;
+        const updated = await workspaceActions.refreshResearchRun(
+          workspaceId,
+          trackedRunId,
+        );
+        if (updated && !ACTIVE_RESEARCH_STATUSES.has(updated.status)) {
+          setLatestRun(updated);
+          setLiveStageOverride(null);
+          if (pollTimer !== null) {
+            clearInterval(pollTimer);
+            pollTimer = null;
+          }
+        }
+      }, 1500);
+    };
+
+    const stopSse =
+      typeof workspaceService.streamResearchRunEvents === "function"
+        ? workspaceService.streamResearchRunEvents(workspaceId, trackedRunId, {
+            onStage: (evt) => {
+              if (closed) return;
+              setLiveStageOverride({
+                runId: trackedRunId,
+                status: evt.status,
+                progressPercent: evt.progress_percent,
+                cancelRequested: evt.cancel_requested,
+                errorMessage: evt.error_message,
+              });
+            },
+            onDone: async () => {
+              if (closed) return;
+              const refreshed = await workspaceActions.refreshResearchRun(
+                workspaceId,
+                trackedRunId,
+              );
+              if (refreshed) {
+                setLatestRun(refreshed);
+              }
+              setLiveStageOverride(null);
+            },
+            onError: () => {
+              startPollingFallback();
+            },
+            onClose: () => {
+              startPollingFallback();
+            },
+          })
+        : () => {};
+
+    if (typeof workspaceActions.refreshResearchRun === "function") {
+      void workspaceActions
+        .refreshResearchRun(workspaceId, trackedRunId)
+        .then((refreshed) => {
+          if (
+            !closed &&
+            refreshed &&
+            !ACTIVE_RESEARCH_STATUSES.has(refreshed.status)
+          ) {
+            setLatestRun(refreshed);
+            setLiveStageOverride(null);
+          }
+        });
+    }
+
+    return () => {
+      closed = true;
+      stopSse();
+      if (pollTimer !== null) {
+        clearInterval(pollTimer);
+      }
+    };
+  }, [workspaceId, activeRunId, activeRunStatus]);
 
   // Sync form inputs when an explicit valid run is active
   useEffect(() => {
@@ -263,6 +409,53 @@ export function WorkspaceResearchSynthesisPanel({
     }
   }
 
+  async function handleCancelRun() {
+    if (!activeRun || !isRunActive || isCancelling) return;
+    setIsCancelling(true);
+    try {
+      const { response, run } = await workspaceActions.cancelResearchRun(
+        workspaceId,
+        activeRun.id,
+      );
+      if (run) {
+        setLatestRun(run);
+      }
+      setLiveStageOverride({
+        runId: activeRun.id,
+        status: response.status,
+        progressPercent: response.status === "cancelled" ? 100 : 50,
+        cancelRequested: response.cancel_requested,
+      });
+    } finally {
+      setIsCancelling(false);
+    }
+  }
+
+  async function handleRetryRun() {
+    if (!activeRun || isLoading) return;
+    const savedIds = activeRun.run_metadata?.selected_document_ids;
+    const retryDocs = Array.isArray(savedIds)
+      ? savedIds.filter(
+          (id): id is number => typeof id === "number" && readyDocIdSet.has(id),
+        )
+      : selectedDocIds;
+    const targetDocs = retryDocs.length >= 2 ? retryDocs : selectedDocIds;
+    if (targetDocs.length < 2) return;
+
+    setRawSelectedDocIds(targetDocs);
+    try {
+      const result = await workspaceActions.triggerResearchSynthesis(workspaceId, {
+        query: activeRun.query.trim(),
+        document_ids: targetDocs,
+      });
+      setLatestRun(result);
+      setSelectedRunId(result.id);
+      setLiveStageOverride(null);
+    } catch {
+      // Store captures error
+    }
+  }
+
   async function handleExport(format: "markdown" | "json") {
     if (!activeRun) return;
     setExportingFormat(format);
@@ -290,10 +483,20 @@ export function WorkspaceResearchSynthesisPanel({
           </span>
         );
       case "running":
+      case "retrieving":
+      case "synthesizing":
+      case "validating":
         return (
-          <span className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400">
+          <span className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400 capitalize">
             <Loader2 className="size-4 animate-spin" />
-            <span>Running</span>
+            <span>{status}</span>
+          </span>
+        );
+      case "cancelled":
+        return (
+          <span className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+            <Ban className="size-4" />
+            <span>Cancelled</span>
           </span>
         );
       case "queued":
@@ -528,8 +731,47 @@ export function WorkspaceResearchSynthesisPanel({
               {renderStatusBadge(activeRun.status)}
             </div>
 
-            {/* Export Actions */}
-            <div className="flex items-center gap-2">
+            {/* Lifecycle & Export Actions */}
+            <div className="flex flex-wrap items-center gap-2">
+              {isRunActive && (
+                <button
+                  type="button"
+                  data-testid="cancel-research-run-btn"
+                  onClick={handleCancelRun}
+                  disabled={
+                    isCancelling ||
+                    Boolean(activeRun.run_metadata?.lifecycle?.cancel_requested)
+                  }
+                  className="flex items-center gap-1.5 rounded border border-destructive/40 bg-destructive/10 px-2.5 py-1 text-xs font-medium text-destructive hover:bg-destructive/15 disabled:opacity-60"
+                >
+                  {isCancelling ||
+                  Boolean(activeRun.run_metadata?.lifecycle?.cancel_requested) ? (
+                    <>
+                      <Loader2 className="size-3 animate-spin" />
+                      <span>Cancelling...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Square className="size-3" />
+                      <span>Cancel Run</span>
+                    </>
+                  )}
+                </button>
+              )}
+
+              {(activeRun.status === "failed" ||
+                activeRun.status === "cancelled") && (
+                <button
+                  type="button"
+                  data-testid="retry-research-run-btn"
+                  onClick={handleRetryRun}
+                  disabled={isLoading}
+                  className="flex items-center gap-1.5 rounded border border-primary/40 bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary hover:bg-primary/15 disabled:opacity-50"
+                >
+                  <RotateCcw className="size-3" />
+                  <span>Retry Run</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => handleExport("markdown")}
@@ -575,10 +817,79 @@ export function WorkspaceResearchSynthesisPanel({
             </div>
           )}
 
-          {/* 5-Facet Comparative View or Fallback Synthesized Answer */}
+          {/* Live Stage Progress Stepper for In-Flight Runs */}
+          {isRunActive && (
+            <div
+              data-testid="research-stage-stepper"
+              className="flex flex-col gap-2.5 rounded-lg border border-blue-500/25 bg-blue-500/5 p-3"
+            >
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-medium text-foreground">
+                  {activeRun.run_metadata?.lifecycle?.cancel_requested
+                    ? "Cancellation requested — stopping after current step..."
+                    : `Stage: ${
+                        activeRun.status.charAt(0).toUpperCase() +
+                        activeRun.status.slice(1)
+                      }`}
+                </span>
+                <span className="text-[11px] text-muted-foreground">
+                  {liveStageOverride?.progressPercent ??
+                    ((STAGE_ORDER[activeRun.status] ?? 0) + 1) * 20}
+                  %
+                </span>
+              </div>
+              <div className="grid grid-cols-5 gap-1.5">
+                {LIFECYCLE_STAGES.map((step, index) => {
+                  const currentIdx = STAGE_ORDER[activeRun.status] ?? 0;
+                  const isDone = index < currentIdx;
+                  const isCurrent = index === currentIdx;
+                  return (
+                    <div
+                      key={step.key}
+                      data-testid={`lifecycle-stage-${step.key}`}
+                      className={cn(
+                        "flex items-center justify-center gap-1 rounded border px-2 py-1 text-[11px] font-medium transition-colors",
+                        isDone &&
+                          "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+                        isCurrent &&
+                          "border-blue-500/50 bg-blue-500/15 text-blue-600 dark:text-blue-400",
+                        !isDone &&
+                          !isCurrent &&
+                          "border-border/50 bg-background/40 text-muted-foreground",
+                      )}
+                    >
+                      {isCurrent && (
+                        <Loader2 className="size-2.5 animate-spin shrink-0" />
+                      )}
+                      {isDone && (
+                        <CheckCircle2 className="size-2.5 shrink-0" />
+                      )}
+                      <span className="truncate">{step.label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* 5-Facet Comparative View or Terminal Status Callout */}
           {activeRun.status === "failed" ? (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
-              {activeRun.error_message || "Synthesis run encountered an error and could not be completed."}
+            <div className="flex flex-col gap-1 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
+              <span>
+                {activeRun.error_message ||
+                  "Synthesis run encountered an error and could not be completed."}
+              </span>
+              {activeRun.run_metadata?.lifecycle?.correlation_id && (
+                <span className="font-mono text-[11px] text-muted-foreground">
+                  Correlation ID:{" "}
+                  {activeRun.run_metadata.lifecycle.correlation_id}
+                </span>
+              )}
+            </div>
+          ) : activeRun.status === "cancelled" ? (
+            <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
+              {activeRun.error_message ||
+                "This research synthesis run was cancelled before completion."}
             </div>
           ) : (
             <div className="flex flex-col gap-3" data-testid="structured-facets-container">

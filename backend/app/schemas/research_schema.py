@@ -5,7 +5,23 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-ResearchStatus = Literal["queued", "running", "completed", "failed"]
+ResearchStatus = Literal[
+    "queued",
+    "running",
+    "retrieving",
+    "synthesizing",
+    "validating",
+    "completed",
+    "failed",
+    "cancelled",
+]
+
+ACTIVE_RESEARCH_STATUSES: frozenset[str] = frozenset(
+    {"queued", "running", "retrieving", "synthesizing", "validating"}
+)
+TERMINAL_RESEARCH_STATUSES: frozenset[str] = frozenset(
+    {"completed", "failed", "cancelled"}
+)
 
 
 class ResearchRunCreate(BaseModel):
@@ -74,3 +90,11 @@ class ResearchRunOut(ResearchRunCreateOut):
 class ResearchRunListOut(BaseModel):
     items: list[ResearchRunOut]
     total: int
+
+
+class ResearchRunCancelOut(BaseModel):
+    id: int
+    workspace_id: int
+    status: ResearchStatus
+    cancel_requested: bool
+    message: str
